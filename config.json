@@ -1,3 +1,19 @@
 {
-
+  "shortcut": [
+    {
+      "key": "Key_Right",
+      "command": "pre_image"
+    },
+    {
+      "key": "Key_Left",
+      "command": "next_image"
+    },
+    {
+      "key": "Key_1",
+      "modifier": "CTRL",
+      "command": "move",
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\origin"
+    }
+  ],
+  "cache_radius": 5
 }
