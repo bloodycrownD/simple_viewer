@@ -1,4 +1,6 @@
 import sys
+from natsort import natsorted
+
 from PySide6.QtWidgets import (
     QMainWindow, QApplication, QLabel, QFileDialog,
     QToolBar, QStatusBar, QWidget, QHBoxLayout
@@ -90,6 +92,7 @@ class ImageViewer(QMainWindow):
                 os.path.join(directory, f) for f in os.listdir(directory)
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))
             ]
+            self.image_files = natsorted(self.image_files)
             self.current_image_index = self.image_files.index(file)
             self.load_image(file)
 
@@ -111,8 +114,28 @@ class ImageViewer(QMainWindow):
                 img = img.convert("RGBA")
                 self.display_pil_image(img)
 
+        # 更新状态栏信息
+        self.update_status_bar(path)
+
+    def update_status_bar(self, path):
+        # 获取图片信息
+        file_name = os.path.basename(path)
+        file_size = os.path.getsize(path) / 1024  # 转换为KB
+        if file_size > 1024:
+            file_size = f"{file_size / 1024:.2f} MB"
+        else:
+            file_size = f"{file_size:.2f} KB"
+
+        with Image.open(path) as img:
+            width, height = img.size
+
+        # 图片索引
+        index_info = f"{self.current_image_index + 1}/{len(self.image_files)}"
+
         # 更新状态栏
-        self.status_bar.showMessage(f"{os.path.basename(path)} | {self.image_label.pixmap().size().toTuple()}")
+        self.status_bar.showMessage(
+            f"Name: {file_name} | Size: {file_size} | Dimensions: {width}x{height} | Index: {index_info}"
+        )
 
     def start_gif_animation(self):
         if self.gif_frames:
@@ -165,14 +188,18 @@ class ImageViewer(QMainWindow):
         super().resizeEvent(event)
 
     def prev_image(self):
-        if self.current_image_index > 0:
+        if self.current_image_index == 0:
+            self.current_image_index = len(self.image_files) - 1
+        else:
             self.current_image_index -= 1
-            self.load_image(self.image_files[self.current_image_index])
+        self.load_image(self.image_files[self.current_image_index])
 
     def next_image(self):
-        if self.current_image_index < len(self.image_files) - 1:
+        if self.current_image_index == len(self.image_files) - 1:
+            self.current_image_index = 0  # 循环到第一张图片
+        else:
             self.current_image_index += 1
-            self.load_image(self.image_files[self.current_image_index])
+        self.load_image(self.image_files[self.current_image_index])
 
     def rotate_image(self, angle):
         self.rotation_angle += angle
@@ -194,6 +221,16 @@ class ImageViewer(QMainWindow):
     def keyPressEvent(self, event: QKeyEvent):
         # 快捷键处理
         key = event.key()
+        # key = event.key()
+        # modifiers = event.modifiers()
+        #
+        # if modifiers == Qt.ControlModifier:
+        #     if key == Qt.Key_1:
+        #         self.move_image_to_folder(1)
+        #     elif key == Qt.Key_2:
+        #         self.move_image_to_folder(2)
+        #     elif key == Qt.Key_3:
+        #         self.move_image_to_folder(3)
         if key == Qt.Key.Key_Left:
             self.prev_image()
         elif key == Qt.Key.Key_Right:
