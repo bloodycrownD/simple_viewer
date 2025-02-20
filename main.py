@@ -1,5 +1,4 @@
 import sys, shutil, json
-import time
 
 from natsort import natsorted
 
@@ -11,39 +10,6 @@ from PySide6.QtGui import QAction, QPixmap, QImage, QKeyEvent, QResizeEvent
 from PySide6.QtCore import Qt, QTimer
 from PIL import Image, ImageSequence
 import os
-from collections import OrderedDict
-
-
-class LRUCache:
-    def __init__(self, capacity):
-        self.cache = OrderedDict()
-        self.capacity = capacity
-
-    def get(self, key):
-        if key not in self.cache:
-            return -1
-        else:
-            self.cache.move_to_end(key)
-            return self.cache[key]
-
-    def put(self, key, value) -> None:
-        if key in self.cache:
-            self.cache.move_to_end(key)
-        self.cache[key] = value
-        if len(self.cache) > self.capacity:
-            _, img = self.cache.popitem(last=False)
-            img.close()
-
-    def has(self, key) -> bool:
-        return key in self.cache
-
-    def remove(self, key) -> None:
-        if key in self.cache:
-            self.cache.pop(key).close()
-
-    def clear(self) -> None:
-        for _, img in self.cache.items():
-            img.close()
 
 
 class ImageViewer(QMainWindow):
@@ -62,7 +28,6 @@ class ImageViewer(QMainWindow):
         self.original_pixmap = None  # 保存原始图片
         # 缓存半径
         self.cache_radius = self.config["cache_radius"]
-        self.image_cache = LRUCache(self.cache_radius * 2 + 1)
 
         # GIF支持
         self.gif_frames = []
@@ -147,7 +112,6 @@ class ImageViewer(QMainWindow):
             ]
             self.image_files = natsorted(self.image_files)
             self.current_image_index = self.image_files.index(file)
-            self.init_image_cache(self.image_files, self.current_image_index)
             self.load_image(file)
 
     def get_right_edge(self):
@@ -159,32 +123,10 @@ class ImageViewer(QMainWindow):
             left_edge = self.current_image_index - self.cache_radius
             return left_edge if left_edge >= 0 else left_edge + len(self.image_files)
 
-    def load_image_to_cache(self, path):
-        img = Image.open(path)
-        self.image_cache.put(path, img)
-
-    def init_image_cache(self, image_files, current_index):
-        # 清空缓存
-        self.image_cache.clear()
-        # 缓存半径内缓存所有图片
-        if len(image_files) < self.cache_radius * 2 + 1:
-            [self.load_image_to_cache(path) for path in image_files]
-        else:
-            # 不支持越界索引
-            for index in range(current_index, self.cache_radius + current_index + 1):
-                self.load_image_to_cache(image_files[index % len(image_files)])
-            # 支持负索引
-            for index in range(current_index - self.cache_radius, current_index):
-                self.load_image_to_cache(image_files[index % len(image_files)])
-
     def load_image(self, path):
         # 停止GIF动画
         self.gif_timer.stop()
-        if self.image_cache.has(path):
-            img = self.image_cache.get(path)
-        else:
-            img = Image.open(path)
-            self.image_cache.put(path, img)
+        img = Image.open(path)
 
         if img.format == 'GIF':
             # 处理动态GIF
@@ -275,7 +217,6 @@ class ImageViewer(QMainWindow):
         if src:
             self.next_image()
             self.image_files.remove(src)
-            self.image_cache.remove(src)
             shutil.move(src, dest)
             # 检查是否还有图片
             if not self.image_files:
@@ -290,9 +231,6 @@ class ImageViewer(QMainWindow):
         else:
             self.current_image_index -= 1
         self.load_image(self.image_files[self.current_image_index])
-        if len(self.image_files) > self.cache_radius * 2 + 1:
-            self.image_cache.remove(self.image_files[self.get_right_edge()])
-            self.load_image_to_cache(self.image_files[self.get_left_edge()])
 
     def next_image(self):
         if len(self.image_files) <= 0:
@@ -302,9 +240,6 @@ class ImageViewer(QMainWindow):
         else:
             self.current_image_index += 1
         self.load_image(self.image_files[self.current_image_index])
-        if len(self.image_files) > self.cache_radius * 2 + 1:
-            self.image_cache.remove(self.image_files[self.get_left_edge()])
-            self.load_image_to_cache(self.image_files[self.get_right_edge()])
 
     def rotate_image(self, angle):
         self.rotation_angle += angle
@@ -337,7 +272,6 @@ class ImageViewer(QMainWindow):
                 return
             # 从列表和缓存中移除
             self.image_files.remove(path_to_delete)
-            self.image_cache.remove(path_to_delete)
             # 检查是否还有图片
             if not self.image_files:
                 self.image_label.clear()
