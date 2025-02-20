@@ -3,7 +3,7 @@ from natsort import natsorted
 
 from PySide6.QtWidgets import (
     QMainWindow, QApplication, QLabel, QFileDialog,
-    QToolBar, QStatusBar, QWidget, QHBoxLayout
+    QToolBar, QStatusBar, QWidget, QHBoxLayout, QMessageBox
 )
 from PySide6.QtGui import QAction, QPixmap, QImage, QKeyEvent, QResizeEvent
 from PySide6.QtCore import Qt, QTimer
@@ -66,6 +66,10 @@ class ImageViewer(QMainWindow):
         # 创建界面
         self.create_ui()
 
+    def get_current_image_path(self):
+        if self.image_files:
+            return self.image_files[self.current_image_index]
+
     def load_config(self):
         path = os.path.join(os.path.dirname(__file__), "config.json")
         with open(path, 'r') as f:
@@ -111,6 +115,11 @@ class ImageViewer(QMainWindow):
         rotate_right_action.triggered.connect(lambda: self.rotate_image(90))
         toolbar.addAction(rotate_right_action)
 
+        # 动作：删除图片
+        delete_action = QAction("Delete", self)
+        delete_action.triggered.connect(self.delete_image)
+        toolbar.addAction(delete_action)
+
         # 状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -121,7 +130,6 @@ class ImageViewer(QMainWindow):
             "Images (*.png *.jpg *.jpeg *.gif)"
         )
         if file:
-            self.current_image_path = file
             directory = os.path.dirname(file)
             # 使路径名格式一致
             base_name = os.path.basename(file)
@@ -246,28 +254,40 @@ class ImageViewer(QMainWindow):
         super().resizeEvent(event)
 
     def move_image(self, src, dest):
-        self.image_files.remove(src)
-        self.image_cache.remove(src)
-        shutil.move(src, dest)
+        if src:
+            self.next_image()
+            self.image_files.remove(src)
+            self.image_cache.remove(src)
+            shutil.move(src, dest)
+            # 检查是否还有图片
+            if not self.image_files:
+                self.image_label.clear()
+                self.status_bar.clearMessage()
 
     def prev_image(self):
+        if len(self.image_files) <= 0:
+            return
         if self.current_image_index == 0:
             self.current_image_index = len(self.image_files) - 1
         else:
             self.current_image_index -= 1
         self.load_image(self.image_files[self.current_image_index])
-        next_cache_index = self.current_image_index - self.cache_radius
-        next_cache_index = next_cache_index if next_cache_index > 0 else next_cache_index + len(self.image_files)
-        self.load_images_to_cache([self.image_files[next_cache_index]])
+        if self.current_image_index > self.cache_radius * 2 + 1:
+            next_cache_index = self.current_image_index - self.cache_radius
+            next_cache_index = next_cache_index if next_cache_index > 0 else next_cache_index + len(self.image_files)
+            self.load_images_to_cache([self.image_files[next_cache_index]])
 
     def next_image(self):
+        if len(self.image_files) <= 0:
+            return
         if self.current_image_index == len(self.image_files) - 1:
             self.current_image_index = 0  # 循环到第一张图片
         else:
             self.current_image_index += 1
         self.load_image(self.image_files[self.current_image_index])
-        next_cache_index = (self.current_image_index + self.cache_radius) % len(self.image_files)
-        self.load_images_to_cache([self.image_files[next_cache_index]])
+        if self.current_image_index > self.cache_radius * 2 + 1:
+            next_cache_index = (self.current_image_index + self.cache_radius) % len(self.image_files)
+            self.load_images_to_cache([self.image_files[next_cache_index]])
 
     def rotate_image(self, angle):
         self.rotation_angle += angle
@@ -275,8 +295,9 @@ class ImageViewer(QMainWindow):
         self.reload_current_image()
 
     def reload_current_image(self):
-        if self.current_image_path:
-            self.load_image(self.current_image_path)
+        path = self.get_current_image_path()
+        if path:
+            self.load_image(path)
 
     def toggle_fullscreen(self):
         if self.is_fullscreen:
@@ -286,13 +307,40 @@ class ImageViewer(QMainWindow):
             self.showFullScreen()
             self.is_fullscreen = True
 
+    def delete_image(self):
+        path_to_delete = self.get_current_image_path()
+        if path_to_delete:
+            # 弹出确认对话框
+            confirmation = QMessageBox.question(
+                self,
+                "确认删除",
+                "确定要删除此图片吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirmation == QMessageBox.StandardButton.Yes:
+                # 切换到下一张图片
+                self.next_image()
+                # 删除文件
+                try:
+                    os.remove(path_to_delete)
+                except Exception as e:
+                    QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
+                    return
+                # 从列表和缓存中移除
+                self.image_files.remove(path_to_delete)
+                self.image_cache.remove(path_to_delete)
+                # 检查是否还有图片
+                if not self.image_files:
+                    self.image_label.clear()
+                    self.status_bar.clearMessage()
+
     def keyPressEvent(self, event: QKeyEvent):
         # 快捷键处理
         key = event.key()
         modifiers = event.modifiers()
         shortcut = self.config["shortcut"]
         for obj in shortcut:
-            if obj["key"] == key and obj["modifiers"] == modifiers:
+            if getattr(Qt, obj["key"]) == key and getattr(Qt, obj["modifiers"]) == modifiers:
                 if obj["action"] == "prev_image":
                     self.prev_image()
                 elif obj["action"] == "next_image":
@@ -307,7 +355,7 @@ class ImageViewer(QMainWindow):
                     if self.is_fullscreen:
                         self.toggle_fullscreen()
                 elif obj["action"] == "move":
-                    self.move_image(self.current_image_path, obj["dir"])
+                    self.move_image(self.get_current_image_path(), obj["dir"])
                 else:
                     super().keyPressEvent(event)
 
