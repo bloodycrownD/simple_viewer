@@ -282,8 +282,14 @@ class ImageViewer(QMainWindow):
         key = event.key()
         modifier = event.modifiers()
         shortcut = self.config["shortcut"]
+        match = False
         for obj in shortcut:
-            if getattr(Qt, obj["key"]) == key and obj.get("modifier", Qt.KeyboardModifier.NoModifier) == modifier:
+            modifier_key = obj.get("modifier")
+            current_modifier = Qt.KeyboardModifier.NoModifier
+            if modifier_key is not None:
+                current_modifier = getattr(Qt.KeyboardModifier, modifier_key)
+            if getattr(Qt.Key, obj["key"]) == key and current_modifier == modifier:
+                match = True
                 if obj.get("command") == "prev_image":
                     self.prev_image()
                 elif obj.get("command") == "next_image":
@@ -301,6 +307,8 @@ class ImageViewer(QMainWindow):
                     self.move_image(self.get_current_image_path(), obj["dir"])
                 else:
                     super().keyPressEvent(event)
+            if match:
+                break
 
 
 if __name__ == "__main__":

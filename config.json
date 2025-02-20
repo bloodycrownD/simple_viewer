@@ -9,10 +9,10 @@
       "command": "prev_image"
     },
     {
-      "key": "Key_1",
-      "modifier": "CTRL",
+      "key": "Key_A",
+      "modifier": "ControlModifier",
       "command": "move",
-      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\origin"
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp"
     }
   ],
   "cache_radius": 5
