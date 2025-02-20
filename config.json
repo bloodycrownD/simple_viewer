@@ -2,11 +2,11 @@
   "shortcut": [
     {
       "key": "Key_Right",
-      "command": "pre_image"
+      "command": "next_image"
     },
     {
       "key": "Key_Left",
-      "command": "next_image"
+      "command": "prev_image"
     },
     {
       "key": "Key_1",

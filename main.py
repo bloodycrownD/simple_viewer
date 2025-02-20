@@ -1,4 +1,6 @@
 import sys, shutil, json
+import time
+
 from natsort import natsorted
 
 from PySide6.QtWidgets import (
@@ -29,14 +31,19 @@ class LRUCache:
             self.cache.move_to_end(key)
         self.cache[key] = value
         if len(self.cache) > self.capacity:
-            self.cache.popitem(last=False)
+            _, img = self.cache.popitem(last=False)
+            img.close()
 
     def has(self, key) -> bool:
         return key in self.cache
 
     def remove(self, key) -> None:
         if key in self.cache:
-            self.cache.pop(key)
+            self.cache.pop(key).close()
+
+    def clear(self) -> None:
+        for _, img in self.cache.items():
+            img.close()
 
 
 class ImageViewer(QMainWindow):
@@ -143,22 +150,32 @@ class ImageViewer(QMainWindow):
             self.init_image_cache(self.image_files, self.current_image_index)
             self.load_image(file)
 
-    def load_images_to_cache(self, paths: list):
-        for path in paths:
-            img = Image.open(path)
-            self.image_cache.put(path, img)
+    def get_right_edge(self):
+        if self.image_files and self.cache_radius * 2 + 1 < len(self.image_files):
+            return (self.current_image_index + self.cache_radius) % len(self.image_files)
+
+    def get_left_edge(self):
+        if self.image_files and self.cache_radius * 2 + 1 < len(self.image_files):
+            left_edge = self.current_image_index - self.cache_radius
+            return left_edge if left_edge >= 0 else left_edge + len(self.image_files)
+
+    def load_image_to_cache(self, path):
+        img = Image.open(path)
+        self.image_cache.put(path, img)
 
     def init_image_cache(self, image_files, current_index):
+        # 清空缓存
+        self.image_cache.clear()
+        # 缓存半径内缓存所有图片
         if len(image_files) < self.cache_radius * 2 + 1:
-            self.load_images_to_cache(image_files)
+            [self.load_image_to_cache(path) for path in image_files]
         else:
             # 不支持越界索引
-            left_paths = [image_files[index % len(image_files)]
-                          for index in range(current_index + 1, self.cache_radius + current_index + 1)]
-            self.load_images_to_cache(left_paths)
+            for index in range(current_index, self.cache_radius + current_index + 1):
+                self.load_image_to_cache(image_files[index % len(image_files)])
             # 支持负索引
-            right_paths = [image_files[index] for index in range(current_index - self.cache_radius, current_index)]
-            self.load_images_to_cache(right_paths)
+            for index in range(current_index - self.cache_radius, current_index):
+                self.load_image_to_cache(image_files[index % len(image_files)])
 
     def load_image(self, path):
         # 停止GIF动画
@@ -167,6 +184,7 @@ class ImageViewer(QMainWindow):
             img = self.image_cache.get(path)
         else:
             img = Image.open(path)
+            self.image_cache.put(path, img)
 
         if img.format == 'GIF':
             # 处理动态GIF
@@ -179,7 +197,7 @@ class ImageViewer(QMainWindow):
             # 静态图片
             img = img.convert("RGBA")
             self.display_pil_image(img)
-        img.close()
+
         # 更新状态栏信息
         self.update_status_bar(path)
 
@@ -265,17 +283,16 @@ class ImageViewer(QMainWindow):
                 self.status_bar.clearMessage()
 
     def prev_image(self):
-        if len(self.image_files) <= 0:
+        if not self.image_files:
             return
         if self.current_image_index == 0:
             self.current_image_index = len(self.image_files) - 1
         else:
             self.current_image_index -= 1
         self.load_image(self.image_files[self.current_image_index])
-        if self.current_image_index > self.cache_radius * 2 + 1:
-            next_cache_index = self.current_image_index - self.cache_radius
-            next_cache_index = next_cache_index if next_cache_index > 0 else next_cache_index + len(self.image_files)
-            self.load_images_to_cache([self.image_files[next_cache_index]])
+        if len(self.image_files) > self.cache_radius * 2 + 1:
+            self.image_cache.remove(self.image_files[self.get_right_edge()])
+            self.load_image_to_cache(self.image_files[self.get_left_edge()])
 
     def next_image(self):
         if len(self.image_files) <= 0:
@@ -285,9 +302,9 @@ class ImageViewer(QMainWindow):
         else:
             self.current_image_index += 1
         self.load_image(self.image_files[self.current_image_index])
-        if self.current_image_index > self.cache_radius * 2 + 1:
-            next_cache_index = (self.current_image_index + self.cache_radius) % len(self.image_files)
-            self.load_images_to_cache([self.image_files[next_cache_index]])
+        if len(self.image_files) > self.cache_radius * 2 + 1:
+            self.image_cache.remove(self.image_files[self.get_left_edge()])
+            self.load_image_to_cache(self.image_files[self.get_right_edge()])
 
     def rotate_image(self, angle):
         self.rotation_angle += angle
@@ -310,51 +327,43 @@ class ImageViewer(QMainWindow):
     def delete_image(self):
         path_to_delete = self.get_current_image_path()
         if path_to_delete:
-            # 弹出确认对话框
-            confirmation = QMessageBox.question(
-                self,
-                "确认删除",
-                "确定要删除此图片吗？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if confirmation == QMessageBox.StandardButton.Yes:
-                # 切换到下一张图片
-                self.next_image()
-                # 删除文件
-                try:
-                    os.remove(path_to_delete)
-                except Exception as e:
-                    QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
-                    return
-                # 从列表和缓存中移除
-                self.image_files.remove(path_to_delete)
-                self.image_cache.remove(path_to_delete)
-                # 检查是否还有图片
-                if not self.image_files:
-                    self.image_label.clear()
-                    self.status_bar.clearMessage()
+            # 切换到下一张图片
+            self.next_image()
+            # 删除文件
+            try:
+                os.remove(path_to_delete)
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
+                return
+            # 从列表和缓存中移除
+            self.image_files.remove(path_to_delete)
+            self.image_cache.remove(path_to_delete)
+            # 检查是否还有图片
+            if not self.image_files:
+                self.image_label.clear()
+                self.status_bar.clearMessage()
 
     def keyPressEvent(self, event: QKeyEvent):
         # 快捷键处理
         key = event.key()
-        modifiers = event.modifiers()
+        modifier = event.modifiers()
         shortcut = self.config["shortcut"]
         for obj in shortcut:
-            if getattr(Qt, obj["key"]) == key and getattr(Qt, obj["modifiers"]) == modifiers:
-                if obj["action"] == "prev_image":
+            if getattr(Qt, obj["key"]) == key and obj.get("modifier", Qt.KeyboardModifier.NoModifier) == modifier:
+                if obj.get("command") == "prev_image":
                     self.prev_image()
-                elif obj["action"] == "next_image":
+                elif obj.get("command") == "next_image":
                     self.next_image()
-                elif obj["action"] == "rotate_right":
+                elif obj.get("command") == "rotate_right":
                     self.rotate_image(90)  # 顺时针旋转
-                elif obj["action"] == "rotate_left":
+                elif obj.get("command") == "rotate_left":
                     self.rotate_image(-90)  # 逆时针旋转
-                elif obj["action"] == "enter_fullscreen":
+                elif obj.get("command") == "enter_fullscreen":
                     self.toggle_fullscreen()
-                elif obj["action"] == "exit_fullscreen":
+                elif obj.get("command") == "exit_fullscreen":
                     if self.is_fullscreen:
                         self.toggle_fullscreen()
-                elif obj["action"] == "move":
+                elif obj.get("command") == "move":
                     self.move_image(self.get_current_image_path(), obj["dir"])
                 else:
                     super().keyPressEvent(event)
