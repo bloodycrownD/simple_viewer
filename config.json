@@ -9,11 +9,28 @@
       "command": "prev_image"
     },
     {
+      "modifier": "ControlModifier",
       "key": "Key_A",
+      "command": "rotate_left"
+    },
+    {
+      "modifier": "ControlModifier",
+      "key": "Key_D",
+      "command": "rotate_right"
+    },
+    {
+      "key": "Key_Escape",
+      "command": "exit_fullscreen"
+    },
+    {
+      "key": "Key_Delete",
+      "command": "delete_image"
+    },
+    {
+      "key": "Key_1",
       "modifier": "ControlModifier",
       "command": "move",
       "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp"
     }
-  ],
-  "cache_radius": 5
+  ]
 }

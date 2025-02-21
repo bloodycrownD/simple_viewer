@@ -1,16 +1,21 @@
-import sys, shutil, json
+import json
+import os
+import shutil
+import sys
 
-from natsort import natsorted
-
+from PIL import Image, ImageSequence
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QAction, QPixmap, QImage, QKeyEvent, QResizeEvent, QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QApplication, QLabel, QFileDialog,
     QToolBar, QStatusBar, QWidget, QHBoxLayout, QMessageBox
 )
-from PySide6.QtGui import QAction, QPixmap, QImage, QKeyEvent, QResizeEvent
-from PySide6.QtCore import Qt, QTimer
-from PIL import Image, ImageSequence
-import os
+from natsort import natsorted
 
+from theme import get_theme
+
+
+# 定义深夜风格的颜色主题
 
 class ImageViewer(QMainWindow):
     def __init__(self):
@@ -26,8 +31,6 @@ class ImageViewer(QMainWindow):
         self.rotation_angle = 0
         self.is_fullscreen = False
         self.original_pixmap = None  # 保存原始图片
-        # 缓存半径
-        self.cache_radius = self.config["cache_radius"]
 
         # GIF支持
         self.gif_frames = []
@@ -43,8 +46,7 @@ class ImageViewer(QMainWindow):
             return self.image_files[self.current_image_index]
 
     def load_config(self):
-        path = os.path.join(os.path.dirname(__file__), "config.json")
-        with open(path, 'r') as f:
+        with open(get_absolute_path("config.json"), 'r') as f:
             config = json.load(f)
         return config
 
@@ -63,7 +65,11 @@ class ImageViewer(QMainWindow):
         # 工具栏
         toolbar = QToolBar()
         self.addToolBar(toolbar)
+        dark_palette, qss = get_theme()
+        QApplication.setPalette(dark_palette)
 
+        # 设置全局样式表
+        self.setStyleSheet(qss)
         # 动作：打开文件
         open_action = QAction("Open", self)
         open_action.triggered.connect(self.open_image)
@@ -113,15 +119,6 @@ class ImageViewer(QMainWindow):
             self.image_files = natsorted(self.image_files)
             self.current_image_index = self.image_files.index(file)
             self.load_image(file)
-
-    def get_right_edge(self):
-        if self.image_files and self.cache_radius * 2 + 1 < len(self.image_files):
-            return (self.current_image_index + self.cache_radius) % len(self.image_files)
-
-    def get_left_edge(self):
-        if self.image_files and self.cache_radius * 2 + 1 < len(self.image_files):
-            left_edge = self.current_image_index - self.cache_radius
-            return left_edge if left_edge >= 0 else left_edge + len(self.image_files)
 
     def load_image(self, path):
         # 停止GIF动画
@@ -224,6 +221,7 @@ class ImageViewer(QMainWindow):
                 self.status_bar.clearMessage()
 
     def prev_image(self):
+        self.rotation_angle = 0
         if not self.image_files:
             return
         if self.current_image_index == 0:
@@ -233,7 +231,8 @@ class ImageViewer(QMainWindow):
         self.load_image(self.image_files[self.current_image_index])
 
     def next_image(self):
-        if len(self.image_files) <= 0:
+        self.rotation_angle = 0
+        if not self.image_files:
             return
         if self.current_image_index == len(self.image_files) - 1:
             self.current_image_index = 0  # 循环到第一张图片
@@ -305,14 +304,21 @@ class ImageViewer(QMainWindow):
                         self.toggle_fullscreen()
                 elif obj.get("command") == "move":
                     self.move_image(self.get_current_image_path(), obj["dir"])
+                elif obj.get("command") == "delete_image":
+                    self.delete_image()
                 else:
                     super().keyPressEvent(event)
             if match:
                 break
 
 
+def get_absolute_path(relative_path) -> str:
+    return str(os.path.join(os.path.dirname(__file__), relative_path))
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(get_absolute_path('resource/icon.png')))
     viewer = ImageViewer()
     viewer.show()
     sys.exit(app.exec())
