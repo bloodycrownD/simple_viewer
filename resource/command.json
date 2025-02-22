@@ -1,0 +1,9 @@
+[
+  "prev_image",
+  "next_image",
+  "rotate_left",
+  "rotate_right",
+  "delete_image",
+  "enter_fullscreen",
+  "exit_fullscreen"
+]
