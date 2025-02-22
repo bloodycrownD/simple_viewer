@@ -66,3 +66,4 @@ def get_theme():
             }
 """
     return dark_palette, qss
+

@@ -313,12 +313,12 @@ class ImageViewer(QMainWindow):
 
 
 def get_absolute_path(relative_path) -> str:
-    return str(os.path.join(os.path.dirname(__file__), relative_path))
+    return str(os.path.join(os.path.abspath("."), relative_path))
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(get_absolute_path('resource/icon.png')))
+    app.setWindowIcon(QIcon(get_absolute_path('icon.ico')))
     viewer = ImageViewer()
     viewer.show()
     sys.exit(app.exec())
