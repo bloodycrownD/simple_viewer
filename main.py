@@ -325,7 +325,7 @@ class ImageViewer(QMainWindow):
 
 
 def get_absolute_path(relative_path) -> str:
-    return str(os.path.join(os.path.abspath("."), relative_path))
+    return str(os.path.join(os.path.dirname(__file__), relative_path))
 
 
 def main():

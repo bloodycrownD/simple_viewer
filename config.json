@@ -34,7 +34,25 @@
       "key": "Key_1",
       "modifier": "ControlModifier",
       "command": "move",
-      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp"
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp\\level1"
+    },
+    {
+      "key": "Key_2",
+      "modifier": "ControlModifier",
+      "command": "move",
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp\\level2"
+    },
+    {
+      "key": "Key_3",
+      "modifier": "ControlModifier",
+      "command": "move",
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp\\level3"
+    },
+    {
+      "key": "Key_4",
+      "modifier": "ControlModifier",
+      "command": "move",
+      "dir": "D:\\Application\\BaiduNetdiskDownload\\classify\\data1\\tmp\\level4"
     }
   ]
 }
