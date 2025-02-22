@@ -1,4 +1,4 @@
-import sys, shutil, os, json
+import sys, shutil, os, json, send2trash
 from PIL import Image, ImageSequence
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import (
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from natsort import natsorted
 from theme import get_theme
 from ArgsParser import parse_arguments, show_help
+from pathlib import Path
 
 
 # 定义深夜风格的颜色主题
@@ -116,7 +117,7 @@ class ImageViewer(QMainWindow):
             file, _ = QFileDialog.getOpenFileName(
                 self,
                 "Open Image",
-                "Desktop",
+                str(Path.home()),
                 "Image Files (*.png *.jpg *.jpeg *.gif)"
             )
         if file:
@@ -224,20 +225,16 @@ class ImageViewer(QMainWindow):
 
     def move_image(self, src, dest):
         if src:
-            self.next_image()
             self.image_files.remove(src)
             os.makedirs(dest, exist_ok=True)
             shutil.move(src, dest)
-            # 检查是否还有图片
-            if not self.image_files:
-                self.image_label.clear()
-                self.status_bar.clearMessage()
+            self.update_current_image()
 
     def prev_image(self):
         self.rotation_angle = 0
         if not self.image_files:
             return
-        if self.current_image_index == 0:
+        if self.current_image_index <= 0:
             self.current_image_index = len(self.image_files) - 1
         else:
             self.current_image_index -= 1
@@ -247,7 +244,7 @@ class ImageViewer(QMainWindow):
         self.rotation_angle = 0
         if not self.image_files:
             return
-        if self.current_image_index == len(self.image_files) - 1:
+        if self.current_image_index >= len(self.image_files) - 1:
             self.current_image_index = 0  # 循环到第一张图片
         else:
             self.current_image_index += 1
@@ -274,20 +271,26 @@ class ImageViewer(QMainWindow):
     def delete_image(self):
         path_to_delete = self.get_current_image_path()
         if path_to_delete:
-            # 切换到下一张图片
-            self.next_image()
             # 删除文件
             try:
-                os.remove(path_to_delete)
+                send2trash.send2trash(path_to_delete)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
                 return
             # 从列表和缓存中移除
             self.image_files.remove(path_to_delete)
+            # 更新图片
+            self.update_current_image()
+
+    def update_current_image(self):
+        if self.image_files:
+            if self.current_image_index >= len(self.image_files):
+                self.current_image_index = len(self.image_files) - 1
+            self.load_image(self.image_files[self.current_image_index])
             # 检查是否还有图片
-            if not self.image_files:
-                self.image_label.clear()
-                self.status_bar.clearMessage()
+        else:
+            self.image_label.clear()
+            self.status_bar.clearMessage()
 
     def keyPressEvent(self, event: QKeyEvent):
         # 快捷键处理
