@@ -4,6 +4,6 @@
   "rotate_left",
   "rotate_right",
   "delete_image",
-  "enter_fullscreen",
-  "exit_fullscreen"
+  "exit_app",
+  "toggle_fullscreen"
 ]

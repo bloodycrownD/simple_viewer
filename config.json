@@ -20,7 +20,11 @@
     },
     {
       "key": "Key_Escape",
-      "command": "exit_fullscreen"
+      "command": "exit_app"
+    },
+    {
+      "key": "Key_F2",
+      "command": "toggle_fullscreen"
     },
     {
       "key": "Key_Delete",

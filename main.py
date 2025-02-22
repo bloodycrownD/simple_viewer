@@ -214,6 +214,7 @@ class ImageViewer(QMainWindow):
         if src:
             self.next_image()
             self.image_files.remove(src)
+            os.makedirs(dest, exist_ok=True)
             shutil.move(src, dest)
             # 检查是否还有图片
             if not self.image_files:
@@ -297,11 +298,10 @@ class ImageViewer(QMainWindow):
                     self.rotate_image(90)  # 顺时针旋转
                 elif obj.get("command") == "rotate_left":
                     self.rotate_image(-90)  # 逆时针旋转
-                elif obj.get("command") == "enter_fullscreen":
+                elif obj.get("command") == "toggle_fullscreen":
                     self.toggle_fullscreen()
-                elif obj.get("command") == "exit_fullscreen":
-                    if self.is_fullscreen:
-                        self.toggle_fullscreen()
+                elif obj.get("command") == "exit_app":
+                    self.close()
                 elif obj.get("command") == "move":
                     self.move_image(self.get_current_image_path(), obj["dir"])
                 elif obj.get("command") == "delete_image":
