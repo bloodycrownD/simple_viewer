@@ -1,24 +1,23 @@
-import json
-import os
-import shutil
-import sys
-
+import sys, shutil, os, json
 from PIL import Image, ImageSequence
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QPixmap, QImage, QKeyEvent, QResizeEvent, QIcon
+from PySide6.QtGui import (
+    QAction, QPixmap, QImage,
+    QKeyEvent, QResizeEvent, QIcon
+)
 from PySide6.QtWidgets import (
     QMainWindow, QApplication, QLabel, QFileDialog,
     QToolBar, QStatusBar, QWidget, QHBoxLayout, QMessageBox
 )
 from natsort import natsorted
-
 from theme import get_theme
+from ArgsParser import parse_arguments, show_help
 
 
 # 定义深夜风格的颜色主题
 
 class ImageViewer(QMainWindow):
-    def __init__(self):
+    def __init__(self, args):
         super().__init__()
         self.setWindowTitle("Simple Image Viewer")
         self.setMinimumSize(800, 600)
@@ -40,6 +39,16 @@ class ImageViewer(QMainWindow):
 
         # 创建界面
         self.create_ui()
+
+        if args:
+            if args.directory:
+                files = natsorted(os.listdir(args.directory[0]))
+                if args.index:
+                    self.open_image(os.path.join(args.directory[0], files[min(args.index[0] - 1, len(files) - 1)]))
+                else:
+                    self.open_image(os.path.join(args.directory[0], files[0]))
+            if args.file:
+                self.open_image(args.file)
 
     def get_current_image_path(self):
         if self.image_files:
@@ -102,11 +111,14 @@ class ImageViewer(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-    def open_image(self):
-        file, _ = QFileDialog.getOpenFileName(
-            self, "Open Image", "",
-            "Images (*.png *.jpg *.jpeg *.gif)"
-        )
+    def open_image(self, file=None):
+        if not file:
+            file, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open Image",
+                "Desktop",
+                "Image Files (*.png *.jpg *.jpeg *.gif)"
+            )
         if file:
             directory = os.path.dirname(file)
             # 使路径名格式一致
@@ -316,9 +328,17 @@ def get_absolute_path(relative_path) -> str:
     return str(os.path.join(os.path.abspath("."), relative_path))
 
 
-if __name__ == "__main__":
+def main():
+    args = parse_arguments(sys.argv[1:])
+    if args and args.help:
+        show_help()
+        sys.exit(0)
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(get_absolute_path('icon.ico')))
-    viewer = ImageViewer()
+    viewer = ImageViewer(args)
     viewer.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
