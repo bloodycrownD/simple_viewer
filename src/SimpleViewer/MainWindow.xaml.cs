@@ -1,18 +1,26 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media;
+using SimpleViewer.ViewModels;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace SimpleViewer;
 
 /// <summary>
-/// Primary shell window. Hosts the image viewer UI in later phases.
+/// Primary shell window hosting the image viewer UI and view model bindings.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
     private const int MinWidth = 800;
     private const int MinHeight = 600;
 
-    public MainWindow()
+    public MainViewModel ViewModel { get; }
+
+    public MainWindow(MainViewModel viewModel)
     {
+        ViewModel = viewModel;
+        ViewModel.PickImageFileAsync = PickImageFileAsync;
+        ViewModel.FullscreenChanged += OnFullscreenChanged;
+
         InitializeComponent();
         ConfigureWindowChrome();
         ApplySystemBackdrop();
@@ -37,7 +45,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Enforce minimum client size (spec: 800×600) when platform presenter lacks min-size API.
         var size = sender.Size;
         if (size.Width >= MinWidth && size.Height >= MinHeight)
         {
@@ -53,11 +60,46 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            SystemBackdrop = new MicaBackdrop();
+            SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
         }
         catch
         {
-            SystemBackdrop = new DesktopAcrylicBackdrop();
+            SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
         }
+    }
+
+    private void OnRootGridSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var width = (int)e.NewSize.Width;
+        var height = (int)e.NewSize.Height;
+        _ = ViewModel.OnViewportSizeChangedAsync(width, height);
+    }
+
+    private void OnFullscreenChanged(object? sender, bool isFullscreen)
+    {
+        AppWindow.SetPresenter(
+            isFullscreen
+                ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
+                : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+    }
+
+    private async Task<string?> PickImageFileAsync()
+    {
+        var picker = new FileOpenPicker
+        {
+            ViewMode = PickerViewMode.Thumbnail,
+            SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+        };
+
+        picker.FileTypeFilter.Add(".png");
+        picker.FileTypeFilter.Add(".jpg");
+        picker.FileTypeFilter.Add(".jpeg");
+        picker.FileTypeFilter.Add(".gif");
+
+        var hwnd = WindowNative.GetWindowHandle(this);
+        InitializeWithWindow.Initialize(picker, hwnd);
+
+        var file = await picker.PickSingleFileAsync();
+        return file?.Path;
     }
 }

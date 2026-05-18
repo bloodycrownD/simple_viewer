@@ -3,11 +3,87 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid>
-        <TextBlock
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            FontSize="24"
-            Text="Simple Viewer" />
+    <Grid x:Name="RootGrid" SizeChanged="OnRootGridSizeChanged">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <CommandBar
+            Grid.Row="0"
+            DefaultLabelPosition="Right"
+            IsOpen="False">
+            <AppBarButton
+                Command="{x:Bind ViewModel.OpenFilePickerCommand}"
+                Icon="OpenFile"
+                Label="Open" />
+            <AppBarButton
+                Command="{x:Bind ViewModel.PrevCommand}"
+                Icon="Back"
+                Label="Prev" />
+            <AppBarButton
+                Command="{x:Bind ViewModel.NextCommand}"
+                Icon="Forward"
+                Label="Next" />
+            <AppBarSeparator />
+            <AppBarButton
+                Command="{x:Bind ViewModel.RotateLeftCommand}"
+                Icon="Rotate"
+                Label="Rotate L" />
+            <AppBarButton
+                Command="{x:Bind ViewModel.RotateRightCommand}"
+                Icon="Rotate"
+                Label="Rotate R" />
+            <AppBarSeparator />
+            <AppBarButton
+                Command="{x:Bind ViewModel.DeleteCommand}"
+                Icon="Delete"
+                Label="Delete" />
+            <AppBarButton
+                Command="{x:Bind ViewModel.OpenSettingsCommand}"
+                Icon="Setting"
+                Label="Settings" />
+            <AppBarButton
+                Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
+                Icon="View"
+                Label="Fullscreen" />
+        </CommandBar>
+
+        <Grid Grid.Row="1" Padding="8">
+            <Image
+                x:Name="ViewerImage"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                RenderTransformOrigin="0.5,0.5"
+                Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
+                Stretch="Uniform"
+                Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
+                <Image.RenderTransform>
+                    <RotateTransform Angle="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
+                </Image.RenderTransform>
+            </Image>
+
+            <TextBlock
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                FontSize="16"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Open an image to begin"
+                Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
+        </Grid>
+
+        <Border
+            Grid.Row="2"
+            Padding="12,8"
+            Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <TextBlock
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                IsTextSelectionEnabled="True"
+                Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                TextTrimming="CharacterEllipsis"
+                TextWrapping="NoWrap" />
+        </Border>
     </Grid>
 </Window>
