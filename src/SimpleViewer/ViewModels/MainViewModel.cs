@@ -13,7 +13,7 @@ using SimpleViewer.Services;
 namespace SimpleViewer.ViewModels;
 
 /// <summary>
-/// View model for the primary image viewer window (phase 2 MVP).
+/// View model for the primary image viewer window.
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
@@ -25,6 +25,7 @@ public partial class MainViewModel : ObservableObject
     private int _currentIndex = -1;
     private int? _decodeSize;
     private int _lastAppliedDecodeSize = -1;
+    private string? _currentDirectory;
     private CancellationTokenSource? _loadCts;
 
     public MainViewModel(
@@ -40,8 +41,17 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Host-provided file picker (WinRT); set by <see cref="MainWindow"/>.</summary>
     public Func<Task<string?>>? PickImageFileAsync { get; set; }
 
+    /// <summary>Host-provided delete confirmation; returns true to proceed.</summary>
+    public Func<Task<bool>>? ConfirmDeleteAsync { get; set; }
+
+    /// <summary>Host-provided settings dialog opener.</summary>
+    public Func<Task>? OpenSettingsAsync { get; set; }
+
     /// <summary>Raised when <see cref="IsFullscreen"/> changes so the window can update chrome.</summary>
     public event EventHandler<bool>? FullscreenChanged;
+
+    /// <summary>Raised when the user triggers the ExitApp shortcut.</summary>
+    public event EventHandler? ExitRequested;
 
     [ObservableProperty]
     private ImageSource? _imageSource;
@@ -124,7 +134,6 @@ public partial class MainViewModel : ObservableObject
             index = 0;
         }
 
-        _imageLoader.ClearCache();
         SetImageList(files, index);
         await LoadCurrentAsync();
     }
@@ -216,6 +225,26 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasImage))]
     private async Task DeleteAsync()
     {
+        if (ConfirmDeleteAsync is not null && !await ConfirmDeleteAsync())
+        {
+            return;
+        }
+
+        await RemoveCurrentImageAfterFileOperationAsync();
+    }
+
+    /// <summary>
+    /// Moves the current image to <paramref name="destinationDirectory"/> and shows the next image.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasImage))]
+    private async Task MoveToFolderAsync(string? destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            StatusText = "Move to folder: no target path configured.";
+            return;
+        }
+
         if (_currentIndex < 0 || _currentIndex >= _imageFiles.Count)
         {
             return;
@@ -224,35 +253,28 @@ public partial class MainViewModel : ObservableObject
         var path = _imageFiles[_currentIndex];
         try
         {
-            _fileOperations.DeleteToRecycleBin(path);
-            _imageFiles.RemoveAt(_currentIndex);
-            _imageLoader.ClearCache();
-
-            if (_imageFiles.Count == 0)
-            {
-                ClearViewer();
-                return;
-            }
-
-            if (_currentIndex >= _imageFiles.Count)
-            {
-                _currentIndex = _imageFiles.Count - 1;
-            }
-
-            RotationAngle = 0;
-            await LoadCurrentAsync();
+            _fileOperations.MoveToFolder(path, destinationDirectory);
+            await RemoveCurrentImageAfterFileOperationAsync();
         }
         catch (Exception ex)
         {
-            StatusText = $"Delete failed: {ex.Message}";
+            StatusText = $"Move failed: {ex.Message}";
         }
     }
 
-    /// <summary>Settings navigation placeholder (phase 4).</summary>
     [RelayCommand]
-    private void OpenSettings()
+    private async Task OpenSettings()
     {
-        // TODO(phase-4): Navigate to SettingsPage and bind SettingsViewModel.
+        if (OpenSettingsAsync is not null)
+        {
+            await OpenSettingsAsync();
+        }
+    }
+
+    /// <summary>Requests application exit (shortcut or future menu).</summary>
+    public void RequestExit()
+    {
+        ExitRequested?.Invoke(this, EventArgs.Empty);
     }
 
     partial void OnIsFullscreenChanged(bool value)
@@ -273,10 +295,18 @@ public partial class MainViewModel : ObservableObject
         RotateLeftCommand.NotifyCanExecuteChanged();
         RotateRightCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
+        MoveToFolderCommand.NotifyCanExecuteChanged();
     }
 
     private void SetImageList(IReadOnlyList<string> files, int index)
     {
+        var newDirectory = files.Count > 0 ? Path.GetDirectoryName(files[index]) : null;
+        if (!string.Equals(newDirectory, _currentDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            _imageLoader.ClearCache();
+            _currentDirectory = newDirectory;
+        }
+
         _imageFiles.Clear();
         _imageFiles.AddRange(files);
         _currentIndex = index;
@@ -295,6 +325,8 @@ public partial class MainViewModel : ObservableObject
         _loadCts?.Cancel();
         _loadCts = new CancellationTokenSource();
         var token = _loadCts.Token;
+
+        ReleaseCurrentImageSource();
 
         var path = _imageFiles[_currentIndex];
         try
@@ -321,6 +353,41 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private void ReleaseCurrentImageSource()
+    {
+        if (ImageSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap)
+        {
+            bitmap.UriSource = null;
+        }
+
+        ImageSource = null;
+    }
+
+    private async Task RemoveCurrentImageAfterFileOperationAsync()
+    {
+        if (_currentIndex < 0 || _currentIndex >= _imageFiles.Count)
+        {
+            return;
+        }
+
+        _imageFiles.RemoveAt(_currentIndex);
+        _imageLoader.ClearCache();
+
+        if (_imageFiles.Count == 0)
+        {
+            ClearViewer();
+            return;
+        }
+
+        if (_currentIndex >= _imageFiles.Count)
+        {
+            _currentIndex = _imageFiles.Count - 1;
+        }
+
+        RotationAngle = 0;
+        await LoadCurrentAsync();
+    }
+
     private void UpdateStatusText(LoadedImage loaded)
     {
         var fileName = Path.GetFileName(loaded.Path);
@@ -344,12 +411,13 @@ public partial class MainViewModel : ObservableObject
     private void ClearViewer()
     {
         _loadCts?.Cancel();
-        ImageSource = null;
+        ReleaseCurrentImageSource();
         HasImage = false;
         StatusText = string.Empty;
         RotationAngle = 0;
         _currentIndex = -1;
         _imageFiles.Clear();
+        _currentDirectory = null;
         PrevCommand.NotifyCanExecuteChanged();
         NextCommand.NotifyCanExecuteChanged();
     }
