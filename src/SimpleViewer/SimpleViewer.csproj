@@ -6,6 +6,7 @@
     <RootNamespace>SimpleViewer</RootNamespace>
     <AssemblyName>viewer</AssemblyName>
     <ApplicationTitle>Simple Viewer</ApplicationTitle>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
@@ -40,6 +41,10 @@
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" />
   </ItemGroup>
 
 </Project>
