@@ -16,7 +16,32 @@ public class SettingsServiceTests
 
         Assert.True(File.Exists(settingsPath));
         Assert.Equal(1, settings.Version);
-        Assert.Contains(settings.Shortcuts, static b => b.Command == ViewerCommand.NextImage && b.VirtualKey == "Right");
-        Assert.Contains(settings.Shortcuts, static b => b.Command == ViewerCommand.DeleteImage && b.VirtualKey == "Delete");
+        Assert.Equal(7, settings.Shortcuts.Count);
+        Assert.DoesNotContain(settings.Shortcuts, static b => b.Command == ViewerCommand.MoveToFolder);
+
+        AssertShortcut(settings, "Right", [], ViewerCommand.NextImage);
+        AssertShortcut(settings, "Left", [], ViewerCommand.PrevImage);
+        AssertShortcut(settings, "A", ["Control"], ViewerCommand.RotateLeft);
+        AssertShortcut(settings, "D", ["Control"], ViewerCommand.RotateRight);
+        AssertShortcut(settings, "Escape", [], ViewerCommand.ExitApp);
+        AssertShortcut(settings, "F2", [], ViewerCommand.ToggleFullscreen);
+        AssertShortcut(settings, "Delete", [], ViewerCommand.DeleteImage);
+    }
+
+    private static void AssertShortcut(
+        AppSettings settings,
+        string virtualKey,
+        string[] modifiers,
+        ViewerCommand command)
+    {
+        var binding = Assert.Single(
+            settings.Shortcuts,
+            b => b.VirtualKey == virtualKey && b.Command == command);
+
+        Assert.Equal(modifiers.Length, binding.Modifiers.Count);
+        foreach (var modifier in modifiers)
+        {
+            Assert.Contains(binding.Modifiers, m => string.Equals(m, modifier, StringComparison.OrdinalIgnoreCase));
+        }
     }
 }
