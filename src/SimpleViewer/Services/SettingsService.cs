@@ -44,7 +44,7 @@ public sealed class SettingsService : ISettingsService
     /// <inheritdoc />
     public void Save(AppSettings settings)
     {
-        ValidateNoDuplicateBindings(settings);
+        ValidateBindings(settings);
 
         var directory = Path.GetDirectoryName(SettingsFilePath);
         if (!string.IsNullOrEmpty(directory))
@@ -54,6 +54,29 @@ public sealed class SettingsService : ISettingsService
 
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         File.WriteAllText(SettingsFilePath, json);
+    }
+
+    /// <summary>
+    /// Validates shortcut bindings before save (duplicates, keys, MoveToFolder paths).
+    /// </summary>
+    public static void ValidateBindings(AppSettings settings)
+    {
+        ValidateNoDuplicateBindings(settings);
+
+        foreach (var binding in settings.Shortcuts)
+        {
+            if (string.IsNullOrWhiteSpace(binding.VirtualKey))
+            {
+                throw new InvalidOperationException("Each shortcut must have a key assigned.");
+            }
+
+            if (binding.Command == ViewerCommand.MoveToFolder
+                && string.IsNullOrWhiteSpace(binding.TargetPath))
+            {
+                throw new InvalidOperationException(
+                    "Move to folder shortcuts require a target folder path.");
+            }
+        }
     }
 
     /// <summary>
