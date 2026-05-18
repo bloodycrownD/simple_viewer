@@ -13,45 +13,49 @@ namespace SimpleViewer.Services;
 public sealed class CommandLineService
 {
     private readonly RootCommand _rootCommand;
+    private readonly Argument<string?> _fileArgument;
+    private readonly Option<string?> _directoryOption;
+    private readonly Option<int?> _indexOption;
+    private readonly Option<bool> _helpOption;
 
     public CommandLineService()
     {
-        var fileArgument = new Argument<string?>("file")
+        _fileArgument = new Argument<string?>("file")
         {
             Description = "输入有效文件路径",
         };
 
-        var directoryOption = new Option<string?>(new[] { "-d", "--directory" })
+        _directoryOption = new Option<string?>(new[] { "-d", "--directory" })
         {
             Description = "打开指定图片目录",
         };
 
-        var indexOption = new Option<int?>(new[] { "-i", "--index" })
+        _indexOption = new Option<int?>(new[] { "-i", "--index" })
         {
             Description = "指定目录中文件的位置（1-based）",
         };
 
-        var helpOption = new Option<bool>(new[] { "-h", "--help" })
+        _helpOption = new Option<bool>(new[] { "-h", "--help" })
         {
             Description = "显示本帮助信息",
         };
 
         _rootCommand = new RootCommand("Simple Image Viewer")
         {
-            fileArgument,
-            directoryOption,
-            indexOption,
-            helpOption,
+            _fileArgument,
+            _directoryOption,
+            _indexOption,
+            _helpOption,
         };
     }
 
     /// <summary>
-    /// Root command definition (System.CommandLine) for help and future binding extensions.
+    /// Root command definition (System.CommandLine) for help and binding extensions.
     /// </summary>
     public RootCommand RootCommand => _rootCommand;
 
     /// <summary>
-    /// Parses argv into <see cref="LaunchOptions"/>.
+    /// Parses argv into <see cref="LaunchOptions"/> via System.CommandLine.
     /// </summary>
     public LaunchOptions Parse(IReadOnlyList<string> args)
     {
@@ -60,46 +64,18 @@ public sealed class CommandLineService
             return new LaunchOptions();
         }
 
-        string? filePath = null;
-        string? directoryPath = null;
-        int? index = null;
+        var parseResult = _rootCommand.Parse(args.ToArray());
 
-        for (var i = 0; i < args.Count; i++)
+        if (parseResult.GetValue(_helpOption))
         {
-            var token = args[i];
-            switch (token)
-            {
-                case "-h":
-                case "--help":
-                    return new LaunchOptions { ShowHelp = true };
-                case "-d":
-                case "--directory":
-                    directoryPath = ReadNextValue(args, ref i);
-                    break;
-                case "-i":
-                case "--index":
-                    var indexText = ReadNextValue(args, ref i);
-                    if (int.TryParse(indexText, out var parsedIndex))
-                    {
-                        index = parsedIndex;
-                    }
-
-                    break;
-                default:
-                    if (!token.StartsWith('-') && filePath is null)
-                    {
-                        filePath = token;
-                    }
-
-                    break;
-            }
+            return new LaunchOptions { ShowHelp = true };
         }
 
         return new LaunchOptions
         {
-            FilePath = filePath,
-            DirectoryPath = directoryPath,
-            Index = index,
+            FilePath = parseResult.GetValue(_fileArgument),
+            DirectoryPath = parseResult.GetValue(_directoryOption),
+            Index = parseResult.GetValue(_indexOption),
             ShowHelp = false,
         };
     }
@@ -125,16 +101,5 @@ public sealed class CommandLineService
               viewer -d /path/pics -i 10 打开pics目录中第十个图片
               viewer -h
             """;
-    }
-
-    private static string? ReadNextValue(IReadOnlyList<string> args, ref int index)
-    {
-        if (index + 1 >= args.Count)
-        {
-            return null;
-        }
-
-        index++;
-        return args[index];
     }
 }
