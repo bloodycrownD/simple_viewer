@@ -6,6 +6,28 @@ namespace SimpleViewer.Tests;
 public class SettingsServiceTests
 {
     [Fact]
+    public void T_ST_02_ValidateBindings_RejectsMoveToFolderWithoutPath()
+    {
+        var settings = new AppSettings
+        {
+            Version = 1,
+            Shortcuts =
+            [
+                new ShortcutBinding
+                {
+                    VirtualKey = "D1",
+                    Modifiers = ["Control"],
+                    Command = ViewerCommand.MoveToFolder,
+                    TargetPath = null,
+                },
+            ],
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => SettingsService.ValidateBindings(settings));
+        Assert.Contains("target folder", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void T_ST_01_MissingSettingsFile_CreatesDefaultJson()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sv-settings-" + Guid.NewGuid().ToString("N"));
