@@ -1,2 +1,14 @@
-/dist/
-/build/
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Python (legacy in worktree)
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
