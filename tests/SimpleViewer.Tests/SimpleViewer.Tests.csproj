@@ -21,4 +21,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SimpleViewer\SimpleViewer.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="TestAssets\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
