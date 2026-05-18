@@ -66,16 +66,17 @@ public sealed class CommandLineService
 
         var parseResult = _rootCommand.Parse(args.ToArray());
 
-        if (parseResult.GetValue(_helpOption))
+        // beta4 API: GetValueForOption/Argument (renamed to GetValue in later 2.0 builds).
+        if (parseResult.GetValueForOption(_helpOption))
         {
             return new LaunchOptions { ShowHelp = true };
         }
 
         return new LaunchOptions
         {
-            FilePath = parseResult.GetValue(_fileArgument),
-            DirectoryPath = parseResult.GetValue(_directoryOption),
-            Index = parseResult.GetValue(_indexOption),
+            FilePath = parseResult.GetValueForArgument(_fileArgument),
+            DirectoryPath = parseResult.GetValueForOption(_directoryOption),
+            Index = parseResult.GetValueForOption(_indexOption),
             ShowHelp = false,
         };
     }
