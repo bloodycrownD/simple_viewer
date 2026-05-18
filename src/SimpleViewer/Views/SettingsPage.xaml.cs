@@ -80,7 +80,7 @@ public sealed partial class SettingsPage : UserControl
 
     private void OnCommandSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        ViewModel.OnPropertyChanged(nameof(SettingsViewModel.IsMoveToFolderSelected));
+        ViewModel.NotifyCommandSelectionChanged();
     }
 
     private void OnSaveClick(object sender, RoutedEventArgs e)

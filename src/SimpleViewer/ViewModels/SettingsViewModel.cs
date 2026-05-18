@@ -38,6 +38,42 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ViewerCommand> AvailableCommands { get; } =
         Enum.GetValues<ViewerCommand>();
 
+    /// <summary>Command names for ComboBox (x:Bind friendly).</summary>
+    public IReadOnlyList<string> AvailableCommandNames { get; } =
+        Enum.GetNames<ViewerCommand>();
+
+    public string SelectedDisplayKey => SelectedItem?.DisplayKey ?? "(none)";
+
+    public string? SelectedCommandName
+    {
+        get => SelectedItem?.Command.ToString();
+        set
+        {
+            if (SelectedItem is null || string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            if (Enum.TryParse<ViewerCommand>(value, out var command))
+            {
+                SelectedItem.Command = command;
+                OnPropertyChanged(nameof(IsMoveToFolderSelected));
+            }
+        }
+    }
+
+    public string SelectedTargetPath
+    {
+        get => SelectedItem?.TargetPath ?? string.Empty;
+        set
+        {
+            if (SelectedItem is not null)
+            {
+                SelectedItem.TargetPath = value;
+            }
+        }
+    }
+
     [ObservableProperty]
     private ShortcutEditorItem? _selectedItem;
 
@@ -49,6 +85,14 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool IsMoveToFolderSelected =>
         SelectedItem?.Command == ViewerCommand.MoveToFolder;
+
+    /// <summary>Called from settings UI when command ComboBox selection changes.</summary>
+    public void NotifyCommandSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsMoveToFolderSelected));
+        OnPropertyChanged(nameof(SelectedCommandName));
+        OnPropertyChanged(nameof(SelectedTargetPath));
+    }
 
     partial void OnSelectedItemChanged(ShortcutEditorItem? value)
     {
@@ -64,15 +108,23 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsMoveToFolderSelected));
+        OnPropertyChanged(nameof(SelectedDisplayKey));
+        OnPropertyChanged(nameof(SelectedCommandName));
+        OnPropertyChanged(nameof(SelectedTargetPath));
     }
 
     private ShortcutEditorItem? _subscribedItem;
 
     private void OnSelectedItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ShortcutEditorItem.Command) or nameof(ShortcutEditorItem.TargetPath))
+        if (e.PropertyName is nameof(ShortcutEditorItem.Command)
+            or nameof(ShortcutEditorItem.TargetPath)
+            or nameof(ShortcutEditorItem.DisplayKey))
         {
             OnPropertyChanged(nameof(IsMoveToFolderSelected));
+            OnPropertyChanged(nameof(SelectedDisplayKey));
+            OnPropertyChanged(nameof(SelectedCommandName));
+            OnPropertyChanged(nameof(SelectedTargetPath));
         }
     }
 
