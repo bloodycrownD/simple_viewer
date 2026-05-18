@@ -27,6 +27,7 @@
     <Compile Remove="Services\**\*.cs" />
     <Compile Remove="Models\**\*.cs" />
     <Compile Remove="Helpers\**\*.cs" />
+    <Compile Include="Helpers\ConsoleHelper.cs" />
     <Compile Include="Helpers\ImageSourceHelper.cs" />
   </ItemGroup>
 

@@ -24,4 +24,14 @@ public class CommandLineServiceTests
         Assert.Equal(2, options.Index);
         Assert.False(options.ShowHelp);
     }
+
+    [Fact]
+    public void T_CLI_03_ParseHelpFlag()
+    {
+        var options = _service.Parse(["-h"]);
+
+        Assert.True(options.ShowHelp);
+        Assert.Null(options.FilePath);
+        Assert.Null(options.DirectoryPath);
+    }
 }

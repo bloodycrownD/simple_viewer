@@ -71,7 +71,7 @@ public partial class MainViewModel : ObservableObject
     public bool CanNavigateImages => _imageFiles.Count > 0;
 
     /// <summary>
-    /// Applies launch options (file or directory+index). Help handling is deferred to phase 5.
+    /// Applies launch options (file or directory+index). Help is handled in App before the window opens.
     /// </summary>
     public async Task InitializeAsync(LaunchOptions? options)
     {
