@@ -42,6 +42,43 @@ dotnet run --project src\SimpleViewer\SimpleViewer.csproj -p:Platform=x64
 
 发布产物文件名为 **`viewer.exe`**（`AssemblyName` = `viewer`）。
 
+### 发布（Release）
+
+需要与完整 WinUI 构建相同的环境（Visual Studio 2022 + Windows App SDK 工作负载）：
+
+```powershell
+cd d:\Dev\Python\simple_viewer-v2
+.\scripts\publish.ps1
+```
+
+或手动执行：
+
+```powershell
+dotnet publish src\SimpleViewer\SimpleViewer.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained false -p:PublishSingleFile=true
+```
+
+产物路径（默认）：
+
+```
+src\SimpleViewer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\viewer.exe
+```
+
+### 命令行
+
+| 参数 | 说明 |
+|------|------|
+| `viewer.exe <file>` | 打开指定图片 |
+| `-d`, `--directory DIR` | 打开目录中的图片列表 |
+| `-i`, `--index N` | 目录内 1-based 索引（仅图片扩展名，自然排序） |
+| `-h`, `--help` | 在控制台输出帮助并退出（不显示窗口） |
+
+示例：
+
+```powershell
+.\viewer.exe -d D:\pics -i 10
+.\viewer.exe -h
+```
+
 ## 推送 v2 分支
 
 ```powershell
