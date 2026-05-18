@@ -13,6 +13,8 @@
     <Compile Include="Services\**\*.cs" />
     <Compile Include="Models\**\*.cs" />
     <Compile Include="Helpers\**\*.cs" />
+    <!-- WinUI-only; lives under Helpers/ for namespace consistency -->
+    <Compile Remove="Helpers\ImageSourceHelper.cs" />
   </ItemGroup>
 
   <ItemGroup>
