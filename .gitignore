@@ -6,9 +6,11 @@ obj/
 .vs/
 TestResults/
 
-# Python (legacy in worktree)
+# Python / PyInstaller (v1 branch only)
 __pycache__/
 *.pyc
+build/
+dist/
 
 # IDE
 .idea/
