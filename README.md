@@ -19,7 +19,7 @@ Windows 本地图片查看器，WinUI 3 重写版。
 **服务层 + 单元测试（仅需 .NET SDK）：**
 
 ```powershell
-dotnet build src\SimpleViewer\SimpleViewer.Core.csproj -c Debug
+dotnet build SimpleViewer.Core.csproj -c Debug
 dotnet test tests\SimpleViewer.Tests\SimpleViewer.Tests.csproj -c Debug
 ```
 
@@ -27,7 +27,7 @@ dotnet test tests\SimpleViewer.Tests\SimpleViewer.Tests.csproj -c Debug
 
 ```powershell
 dotnet build SimpleViewer.sln -c Debug -p:Platform=x64
-dotnet run --project src\SimpleViewer\SimpleViewer.csproj -p:Platform=x64
+dotnet run --project SimpleViewer.csproj -p:Platform=x64
 ```
 
 ### 发布
@@ -36,7 +36,7 @@ dotnet run --project src\SimpleViewer\SimpleViewer.csproj -p:Platform=x64
 .\scripts\publish.ps1
 ```
 
-产物：`src\SimpleViewer\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\viewer.exe`
+产物：`bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\viewer.exe`
 
 ### 命令行
 
@@ -56,7 +56,9 @@ dotnet run --project src\SimpleViewer\SimpleViewer.csproj -p:Platform=x64
 
 ```
 SimpleViewer.sln
-src/SimpleViewer/          # WinUI 3 应用（输出 viewer.exe）
-tests/SimpleViewer.Tests/  # xUnit 服务层测试
+SimpleViewer.csproj      # WinUI 3 应用（输出 viewer.exe）
+SimpleViewer.Core.csproj # 领域服务（可单独 build/test）
+Services/ ViewModels/ Views/ Assets/
+tests/SimpleViewer.Tests/
 scripts/publish.ps1
 ```

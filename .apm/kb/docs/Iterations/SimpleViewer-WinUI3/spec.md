@@ -124,47 +124,22 @@ flowchart TB
 
 ## 最终项目结构
 
-使用 **git worktree** 在 `v2` 分支开发（与 `master` 上 Python 版并行）：
+仓库根目录即 WinUI 项目（分支 **`master`**）；Python 旧版在分支 **`v1`**。
 
 ```
-d:\Dev\Python\simple_viewer\           # master：现有 Python 版（保留）
-d:\Dev\Python\simple_viewer-v2\        # v2 worktree：WinUI 3 新版
+d:\Dev\Python\simple_viewer\
 ├── SimpleViewer.sln
-├── src\
-│   └── SimpleViewer\
-│       ├── App.xaml / App.xaml.cs
-│       ├── app.manifest
-│       ├── Package.appxmanifest          # 可选，非 Store 分发可简化
-│       ├── MainWindow.xaml / .xaml.cs
-│       ├── Views\
-│       │   └── SettingsPage.xaml / .xaml.cs
-│       ├── ViewModels\
-│       │   ├── MainViewModel.cs
-│       │   └── SettingsViewModel.cs
-│       ├── Models\
-│       │   ├── AppSettings.cs
-│       │   ├── ShortcutBinding.cs
-│       │   ├── ViewerCommand.cs          # 枚举
-│       │   └── LaunchOptions.cs
-│       ├── Services\
-│       │   ├── CommandLineService.cs
-│       │   ├── FileBrowserService.cs
-│       │   ├── ImageLoaderService.cs
-│       │   ├── FileOperationService.cs
-│       │   ├── ShortcutService.cs
-│       │   └── SettingsService.cs
-│       ├── Converters\                   # 可见性、格式化等
-│       ├── Helpers\
-│       │   └── NaturalStringComparer.cs
-│       └── Assets\
-│           ├── AppIcon.ico
-│           └── SplashScreen.scale-200.png
-└── tests\
-    └── SimpleViewer.Tests\
-        ├── FileBrowserServiceTests.cs
-        ├── CommandLineServiceTests.cs
-        ├── ShortcutServiceTests.cs
-        └── NaturalStringComparerTests.cs
+├── SimpleViewer.csproj          # WinUI 应用（输出 viewer.exe）
+├── SimpleViewer.Core.csproj     # 领域服务
+├── App.xaml / App.xaml.cs
+├── MainWindow.xaml / .xaml.cs
+├── app.manifest
+├── Views/ SettingsPage.xaml
+├── ViewModels/ MainViewModel.cs, SettingsViewModel.cs
+├── Models/ Services/ Helpers/
+├── Assets/AppIcon.ico
+├── tests/SimpleViewer.Tests/
+└── scripts/publish.ps1
 ```
 
 ---
@@ -370,7 +345,7 @@ d:\Dev\Python\simple_viewer-v2\        # v2 worktree：WinUI 3 新版
 
 | 项 | 决定 |
 |----|------|
-| 开发方式 | Git worktree：`d:\Dev\Python\simple_viewer-v2\`，分支 **`v2`**，后续推送到本仓库 `origin/v2` |
+| 开发方式 | 单仓根目录开发；分支 **`master`**（WinUI），**`v1`**（Python 归档） |
 | 可执行文件名 | **`viewer.exe`** |
 | GIF 旋转 | **支持**（`RotateTransform`，与静态图一致） |
 
