@@ -219,11 +219,19 @@ public sealed partial class MainWindow : Window
                 Title = "Keyboard shortcuts",
                 Content = page,
                 XamlRoot = Content.XamlRoot,
-                CloseButtonText = string.Empty,
-                DefaultButton = ContentDialogButton.None,
+                PrimaryButtonText = "Save",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
             };
 
-            page.CloseRequested += (_, _) => dialog.Hide();
+            dialog.PrimaryButtonClick += (_, args) =>
+            {
+                if (!page.TrySave())
+                {
+                    args.Cancel = true;
+                }
+            };
+
             await dialog.ShowAsync();
         }
         finally

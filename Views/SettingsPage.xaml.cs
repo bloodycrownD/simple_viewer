@@ -19,8 +19,6 @@ public sealed partial class SettingsPage : UserControl
 {
     public SettingsViewModel ViewModel { get; }
 
-    public event EventHandler<bool>? CloseRequested;
-
     public SettingsPage(SettingsViewModel viewModel)
     {
         ViewModel = viewModel;
@@ -83,16 +81,6 @@ public sealed partial class SettingsPage : UserControl
         ViewModel.NotifyCommandSelectionChanged();
     }
 
-    private void OnSaveClick(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel.TrySave())
-        {
-            CloseRequested?.Invoke(this, true);
-        }
-    }
-
-    private void OnCancelClick(object sender, RoutedEventArgs e)
-    {
-        CloseRequested?.Invoke(this, false);
-    }
+    /// <summary>Validates and saves bindings. Returns false when validation fails.</summary>
+    public bool TrySave() => ViewModel.TrySave();
 }
