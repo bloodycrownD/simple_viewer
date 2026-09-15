@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Viewer · 打标签与瀑布流 交互原型</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body class="dark">
+<div id="app">
+  <header id="toolbar">
+    <div class="app-title">Simple Viewer<span class="proto-badge">交互原型</span></div>
+    <div class="library-info">
+      <span id="scanStatus" class="scan-status">准备扫描…</span>
+      <span id="libraryPath" class="library-path">D:\Pics</span>
+    </div>
+    <div class="toolbar-actions">
+      <label class="sort-box">排序
+        <select id="sortMode">
+          <option value="name">按文件名（含标签，打标会跳动）</option>
+          <option value="found">按发现顺序（稳定）</option>
+        </select>
+      </label>
+      <button id="resetDemoBtn" class="ghost-btn" title="清空本地改动并重新生成演示数据">重置数据</button>
+      <button id="themeBtn" class="ghost-btn" title="切换深浅色">主题</button>
+    </div>
+  </header>
+
+  <div id="filterBar" class="empty">
+    <div id="activeFilters"></div>
+    <div class="filter-right">
+      <span id="filterStats"></span>
+      <button id="clearFilterBtn" class="ghost-btn small">清空筛选</button>
+    </div>
+  </div>
+
+  <div id="mainRow">
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <span>标签库</span>
+        <button id="addGroupBtn" class="ghost-btn small">＋ 新建组</button>
+      </div>
+      <div id="groupList"></div>
+      <div class="sidebar-tip">
+        未选中图片时，点击标签 = 筛选<br>
+        选中图片后，点击标签 = 批量打标<br>
+        Shift + 点击标签 = 从选中图片移除
+      </div>
+    </aside>
+    <main id="waterfallWrap">
+      <div id="waterfall"></div>
+      <div id="emptyHint" class="hidden">当前筛选条件下没有图片</div>
+    </main>
+  </div>
+
+  <footer id="statusBar">
+    <span id="statusLeft"></span>
+    <span id="statusHint">单击选择 · Shift 连选 · Ctrl+A 全选 · 双击看大图 · Esc 取消选择</span>
+  </footer>
+</div>
+
+<!-- 单图查看 -->
+<div id="viewerOverlay" class="overlay hidden">
+  <div class="viewer-top">
+    <div class="viewer-file">
+      <div id="viewerFileName" class="mono"></div>
+      <div id="viewerPath" class="viewer-path"></div>
+    </div>
+    <div class="viewer-actions">
+      <button id="viewerPrev" class="ghost-btn">← 上一张</button>
+      <button id="viewerNext" class="ghost-btn">下一张 →</button>
+      <button id="viewerDelete" class="ghost-btn danger">删除</button>
+      <button id="viewerClose" class="ghost-btn">关闭 (Esc)</button>
+    </div>
+  </div>
+  <div class="viewer-body">
+    <img id="viewerImg" alt="">
+  </div>
+  <div class="viewer-tags" id="viewerTags"></div>
+</div>
+
+<!-- 通用对话框 -->
+<div id="modalOverlay" class="overlay hidden">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle"></div>
+    <div class="modal-msg" id="modalMsg"></div>
+    <input id="modalInput" class="hidden" type="text">
+    <label id="modalCheckWrap" class="modal-check hidden">
+      <input type="checkbox" id="modalCheck"> <span id="modalCheckLabel"></span>
+    </label>
+    <div class="modal-btns">
+      <button id="modalCancel" class="ghost-btn">取消</button>
+      <button id="modalOk" class="primary-btn">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+<script src="demo.js"></script>
+</body>
+</html>
