@@ -34,6 +34,7 @@ public sealed class LibraryScanService : ILibraryScanService
     }
 
     /// <inheritdoc />
+#pragma warning disable CS1998 // 枚举为同步磁盘 IO + yield 产出，无 await 是刻意设计（消费方 MoveNextAsync 线程上执行）
     public async IAsyncEnumerable<GalleryItem> ScanAsync(
         string root,
         IProgress<int>? progress = null,
@@ -102,6 +103,7 @@ public sealed class LibraryScanService : ILibraryScanService
             }
         }
     }
+#pragma warning restore CS1998
 
     /// <summary>
     /// 构造枚举选项（D9）：忽略不可访问目录 + 递归子目录。
