@@ -18,12 +18,64 @@ public partial class App : Application
     /// <summary>当前主窗口（WinRT 选择器与焦点检查用）。</summary>
     public static Window? CurrentWindow { get; private set; }
 
+    /// <summary>诊断日志路径（启动与未处理异常落盘，便于崩溃定位）。</summary>
+    public static string DiagnosticLogPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SimpleViewer", "logs", "startup.log");
+
     public App()
     {
         InitializeComponent();
+
+        // 全局未处理异常落盘：WinUI 异步续体的托管异常默认以 0xc000027b 沉默崩溃，
+        // 不接住就拿不到堆栈（现场诊断与后续线上排障都依赖这份日志）。
+        UnhandledException += (s, e) =>
+        {
+            WriteDiagnosticLog($"[UnhandledException] {e.Message}", e.Exception);
+            e.Handled = true;
+        };
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            WriteDiagnosticLog("[UnobservedTaskException]", e.Exception);
+            e.SetObserved();
+        };
+    }
+
+    /// <summary>追加诊断日志（含内层异常链与堆栈；失败静默——诊断代码不许再抛）。</summary>
+    public static void WriteDiagnosticLog(string headline, Exception? exception = null)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(DiagnosticLogPath)!);
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {headline}");
+            for (var ex = exception; ex is not null; ex = ex.InnerException)
+            {
+                sb.AppendLine($"  {ex.GetType().FullName}: {ex.Message}");
+                sb.AppendLine(ex.StackTrace ?? "  <无堆栈>");
+            }
+            File.AppendAllText(DiagnosticLogPath, sb.ToString());
+        }
+        catch
+        {
+            // 诊断日志失败静默
+        }
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        try
+        {
+            LaunchCore(args);
+        }
+        catch (Exception ex)
+        {
+            WriteDiagnosticLog("[OnLaunched 致命异常]", ex);
+            throw;
+        }
+    }
+
+    private void LaunchCore(LaunchActivatedEventArgs args)
     {
         var settingsService = new SettingsService();
         settingsService.Load();

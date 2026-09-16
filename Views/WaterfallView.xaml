@@ -43,7 +43,7 @@
                                 <!-- 缩略图占位（浅色块）→ 异步渐入：OpacityTransition 驱动 0→1 过渡 -->
                                 <Grid
                                     Grid.Row="0"
-                                    Background="{ThemeResource LayerFillColorSecondaryBrush}"
+                                    Background="{ThemeResource LayerFillColorAltBrush}"
                                     Opacity="{x:Bind views:WaterfallConverters.PresenceOpacity(Thumbnail), Mode=OneWay}">
                                     <Grid.OpacityTransition>
                                         <ScalarTransition Duration="0:0:0.25" />
