@@ -2,8 +2,9 @@
 //       渐进追加/整体重置，卡片交互向 MainViewModel 转发。
 // 不变量：GallerySource 仅允许 UI 线程变更（扫描块经 Progress<T> 回投 UI 线程后追加）；
 //         扫描渐进追加走批量 Add 通知（每扫描块一次，不逐项通知）；
-//         打标/重命名/筛选切换后走整体 Reset 刷新（卡片 VM 全部重建，缩略图由缓存兜底）。
-// 调用链：MainViewModel（扫描块回投/打标与筛选后重置）→ WaterfallViewModel → GallerySource → ItemsRepeater。
+//         打标/重命名走就地更新（MainViewModel.ReplaceGalleryItemState → 卡片 VM UpdateFrom，
+//         VM 实例不变、不发集合通知，选中集天然保持）；仅筛选切换走整体 Reset。
+// 调用链：MainViewModel（扫描块回投/打标就地更新/筛选后重置）→ WaterfallViewModel → GallerySource → ItemsRepeater。
 
 using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
