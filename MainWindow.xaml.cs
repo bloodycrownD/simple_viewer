@@ -52,6 +52,9 @@ public sealed partial class MainWindow : Window
         // 宿主 ContentControl 的可见性由 x:Bind 按 VM 模式属性互斥切换，D14）。
         SingleImageHost.Content = new SingleImageView(ViewModel);
 
+        // 瀑布流本体（Step 8）：同一互斥切换机制；Esc 返回后滚动位置由 Visibility 切换天然保持。
+        WaterfallHost.Content = new WaterfallView(ViewModel);
+
         ConfigureWindowChrome();
         ApplySystemBackdrop();
     }

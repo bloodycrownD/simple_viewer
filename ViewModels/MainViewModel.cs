@@ -1,7 +1,9 @@
-// 职责：主查看器状态——单图导航/旋转/显示、双模式（图库/单图）互斥切换、图库扫描驱动、文件名标签分段。
+// 职责：主查看器状态——单图导航/旋转/显示、双模式（图库/单图）互斥切换、图库扫描驱动、文件名标签分段、
+//       瀑布流数据源驱动（渐进追加）与卡片选中集。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
-//         ScanAsync 为同步磁盘 IO 迭代器，一律 Task.Run 后台消费、UI 线程仅经 Progress 收进度（几十万张不假死口径）；
-//         扫描项暂存 List<GalleryItem>（不灌 ObservableCollection，几十万项会爆；Step 8 换虚拟化数据源）；
+//         ScanAsync 为同步磁盘 IO 迭代器，一律 Task.Run 后台消费、UI 线程仅经 Progress 收进度/扫描块（几十万张不假死口径）；
+//         扫描块经 Progress 回投 UI 线程后追加进 WaterfallViewModel（虚拟化数据源，绝不一次性同步灌入）；
+//         卡片选中集状态在本类（WaterfallViewModel 仅转发）；Ctrl/Shift 连选与 Ctrl+A 属 Step 10；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
 // 调用链：App → MainWindow → MainViewModel → FileBrowser / ImageLoader / FileOperation / TagFilename / LibraryScan / LibraryIndex 服务。
 
@@ -18,7 +20,7 @@ namespace SimpleViewer.ViewModels;
 /// <summary>查看模式（D14 双模式互斥切换）：Gallery=瀑布流图库，Single=单图查看。</summary>
 public enum ViewerMode
 {
-    /// <summary>瀑布流图库模式（本步为占位壳与扫描状态，Step 8 接入瀑布流本体）。</summary>
+    /// <summary>瀑布流图库模式。</summary>
     Gallery,
 
     /// <summary>单图查看模式。</summary>
@@ -26,7 +28,7 @@ public enum ViewerMode
 }
 
 /// <summary>
-/// 主窗口视图模型：单图查看状态、双模式切换与图库扫描驱动。
+/// 主窗口视图模型：单图查看状态、双模式切换、图库扫描驱动与瀑布流选中集。
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
@@ -35,13 +37,13 @@ public partial class MainViewModel : ObservableObject
     private readonly IFileOperationService _fileOperations;
     private readonly ITagFilenameService _tagFilename;
 
-    // TagService/ThumbnailService 由后续步骤消费（Step 10 打标 / Step 8 瀑布流缩略图）；
-    // 本步先行注入以稳定构造签名，显式压制“赋值未使用”告警保住 0 警告口径。
+    // TagService 由 Step 10 批量打标消费；本步先行注入以稳定构造签名，
+    // 显式压制“赋值未使用”告警保住 0 警告口径。
 #pragma warning disable CS0414
     private readonly ITagService _tagService;
-    private readonly IThumbnailService _thumbnailService;
 #pragma warning restore CS0414
 
+    private readonly IThumbnailService _thumbnailService;
     private readonly ILibraryScanService _scanService;
 
     private readonly List<string> _imageFiles = [];
@@ -51,11 +53,16 @@ public partial class MainViewModel : ObservableObject
     private string? _currentDirectory;
     private CancellationTokenSource? _loadCts;
 
-    // 图库状态：扫描项仅由后台任务写（Step 8 前无 UI 消费方，Step 8 起换虚拟化数据源接管）。
+    // 图库状态：_galleryItems 为扫描全量暂存（后台线程写，UI 消费走 Waterfall 渐进追加）。
     private readonly List<GalleryItem> _galleryItems = [];
     private CancellationTokenSource? _scanCts;
     private ILibraryIndexService? _indexService;
     private string? _libraryRootPath;
+
+    // 卡片选中集（引用相等去重；筛选/重开图库时整体清空）。
+    private readonly HashSet<GalleryItemViewModel> _selectedCards = [];
+
+    private readonly WaterfallViewModel _waterfall;
 
     public MainViewModel(
         IFileBrowserService fileBrowser,
@@ -73,7 +80,15 @@ public partial class MainViewModel : ObservableObject
         _tagService = tagService;
         _scanService = scanService;
         _thumbnailService = thumbnailService;
+
+        // 瀑布流薄壳（Step 8）：项包装与集合通知在彼处，卡片交互转发回本类。
+        _waterfall = new WaterfallViewModel(this, thumbnailService);
+        _waterfall.ItemsChanged += OnWaterfallItemsChanged;
     }
+
+    /// <summary>瀑布流视图模型（虚拟化数据源与卡片项）。</summary>
+    public WaterfallViewModel Waterfall => _waterfall;
+
 
     /// <summary>宿主提供的单图文件选择器（WinRT）；由 <see cref="MainWindow"/> 注入。</summary>
     public Func<Task<string?>>? PickImageFileAsync { get; set; }
@@ -127,6 +142,14 @@ public partial class MainViewModel : ObservableObject
     /// <summary>左栏（标签栏壳）是否处于折叠态。</summary>
     [ObservableProperty]
     private bool _isSidebarCollapsed;
+
+    /// <summary>瀑布流卡片选中数。</summary>
+    [ObservableProperty]
+    private int _selectedCardCount;
+
+    /// <summary>瀑布流空态文案（扫描完成 0 张 / 筛选无命中；由本类在状态切换点设置）。</summary>
+    [ObservableProperty]
+    private string _waterfallEmptyText = string.Empty;
 
     /// <summary>当前文件名的标签前前缀段（含“[”，无标签时为完整文件名）。</summary>
     [ObservableProperty]
@@ -313,27 +336,34 @@ public partial class MainViewModel : ObservableObject
         _indexService = indexService;
 
         _galleryItems.Clear();
+        ClearCardSelection();
+        _waterfall.ResetFrom([]);
+        WaterfallEmptyText = string.Empty;
         IsScanning = true;
         ScanStatusText = "扫描中 · 已发现 0 张";
 
-        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程，仅更新状态文本。
+        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）。
         var progress = new Progress<int>(count => ScanStatusText = $"扫描中 · 已发现 {count} 张");
+        IProgress<IReadOnlyList<GalleryItem>> chunkProgress =
+            new Progress<IReadOnlyList<GalleryItem>>(_waterfall.AppendChunkFromScan);
 
         try
         {
             // ScanAsync 为同步磁盘 IO 迭代器（MoveNextAsync 在消费线程上同步执行磁盘枚举）：
-            // 必须 Task.Run 后台消费，UI 线程只收进度/结果——几十万张不假死的硬性口径。
+            // 必须 Task.Run 后台消费，UI 线程只收进度/扫描块——几十万张不假死的硬性口径。
             await Task.Run(async () =>
             {
                 var chunk = new List<GalleryItem>(LibraryScanService.ChunkSize);
                 await foreach (var item in _scanService.ScanAsync(root, progress, token))
                 {
-                    // 本阶段仅暂存 List（虚拟化数据源 Step 8 接管）；绝不灌 ObservableCollection。
+                    // 全量暂存 List + 分块 upsert 索引；瀑布流经 chunkProgress 渐进追加（UI 线程）。
                     _galleryItems.Add(item);
                     chunk.Add(item);
                     if (chunk.Count >= LibraryScanService.ChunkSize)
                     {
                         await indexService.UpsertChunkAsync(chunk, token);
+                        // Report 引用会被异步消费，复用 List 前必须快照。
+                        chunkProgress.Report(chunk.ToArray());
                         chunk.Clear();
                     }
                 }
@@ -341,10 +371,15 @@ public partial class MainViewModel : ObservableObject
                 if (chunk.Count > 0)
                 {
                     await indexService.UpsertChunkAsync(chunk, token);
+                    chunkProgress.Report(chunk.ToArray());
                 }
             }, token);
 
             ScanStatusText = $"共 {_galleryItems.Count} 张";
+            if (_galleryItems.Count == 0)
+            {
+                WaterfallEmptyText = "未在所选目录发现图片";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -381,7 +416,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// Esc 三态路由（D6）：单图模式且有图库 → 返回瀑布流并返回 true；
-    /// 瀑布流模式且有选中集 → 清空选中并返回 true（选中集 Step 10 才有，本步预留分支）；
+    /// 瀑布流模式且有选中集 → 清空选中并返回 true；
     /// 其余返回 false，由调用方维持 ExitApp 原行为。
     /// </summary>
     public bool TryRouteEscape()
@@ -396,13 +431,46 @@ public partial class MainViewModel : ObservableObject
             return true;
         }
 
-        if (CurrentMode == ViewerMode.Gallery)
+        if (CurrentMode == ViewerMode.Gallery && SelectedCardCount > 0)
         {
-            // Step 10 接入：瀑布流选中集非空时清空选中并 return true；
-            // 本步无选中集，落到下述 false（维持 ExitApp 原行为）。
+            ClearCardSelection();
+            return true;
         }
 
         return false;
+    }
+
+    /// <summary>卡片单击 = 选中/取消选中（WaterfallViewModel 转发；Ctrl/Shift 连选与 Ctrl+A 属 Step 10）。</summary>
+    public void ToggleCardSelection(GalleryItemViewModel viewModel)
+    {
+        if (viewModel is null)
+        {
+            return;
+        }
+
+        if (_selectedCards.Remove(viewModel))
+        {
+            viewModel.IsSelected = false;
+        }
+        else
+        {
+            _selectedCards.Add(viewModel);
+            viewModel.IsSelected = true;
+        }
+
+        SelectedCardCount = _selectedCards.Count;
+    }
+
+    /// <summary>清空卡片选中集（Esc 路由 / 筛切换 / 重开图库）。</summary>
+    public void ClearCardSelection()
+    {
+        foreach (var viewModel in _selectedCards)
+        {
+            viewModel.IsSelected = false;
+        }
+
+        _selectedCards.Clear();
+        SelectedCardCount = 0;
     }
 
     [RelayCommand(CanExecute = nameof(CanNavigateImages))]
@@ -519,6 +587,7 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ScanStatusVisibility));
         OnPropertyChanged(nameof(GalleryHintVisibility));
+        OnPropertyChanged(nameof(WaterfallEmptyVisibility));
         BackToGalleryCommand.NotifyCanExecuteChanged();
     }
 
@@ -526,6 +595,7 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ScanStatusVisibility));
         OnPropertyChanged(nameof(GalleryHintVisibility));
+        OnPropertyChanged(nameof(WaterfallEmptyVisibility));
     }
 
     partial void OnIsSidebarCollapsedChanged(bool value)
@@ -563,6 +633,51 @@ public partial class MainViewModel : ObservableObject
     /// <summary>左栏折叠窄条可见性。</summary>
     public Visibility SidebarCollapsedVisibility =>
         IsSidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>图库状态行文本：扫描/共 N 张 + 已选 N 张（状态栏最小反馈；筛选命中数 Step 9 接入）。</summary>
+    public string GalleryStatusText
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(ScanStatusText))
+            {
+                parts.Add(ScanStatusText);
+            }
+
+            if (SelectedCardCount > 0)
+            {
+                parts.Add($"已选 {SelectedCardCount} 张");
+            }
+
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>瀑布流空态可见性：已打开图库、非扫描中且瀑布流无项时显示（首次启动引导在 MainWindow 覆盖层）。</summary>
+    public Visibility WaterfallEmptyVisibility =>
+        HasGallery && !IsScanning && _waterfall.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    partial void OnScanStatusTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(GalleryStatusText));
+    }
+
+    partial void OnSelectedCardCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(GalleryStatusText));
+    }
+
+    partial void OnWaterfallEmptyTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(WaterfallEmptyVisibility));
+    }
+
+    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性。</summary>
+    private void OnWaterfallItemsChanged()
+    {
+        OnPropertyChanged(nameof(WaterfallEmptyVisibility));
+    }
 
     partial void OnHasImageChanged(bool value)
     {

@@ -131,7 +131,7 @@
                     ToolTipService.ToolTip="展开标签栏" />
             </Border>
 
-            <!-- 内容区：单图视图与图库区占位互斥（VM Visibility 计算属性，D14） -->
+            <!-- 内容区：单图视图与瀑布流图库互斥（VM Visibility 计算属性，D14） -->
             <Grid Grid.Column="1">
                 <ContentControl
                     x:Name="SingleImageHost"
@@ -140,10 +140,41 @@
                     Visibility="{x:Bind ViewModel.SingleVisibility, Mode=OneWay}" />
 
                 <Grid Visibility="{x:Bind ViewModel.GalleryVisibility, Mode=OneWay}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 图库状态行：扫描进度/共 N 张/已选 N 张（最小可见反馈） -->
+                    <Border
+                        Grid.Row="0"
+                        Padding="12,6"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="0,0,0,1">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.GalleryStatusText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
+                    </Border>
+
+                    <!-- 瀑布流本体（code-behind 构造注入，沿用 SingleImageHost 宿主惯例） -->
+                    <ContentControl
+                        x:Name="WaterfallHost"
+                        Grid.Row="1"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" />
+
+                    <!-- 首次启动空态引导（未打开图库且未在扫描） -->
                     <StackPanel
+                        Grid.Row="0"
+                        Grid.RowSpan="2"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        Spacing="8">
+                        Spacing="8"
+                        Visibility="{x:Bind ViewModel.GalleryHintVisibility, Mode=OneWay}">
                         <TextBlock
                             FontSize="14"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -155,8 +186,7 @@
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                             Text="点击工具栏「打开图库」选择图片根目录开始"
                             TextAlignment="Center"
-                            TextWrapping="Wrap"
-                            Visibility="{x:Bind ViewModel.GalleryHintVisibility, Mode=OneWay}" />
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
             </Grid>
