@@ -1,6 +1,7 @@
-// Responsibility: Primary window chrome, keyboard routing, dialogs, and view model host callbacks.
-// Invariants: Global shortcuts disabled while settings dialog is open; matched keys are marked handled.
-// Call chain: App → MainWindow → ShortcutService.TryMatch → MainViewModel commands.
+// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6）、对话框宿主、视图模型宿主回调注入、双模式壳装配。
+// 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
+//         ExitApp 分派点先经 Esc 三态路由拦截（单图+有图库→返回图库；瀑布流+选中集→清空选中（Step 10）；其余→原退出行为）。
+// 调用链：App → MainWindow → ShortcutService.TryMatch → MainViewModel 命令。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,7 +17,7 @@ using WinRT.Interop;
 namespace SimpleViewer;
 
 /// <summary>
-/// Primary shell window hosting the image viewer UI and view model bindings.
+/// 主壳窗口：承载单图/图库双模式 UI 与视图模型绑定。
 /// </summary>
 public sealed partial class MainWindow : Window
 {
@@ -39,12 +40,18 @@ public sealed partial class MainWindow : Window
         _settingsService = settingsService;
 
         ViewModel.PickImageFileAsync = PickImageFileAsync;
+        ViewModel.PickLibraryFolderAsync = PickLibraryFolderAsync;
         ViewModel.ConfirmDeleteAsync = ConfirmDeleteAsync;
         ViewModel.OpenSettingsAsync = ShowSettingsDialogAsync;
         ViewModel.FullscreenChanged += OnFullscreenChanged;
         ViewModel.ExitRequested += OnExitRequested;
 
         InitializeComponent();
+
+        // 单图视图构造注入（沿用 SettingsPage“先赋值后 InitializeComponent”惯例；
+        // 宿主 ContentControl 的可见性由 x:Bind 按 VM 模式属性互斥切换，D14）。
+        SingleImageHost.Content = new SingleImageView(ViewModel);
+
         ConfigureWindowChrome();
         ApplySystemBackdrop();
     }
@@ -193,6 +200,13 @@ public sealed partial class MainWindow : Window
 
                 break;
             case ViewerCommand.ExitApp:
+                // Esc 三态路由（D6）：单图且有图库 → 返回瀑布流；瀑布流且有选中集 → 清空（Step 10 接入）；
+                // 其余维持原退出行为。对话框打开期间快捷键已被 _shortcutsEnabled 整体屏蔽，Esc 优先关闭对话框。
+                if (ViewModel.TryRouteEscape())
+                {
+                    break;
+                }
+
                 ViewModel.RequestExit();
                 break;
             case ViewerCommand.MoveToFolder:
@@ -216,11 +230,11 @@ public sealed partial class MainWindow : Window
 
             var dialog = new ContentDialog
             {
-                Title = "Keyboard shortcuts",
+                Title = "键盘快捷键",
                 Content = page,
                 XamlRoot = Content.XamlRoot,
-                PrimaryButtonText = "Save",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = "保存",
+                CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
             };
 
@@ -244,10 +258,10 @@ public sealed partial class MainWindow : Window
     {
         var dialog = new ContentDialog
         {
-            Title = "Delete image?",
-            Content = "Move this file to the Recycle Bin?",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
+            Title = "删除图片？",
+            Content = "将此文件移入回收站？",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -273,5 +287,22 @@ public sealed partial class MainWindow : Window
 
         var file = await picker.PickSingleFileAsync();
         return file?.Path;
+    }
+
+    /// <summary>图库根目录选择器（FolderPicker，仿 PickImageFileAsync 的 InitializeWithWindow 模式）。</summary>
+    private async Task<string?> PickLibraryFolderAsync()
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+        };
+
+        picker.FileTypeFilter.Add("*");
+
+        var hwnd = WindowNative.GetWindowHandle(this);
+        InitializeWithWindow.Initialize(picker, hwnd);
+
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
     }
 }
