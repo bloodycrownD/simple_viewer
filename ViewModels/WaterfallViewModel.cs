@@ -35,11 +35,23 @@ public partial class WaterfallViewModel : ObservableObject
 
     /// <summary>
     /// 追加一个扫描块（扫描渐进呈现；必须在 UI 线程调用——MainViewModel 经 Progress 回投）。
+    /// 筛选激活时块内项先经筛选谓词过滤（Step 9：筛选态与渐进追加互不干扰）。
     /// </summary>
     public void AppendChunkFromScan(IReadOnlyList<GalleryItem> chunk)
     {
         if (chunk.Count == 0)
         {
+            return;
+        }
+
+        if (_owner.IsTagFilterActive)
+        {
+            chunk = chunk.Where(_owner.MatchesTagFilter).ToArray();
+        }
+
+        if (chunk.Count == 0)
+        {
+            ItemsChanged?.Invoke(); // 无命中也要通知（状态行命中数刷新）。
             return;
         }
 

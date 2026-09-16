@@ -46,6 +46,11 @@ public sealed partial class MainWindow : Window
         ViewModel.FullscreenChanged += OnFullscreenChanged;
         ViewModel.ExitRequested += OnExitRequested;
 
+        // 标签栏（Step 9）：设置服务经宿主注入（保持 MainViewModel 构造签名稳定，App 组装不变）；
+        // 编辑对话框宿主回调（含 _shortcutsEnabled 屏蔽）在此注入侧栏 VM。
+        ViewModel.AttachSettingsService(_settingsService);
+        ViewModel.TagSidebar.ShowTagEditorAsync = ShowTagEditorAsync;
+
         InitializeComponent();
 
         // 单图视图构造注入（沿用 SettingsPage“先赋值后 InitializeComponent”惯例；
@@ -54,6 +59,10 @@ public sealed partial class MainWindow : Window
 
         // 瀑布流本体（Step 8）：同一互斥切换机制；Esc 返回后滚动位置由 Visibility 切换天然保持。
         WaterfallHost.Content = new WaterfallView(ViewModel);
+
+        // 标签栏本体（Step 9）：配置组初始呈现（计数随扫描/编辑刷新）。
+        TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
+        _ = ViewModel.InitializeTagSidebarAsync();
 
         ConfigureWindowChrome();
         ApplySystemBackdrop();
@@ -246,6 +255,51 @@ public sealed partial class MainWindow : Window
                 if (!page.TrySave())
                 {
                     args.Cancel = true;
+                }
+            };
+
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 标签/组编辑对话框宿主（Step 9，D13：沿用 SettingsPage 的 ContentDialog + TrySave 模板）。
+    /// 对话框期间快捷键整体屏蔽（_shortcutsEnabled）；PrimaryButtonClick 经 deferral 异步等待执行，
+    /// 执行失败（返回 false）时取消关闭、错误显示于对话框内。
+    /// </summary>
+    private async Task ShowTagEditorAsync(TagEditRequest request)
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            var editor = new TagEditDialog(request, ViewModel.ExecuteTagEditAsync);
+            var dialog = new ContentDialog
+            {
+                Title = editor.Title,
+                Content = editor,
+                XamlRoot = Content.XamlRoot,
+                PrimaryButtonText = editor.PrimaryButtonText,
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+
+            dialog.PrimaryButtonClick += async (_, args) =>
+            {
+                var deferral = args.GetDeferral();
+                try
+                {
+                    if (!await editor.TrySaveAsync())
+                    {
+                        args.Cancel = true;
+                    }
+                }
+                finally
+                {
+                    deferral.Complete();
                 }
             };
 
