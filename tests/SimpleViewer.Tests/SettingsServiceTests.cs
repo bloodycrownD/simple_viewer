@@ -272,6 +272,83 @@ public class SettingsServiceTests
         }
     }
 
+    /// <summary>spec T-SK3（Step 12）：ApplyTag 绑定缺 TagId 被 ValidateBindings 拒绝（中文提示）。</summary>
+    [Fact]
+    public void T_ST_07_ApplyTagBindingWithoutTagId_Rejected()
+    {
+        var settings = WithTagGroups(new ShortcutBinding
+        {
+            VirtualKey = "T",
+            Modifiers = [],
+            Command = ViewerCommand.ApplyTag,
+            TagId = null,
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => SettingsService.ValidateBindings(settings));
+        Assert.Contains("必须选择一个标签", ex.Message);
+    }
+
+    /// <summary>spec T-SK3（Step 12）：ApplyTag 绑定的 TagId 引用不存在的标签被拒绝（中文提示）。</summary>
+    [Fact]
+    public void T_ST_08_ApplyTagBindingWithUnknownTagId_Rejected()
+    {
+        var settings = WithTagGroups(new ShortcutBinding
+        {
+            VirtualKey = "T",
+            Modifiers = [],
+            Command = ViewerCommand.ApplyTag,
+            TagId = "missing-tag",
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => SettingsService.ValidateBindings(settings));
+        Assert.Contains("标签不存在", ex.Message);
+    }
+
+    /// <summary>spec T-SK3 反例：ApplyTag 绑定携带合法 TagId（引用存在的标签）通过校验，不误拒。</summary>
+    [Fact]
+    public void T_ST_09_ApplyTagBindingWithValidTagId_PassesValidation()
+    {
+        var settings = WithTagGroups(
+            new ShortcutBinding
+            {
+                VirtualKey = "T",
+                Modifiers = ["Control"],
+                Command = ViewerCommand.ApplyTag,
+                TagId = "tag-1",
+            },
+            new ShortcutBinding
+            {
+                VirtualKey = "Number1",
+                Modifiers = [],
+                Command = ViewerCommand.ApplyTag,
+                TagId = "tag-2",
+            });
+
+        Assert.Null(Record.Exception(() => SettingsService.ValidateBindings(settings)));
+    }
+
+    /// <summary>构造含标签组配置与指定快捷键绑定的设置（标签组含 tag-1/tag-2 两个可选标签）。</summary>
+    private static AppSettings WithTagGroups(params ShortcutBinding[] shortcuts)
+    {
+        return new AppSettings
+        {
+            Shortcuts = [.. shortcuts],
+            TagGroups =
+            [
+                new TagGroup
+                {
+                    Id = "g1",
+                    Name = "主题",
+                    Tags =
+                    [
+                        new TagDefinition { Id = "tag-1", Name = "风景" },
+                        new TagDefinition { Id = "tag-2", Name = "已修" },
+                    ],
+                },
+            ],
+        };
+    }
+
     private static void AssertShortcut(
         AppSettings settings,
         string virtualKey,

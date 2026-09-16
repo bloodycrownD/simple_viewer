@@ -241,6 +241,15 @@ public sealed partial class MainWindow : Window
                 }
 
                 break;
+            case ViewerCommand.ApplyTag:
+                // 快捷键打标（Step 12，D7）：单图模式 = 当前图 toggle 打标；图库模式 = 选中集批量（空则忽略）；
+                // 模式分流与互斥语义在 MainViewModel.ApplyTagByShortcutAsync（复用 Step 10 管线）。
+                if (!string.IsNullOrWhiteSpace(match.TagId))
+                {
+                    _ = ViewModel.ApplyTagByShortcutAsync(match.TagId);
+                }
+
+                break;
         }
     }
 

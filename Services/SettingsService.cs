@@ -97,7 +97,7 @@ public sealed class SettingsService : ISettingsService
     }
 
     /// <summary>
-    /// Validates shortcut bindings before save (duplicates, keys, MoveToFolder paths).
+    /// 保存前的快捷键绑定校验（重复键、空键名、MoveToFolder 目标路径、ApplyTag 标签参数）。
     /// </summary>
     public static void ValidateBindings(AppSettings settings)
     {
@@ -115,6 +115,25 @@ public sealed class SettingsService : ISettingsService
             {
                 throw new InvalidOperationException(
                     "Move to folder shortcuts require a target folder path.");
+            }
+
+            if (binding.Command == ViewerCommand.ApplyTag)
+            {
+                // 模型契约：TagId 引用 TagDefinition.Id（稳定 Id）；沿用 MoveToFolder/TargetPath 校验先例。
+                if (string.IsNullOrWhiteSpace(binding.TagId))
+                {
+                    throw new InvalidOperationException(
+                        $"打标签快捷键（{binding.VirtualKey}）必须选择一个标签参数。");
+                }
+
+                var tagExists = settings.TagGroups?
+                    .SelectMany(static g => g.Tags)
+                    .Any(t => string.Equals(t.Id, binding.TagId, StringComparison.Ordinal)) == true;
+                if (!tagExists)
+                {
+                    throw new InvalidOperationException(
+                        $"打标签快捷键（{binding.VirtualKey}）引用的标签不存在（可能已被删除），请重新选择标签。");
+                }
             }
         }
     }

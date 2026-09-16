@@ -725,6 +725,68 @@ public partial class MainViewModel : ObservableObject
         await ToggleTagFilterAsync(tagName);
     }
 
+    /// <summary>
+    /// 快捷键打标入口（Step 12，决策 D7：命令 + TagId 参数）：
+    /// 单图模式且有图 → 当前图打标/移除（toggle，复用 Step 10 单图管线）；
+    /// 图库模式且选中集非空 → 批量打标（互斥语义走既有 TagSemantics）；选中集为空 → 无操作；
+    /// tagId 解析失败（标签已被删除或设置未初始化）→ InfoBar 警告提示重新绑定。
+    /// </summary>
+    /// <param name="tagId">快捷键绑定引用的标签稳定 Id（<see cref="TagDefinition.Id"/>）。</param>
+    public async Task ApplyTagByShortcutAsync(string? tagId)
+    {
+        if (string.IsNullOrWhiteSpace(tagId) || _isTagOperationRunning)
+        {
+            return;
+        }
+
+        var resolved = FindTagById(tagId);
+        if (resolved is null)
+        {
+            ShowInstantTagFeedback(
+                InfoBarSeverity.Warning,
+                "打标签",
+                "快捷键引用的标签不存在（可能已被删除），请在设置中重新绑定。",
+                []);
+            return;
+        }
+
+        var (group, tagName) = resolved.Value;
+
+        if (CurrentMode == ViewerMode.Single && HasImage)
+        {
+            await ToggleTagOnCurrentImageAsync(group, tagName);
+            return;
+        }
+
+        if (CurrentMode == ViewerMode.Gallery && SelectedCardCount > 0)
+        {
+            await ApplyTagToSelectionAsync(group, tagName);
+        }
+
+        // 图库模式且选中集为空：无操作（spec Step 12——空则忽略）。
+    }
+
+    /// <summary>
+    /// 按稳定 Id 查找标签及其所属配置组（TagDefinition.Id 契约：重命名不改 Id，故引用不受重命名影响）。
+    /// 返回 null 表示 Id 不再引用任何已配置标签。
+    /// </summary>
+    private (TagGroup Group, string TagName)? FindTagById(string tagId)
+    {
+        var groups = _settingsService?.Load().TagGroups ?? [];
+        foreach (var group in groups)
+        {
+            foreach (var tag in group.Tags)
+            {
+                if (string.Equals(tag.Id, tagId, StringComparison.Ordinal))
+                {
+                    return (group, tag.Name);
+                }
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>选中集批量打标（互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。</summary>
     public async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
     {
