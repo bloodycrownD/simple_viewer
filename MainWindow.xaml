@@ -76,7 +76,7 @@
                 BorderThickness="0,0,1,0"
                 Visibility="{x:Bind ViewModel.SidebarExpandedVisibility, Mode=OneWay}">
                 <!-- 注：WinUI 3 无 DockPanel（布局一律 Grid）；图标用文本字符，
-                     且不用 «»(U+00AB/BB) 与 FontIcon/SymbolIcon 的 PUA 字形（U+E7xx）——
+                     且不用 U+00AB/U+00BB 与 FontIcon/SymbolIcon 的 PUA 字形（U+E7xx）——
                      这些码点会使 WinAppSDK 1.6.240923002 的 XamlCompiler 沉默崩溃（退出码 1 无输出），CJK 字符安全 -->
                 <ContentControl
                     x:Name="TagSidebarHost"
