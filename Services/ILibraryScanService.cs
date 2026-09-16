@@ -13,7 +13,8 @@ public interface ILibraryScanService
     /// 递归扫描 <paramref name="root"/> 下受支持的图片（png/jpg/jpeg/gif，大小写不敏感；不可访问目录跳过），
     /// 以 <see cref="IAsyncEnumerable{GalleryItem}"/> 分块渐进产出。
     /// 每块约 <see cref="LibraryScanService.ChunkSize"/> 项：块内按预分词自然排序 key 稳定排序，
-    /// 块间按发现顺序产出（最终产出序 = 自然序稳定归并结果，D15 发现顺序）。
+    /// 块间按发现顺序直接产出（不做跨块归并——归并会使后到项插入已呈现行中间，违背 D15 防跳动意图；
+    /// D15 发现顺序 = 块间产出序 + 块内自然稳定序）。
     /// 每项解析文件名尾部标签段，并从 JPEG/PNG/GIF 文件头快速读取宽高（失败回退 1:1）。
     /// </summary>
     /// <param name="root">扫描根目录（递归含全部子目录）。</param>

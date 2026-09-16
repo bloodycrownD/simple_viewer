@@ -52,7 +52,7 @@ date: 2026-09-16
 | D12 | UI 文案直接硬编码简体中文（含存量英文文案一并中文化），不启用 resw/PRI 资源链 | 项目 `GenerateProjectPriFile=false` 等三开关是 dotnet CLI 构建的历史修复组合，重开有回归风险；PRD 风险 5 默认中文化 |
 | D13 | 批量打标进度/回执用主窗口内嵌 `InfoBar + ProgressBar`，不用 ContentDialog（同一 XamlRoot 同时只能一个 ContentDialog，会与确认对话框互斥）；标签/组的增删改确认对话框沿用 SettingsPage 的 `TrySave()` 模板 | 探索确认的 ContentDialog 单实例限制与既有对话框惯例 |
 | D14 | 双模式切换：MainWindow Row1 重构为"左栏（可折叠）+ 内容区"，内容区内 `SingleImageView`（从 MainWindow 抽出的 UserControl）与 `WaterfallView` 用 VM Visibility 计算属性互斥切换，单图视图由瀑布流选中项驱动、Esc 返回保持滚动位置 | 现有 x:Bind/Visibility 惯例，无 Frame/导航先例，最小侵入 |
-| D15 | 瀑布流默认排序 = **发现顺序**（即扫描管线产出行序，按 D9 自然排序 key 块间归并后的稳定顺序）：打标重命名不改变既有行序、不引起位置跳动；本期不提供排序切换 UI（demo 中的排序切换仅原型验证用） | 原型已验证体验；避免打标后全量重排与索引排序漂移；由风险表口径提升为正式决策 |
+| D15 | 瀑布流默认排序 = **发现顺序**：块内按预分词自然排序 key 稳定排序，块间按发现顺序直接产出（**不做跨块归并**——归并会使后到项插入已呈现行中间，恰恰制造位置跳动；打标重命名不改变显示名与行序）：打标重命名不引起位置跳动、不引起已呈现项重排；本期不提供排序切换 UI（demo 中的排序切换仅原型验证用） | 原型已验证体验；避免打标后全量重排与索引排序漂移；由风险表口径提升为正式决策 |
 
 ### 兼容性说明
 
@@ -135,7 +135,7 @@ SimpleViewer.sln
 - Step 1 — phase-tag-filename — blocking: yes — qa: auto：实现 `TagFilenameService`：`TryParse(fileName) → (base, ext, tags[])`（尾部方括号、空格分隔、容忍多重空格/全角空格归一）、`Compose(base, ext, tags[]) → fileName`、`ValidateTagName`（拒绝空名、任何空白字符——char.IsWhiteSpace 全集，含全角空格与 nbsp——及方括号）、`BuildNewPath(oldPath, newTags)` 含 260 长度校验与目标冲突检测。测试 T-TF1~6。
 - Step 2 — phase-settings-v2 — blocking: yes — qa: auto：`AppSettings`+`TagGroups`、`SettingsService` 迁移分支（读到 Version<2 → 补空 TagGroups、Version=2 回写）+ 原子写（temp+Move）+ 标签组校验方法；**同步修复 `SettingsViewModel.TrySave`** 为 load-modify-save（UI 工程改动；编译验证按风险表"每相结束回归 dotnet build"口径执行）。测试 T-ST1~4。
 - Step 3 — phase-tag-ops — blocking: yes — qa: auto：`TagService`：`ApplyTagAsync(paths, tag, group)`（互斥组先剔除同组再追加）、`RemoveTagAsync(paths, tag)`、`RenameTagAsync(old, new)`、`DeleteTagAsync(tag)`（前置校验：标签被快捷键绑定引用时拒绝并提示先改绑定）、`DeleteGroupAsync(group)`（级联从全库文件名移除该组全部标签，先提示影响张数），全部基于 TagFilenameService 重命名 + `BatchOperationResult` 失败聚合（占用/冲突/超长）；互斥 enforcement 为纯函数 `TagSemantics.Apply(currentTags, group, tag)` 独立可测，且**只处理目标组内的标签，组外/未分组标签一律保留**。测试 T-TG1~10 + T-ST5。
-- Step 4 — phase-library-scan — blocking: yes — qa: auto：`LibraryScanService.ScanAsync(root, progress, ct)`：`IAsyncEnumerable<GalleryItem>` 分块（500/块）、`EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true }`、扩展名白名单常量共享、每项解析标签段 + 记录宽高比（JPEG/PNG 头部快速读取，失败回退 1:1）；预分词排序 key 缓存，块内排序、块间增量归并（首屏即呈现）。测试 T-SC1~5。
+- Step 4 — phase-library-scan — blocking: yes — qa: auto：`LibraryScanService.ScanAsync(root, progress, ct)`：`IAsyncEnumerable<GalleryItem>` 分块（500/块）、`EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true }`、扩展名白名单常量共享、每项解析标签段 + 记录宽高比（JPEG/PNG 头部快速读取，失败回退 1:1）；预分词排序 key 缓存，块内排序、块间按发现顺序直接产出（不做跨块归并，见 D15；首屏即呈现）。测试 T-SC1~5。
 - Step 5 — phase-library-index — blocking: yes — qa: auto：`LibraryIndexService`：SQLite WAL 模式；表 `items(path PK, dir, base_name, ext, tags TEXT 空格分隔, w, h, sort_key)` + `meta(key,value)`；库文件名 = 根路径规范化（小写、去尾部斜杠）的 SHA-256 前 16 字符 + `".db"`（落位 `%LocalAppData%\SimpleViewer\index\`，见 D2）；tags 列空格分隔存储，`QueryByTags(OR)` 采用左右补空格的 `LIKE '% tag %'` 填充写法，性能门槛为 10 万行量级实测 ≤2s（不达标再升级标签行表，后备口径见风险表）；库文件打开异常（SQLiteException）即删除重建。`UpsertChunk` / `RemovePath` / `UpdateTags`（打标后行更新）/ `QueryByTags(OR)` / `TagCounts()` / `RebuildAsync`（对账扫描：文件系统为准，孤儿行删除）。测试 T-IX1~6。
 - Step 6 — phase-thumbnail — blocking: yes — qa: auto：`ThumbnailService.GetThumbnailAsync(path, bucket, ct)`：查找顺序 内存 LRU → 磁盘缓存 → WIC 解码（磁盘命中后回填内存）；WIC 解码（宽 360 桶，GIF 取首帧）→ JPEG q80 落盘 + 回填内存；字节预算 LRU（~300MB）+ `SemaphoreSlim(4)` + 请求去重。测试 T-TH1~5。
 - Step 7 — phase-ui-shell — blocking: yes — qa: auto（编译+核心单测回归）+ manual_user（窗口走查）：抽出 `SingleImageView`（文件名完整显示并高亮方括号标签段，对齐已验收原型）；工具栏新增"打开图库"按钮（FolderPicker，仿现有 PickImageFileAsync 的 InitializeWithWindow 模式）——选定根目录后进入瀑布流并启动递归扫描；CLI（`viewer <file>` / `-d -i`）行为不变、不触发图库扫描；单图直开（双击文件关联）不自动扫描父目录（保冷启动 ≤2s，用户可手动"打开图库"指向该目录）；首次启动无图库时瀑布流区显示空态引导文案；MainWindow Row1 双栏重构（左栏可折叠按钮 + 内容区互斥视图）；`MainViewModel` 增 `ViewerMode`/`HasGallery` 与模式切换命令；Esc 三态路由（①单图+有图库 → BackToGallery；②瀑布流+有选中集 → 清空选中；③其余 → 维持 ExitApp 原行为）；`App.xaml.cs` 组装；存量文案中文化。回归：单图翻页/旋转/全屏/删除/移动/CLI 启动全部不退化（走查清单 M1）。
@@ -163,7 +163,7 @@ SimpleViewer.sln
 - T-ST4 — Step2 — 保存原子性：写入失败不破坏原文件
 - T-ST5 — Step3 — 删除被快捷键绑定引用的标签被拒绝并提示先改绑定
 - T-TG1~10 — Step3 — 互斥组替换语义/非互斥叠加/批量部分失败回执/RenameTag 全量更新/DeleteTag 清理/幂等打标/长路径拒绝/GIF 文件名打标（仅改名不动内容）/T-TG9：组外（未分组）标签在互斥替换后保留/T-TG10：互斥⇄非互斥切换不改已落盘标签（后续打标按新属性执行）
-- T-SC1~6 — Step4 — 递归含子目录/不可访问目录跳过/白名单过滤/分块渐进产出（首块早于全量完成）/取消令牌生效/T-SC6：存量文件名标签聚合进"未分组"组
+- T-SC1~6 — Step4 — 递归含子目录/不可访问目录跳过（环境无法稳定模拟 ACL 时降级为枚举选项断言）/白名单过滤/分块渐进产出（首块早于全量完成）/取消令牌生效/T-SC6：存量文件名标签解析与显示名剥离（"聚合进未分组组"的侧栏呈现验收归 Step 9 走查，扫描层测其前置子集）
 - T-IX1~6 — Step5 — Upsert 幂等/UpdateTags 行更新/QueryByTags OR 命中/TagCounts 正确/Rebuild 孤儿清理/损坏库文件自动重建
 - T-TH1~5 — Step6 — 磁盘缓存命中不解码/内存 LRU 逐出/并发去重/取消不落盘/GIF 首帧静态
 - T-SK1~3 — Step12 — 缓存命中不读盘（文件未变）/文件变更后失效重读/T-SK3：ApplyTag 绑定缺 TagId（或 TagId 引用不存在的标签）被 ValidateBindings 拒绝
