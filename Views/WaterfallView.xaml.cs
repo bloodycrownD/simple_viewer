@@ -35,6 +35,11 @@ public sealed partial class WaterfallView : UserControl
         Repeater.ElementPrepared += OnElementPrepared;
         Repeater.ElementClearing += OnElementClearing;
 
+        // 数据源 Reset/Replace/Remove → 强制全量重算（WinAppSDK 1.6 的布局 OnItemsChanged
+        // 虚方法不可重写，经宿主侧订阅数据源通知置 ForceRecompute，效果等价）；
+        // 尾部 Add 由布局按计数差增量续算，无需处理。
+        viewModel.Waterfall.Items.CollectionChanged += OnItemsSourceChanged;
+
         // resize 去抖：连续 SizeChanged 只重置计时器，静止后触发一次强制重排。
         _resizeDebounceTimer = DispatcherQueue.CreateTimer();
         _resizeDebounceTimer.Interval = TimeSpan.FromMilliseconds(ResizeDebounceMilliseconds);
@@ -70,6 +75,17 @@ public sealed partial class WaterfallView : UserControl
     {
         _resizeDebounceTimer.Stop();
         _resizeDebounceTimer.Start();
+    }
+
+    private void OnItemsSourceChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    {
+        if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+        {
+            return;
+        }
+
+        Masonry.ForceRecompute = true;
+        Repeater.InvalidateMeasure();
     }
 }
 
