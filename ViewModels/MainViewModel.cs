@@ -1,15 +1,17 @@
 // 职责：主查看器状态——单图导航/旋转/显示、双模式（图库/单图）互斥切换、图库扫描驱动、文件名标签分段、
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
 //       批量打标管线与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（OR 语义）与标签栏数据/编辑执行（Step 9；筛选条 UI 属 Step 11）。
+//       标签筛选（OR 语义）与筛选条状态（chip/单删/清空/命中统计，Step 11）、标签栏数据/编辑执行（Step 9）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
+//         单图翻页列表 = 进入单图时的瀑布流呈现集快照（Step 11：筛选态翻页在命中集内环绕循环）；
 //         ScanAsync 为同步磁盘 IO 迭代器，一律 Task.Run 后台消费、UI 线程仅经 Progress 收进度/扫描块（几十万张不假死口径）；
 //         扫描块经 Progress 回投 UI 线程后追加进 WaterfallViewModel（虚拟化数据源，绝不一次性同步灌入）；
 //         卡片选中集状态在本类（WaterfallViewModel 仅转发）；Shift 连选基于当前呈现序列范围加选、锚点随点击更新；
 //         批量打标分批走 TagService（内部 Task.Run），批间回 UI 线程推进 InfoBar 进度（D13）；成功不回滚；
 //         打标后就地同步（索引 ReplacePath + 卡片 VM UpdateFrom + 单图列表路径替换）——卡片 VM 实例不变，
 //         选中集引用天然保持（Step 10：打标后选中集不丢，路径换新）；
-//         标签筛选集与命中数在本类（筛选条 UI 属 Step 11，最小反馈 = 侧栏 chip 高亮 + 状态行命中数）；
+//         标签筛选集与命中数在本类：筛选变化 → 索引 QueryByTagsAsync → 瀑布流整体替换（筛选态不渐进追加），
+//         清空筛选恢复扫描全量（不清空索引）；筛选条 chip（组名：标签名）随侧栏重建同步重建；
 //         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
 //         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
@@ -26,6 +28,7 @@ using Microsoft.UI.Xaml.Media;
 using SimpleViewer.Helpers;
 using SimpleViewer.Models;
 using SimpleViewer.Services;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 
 namespace SimpleViewer.ViewModels;
@@ -383,7 +386,11 @@ public partial class MainViewModel : ObservableObject
         await StartLibraryScanAsync(folder);
     }
 
-    /// <summary>从瀑布流进入单图模式（Step 8 双击卡片入口）：加载目标图片并切换为 Single。</summary>
+    /// <summary>
+    /// 从瀑布流进入单图模式（Step 8 双击卡片入口）：加载目标图片并切换为 Single。
+    /// 单图翻页列表 = 当前呈现集（Step 11：筛选态下上一张/下一张在命中集内环绕循环，
+    /// 对齐 demo openViewer/viewerStep 的 filteredImages 语义）；呈现集为空时退回目录平铺。
+    /// </summary>
     public async Task OpenImageAsSingle(GalleryItem item)
     {
         if (item is null || string.IsNullOrWhiteSpace(item.Path))
@@ -391,11 +398,28 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        await OpenAsync(item.Path);
-        if (HasImage)
+        var presentedPaths = _waterfall.Items
+            .Select(vm => vm.Item.Path)
+            .ToList();
+        if (presentedPaths.Count == 0)
         {
-            CurrentMode = ViewerMode.Single;
+            await OpenAsync(item.Path);
+            return;
         }
+
+        var index = -1;
+        for (var i = 0; i < presentedPaths.Count; i++)
+        {
+            if (string.Equals(presentedPaths[i], item.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        SetImageList(presentedPaths, index < 0 ? 0 : index);
+        CurrentMode = ViewerMode.Single;
+        await LoadCurrentAsync();
     }
 
     /// <summary>
@@ -426,6 +450,9 @@ public partial class MainViewModel : ObservableObject
         WaterfallEmptyText = string.Empty;
         IsScanning = true;
         ScanStatusText = "扫描中 · 已发现 0 张";
+        OnPropertyChanged(nameof(FilterBarVisibility));
+        OnPropertyChanged(nameof(OrBadgeVisibility));
+        OnPropertyChanged(nameof(FilterStatsText));
 
         // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）。
         var progress = new Progress<int>(count => ScanStatusText = $"扫描中 · 已发现 {count} 张");
@@ -960,7 +987,7 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义） ====================
+    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义；Step 11：筛选条 UI） ====================
 
     /// <summary>标签筛选是否激活（激活时扫描追加块按谓词过滤后入瀑布流）。</summary>
     public bool IsTagFilterActive => _activeFilterTags.Count > 0;
@@ -976,9 +1003,45 @@ public partial class MainViewModel : ObservableObject
     public int GetTagCount(string tagName)
         => _latestTagCounts.TryGetValue(tagName, out var count) ? count : 0;
 
+    /// <summary>筛选条 chip 集合（激活标签；随筛选集/配置组变化全量重建，UI 线程）。</summary>
+    public ObservableCollection<FilterChipViewModel> FilterChips { get; } = [];
+
+    /// <summary>筛选条可见性（任一筛选激活；Step 11）。</summary>
+    public Visibility FilterBarVisibility =>
+        IsTagFilterActive ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>多标签 OR 语义徽章可见性（两个及以上激活标签）。</summary>
+    public Visibility OrBadgeVisibility =>
+        _activeFilterTags.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>筛选统计文本：命中 X / 已发现 Y 张（命中 = 当前呈现数；已发现 = 扫描全量暂存数）。</summary>
+    public string FilterStatsText =>
+        $"命中 {_waterfall.Items.Count} / 已发现 {_galleryItems.Count} 张";
+
+    /// <summary>移除单个筛选标签（筛选条 chip 的 ✕；Step 11 单删）。</summary>
+    public async Task RemoveTagFilterAsync(string tagName)
+    {
+        if (!string.IsNullOrWhiteSpace(tagName) && _activeFilterTags.Remove(tagName))
+        {
+            await ApplyTagFilterAsync();
+        }
+    }
+
+    /// <summary>清空全部筛选（筛选条「清空筛选」按钮；恢复图库全量，不清空索引）。</summary>
+    [RelayCommand]
+    private async Task ClearTagFiltersAsync()
+    {
+        if (_activeFilterTags.Count > 0)
+        {
+            _activeFilterTags.Clear();
+            await ApplyTagFilterAsync();
+        }
+    }
+
     /// <summary>
     /// 点击侧栏标签 = 切换筛选：再次点击取消；多标签 OR 语义。
-    /// 筛选态下瀑布流只显示命中；命中数经状态行反馈（筛选条 UI 属 Step 11）。
+    /// 筛选态下瀑布流只显示命中（索引 QueryByTags 全量命中集整体替换，不渐进追加）；
+    /// 命中数经筛选条反馈（Step 11）。
     /// </summary>
     public async Task ToggleTagFilterAsync(string tagName)
     {
@@ -1016,6 +1079,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(GalleryStatusText));
+        OnPropertyChanged(nameof(FilterBarVisibility));
+        OnPropertyChanged(nameof(FilterStatsText));
         RebuildTagSidebar();
     }
 
@@ -1052,7 +1117,12 @@ public partial class MainViewModel : ObservableObject
         var counts = _latestTagCounts;
         var filters = _activeFilterTags;
 
-        void Rebuild() => TagSidebar.Rebuild(configGroups, counts, filters);
+        void Rebuild()
+        {
+            TagSidebar.Rebuild(configGroups, counts, filters);
+            RebuildFilterChips(configGroups);
+        }
+
         if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
         {
             _dispatcher.TryEnqueue(Rebuild);
@@ -1061,6 +1131,32 @@ public partial class MainViewModel : ObservableObject
         {
             Rebuild();
         }
+    }
+
+    /// <summary>
+    /// 重建筛选条 chip 集合（Step 11）：激活标签 → 「组名：标签名」chip + 单删命令；
+    /// 组名取配置组（跨组重名已被校验拒绝），不在任何配置组的标签归「未分组」；
+    /// 呈现顺序按组名 + 标签名稳定排序（筛选集为 HashSet，需确定序）。仅在 UI 线程调用。
+    /// </summary>
+    private void RebuildFilterChips(List<TagGroup> configGroups)
+    {
+        FilterChips.Clear();
+        foreach (var tagName in _activeFilterTags
+                     .OrderBy(t => t, StringComparer.CurrentCulture))
+        {
+            var groupName = configGroups
+                .FirstOrDefault(g => g.Tags.Any(t =>
+                    string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
+                ?.Name
+                ?? TagSidebarViewModel.UngroupedGroupName;
+            var capturedName = tagName;
+            FilterChips.Add(new FilterChipViewModel(
+                groupName,
+                capturedName,
+                new AsyncRelayCommand(() => RemoveTagFilterAsync(capturedName))));
+        }
+
+        OnPropertyChanged(nameof(OrBadgeVisibility));
     }
 
     // ==================== 标签/组编辑执行（Step 9：TagEditDialog 的执行委托） ====================
@@ -1681,7 +1777,7 @@ public partial class MainViewModel : ObservableObject
     public Visibility SidebarCollapsedVisibility =>
         IsSidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>图库状态行文本：扫描/共 N 张 + 筛选命中 + 已选 N 张（最小可见反馈；筛选条 UI 属 Step 11）。</summary>
+    /// <summary>图库状态行文本：扫描/共 N 张 + 已选 N 张（筛选命中数在筛选条显示，Step 11 起）。</summary>
     public string GalleryStatusText
     {
         get
@@ -1690,11 +1786,6 @@ public partial class MainViewModel : ObservableObject
             if (!string.IsNullOrEmpty(ScanStatusText))
             {
                 parts.Add(ScanStatusText);
-            }
-
-            if (IsTagFilterActive)
-            {
-                parts.Add($"筛选命中 {_waterfall.Items.Count} 张（任一命中 · {_activeFilterTags.Count} 个标签）");
             }
 
             if (SelectedCardCount > 0)
@@ -1713,6 +1804,7 @@ public partial class MainViewModel : ObservableObject
     partial void OnScanStatusTextChanged(string value)
     {
         OnPropertyChanged(nameof(GalleryStatusText));
+        OnPropertyChanged(nameof(FilterStatsText));
     }
 
     partial void OnSelectedCardCountChanged(int value)
@@ -1730,11 +1822,12 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
     }
 
-    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性与状态行命中数。</summary>
+    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性、状态行与筛选统计。</summary>
     private void OnWaterfallItemsChanged()
     {
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
         OnPropertyChanged(nameof(GalleryStatusText));
+        OnPropertyChanged(nameof(FilterStatsText));
     }
 
     partial void OnHasImageChanged(bool value)
@@ -1919,4 +2012,27 @@ public partial class MainViewModel : ObservableObject
         var contentWidth = Math.Max(1, viewportWidth);
         return Math.Max(contentWidth, contentHeight);
     }
+}
+
+/// <summary>
+/// 筛选条 chip 展示模型（spec Step 11）：「组名：标签名」+ 单删命令。
+/// 不可变快照，经 MainViewModel.RebuildFilterChips 全量重建（对齐侧栏 chip 惯例）。
+/// </summary>
+public sealed class FilterChipViewModel
+{
+    public FilterChipViewModel(string groupName, string tagName, IAsyncRelayCommand removeFilterCommand)
+    {
+        GroupName = groupName;
+        TagName = tagName;
+        RemoveFilterCommand = removeFilterCommand;
+    }
+
+    /// <summary>标签所属组显示名（不属于任何配置组时为「未分组」）。</summary>
+    public string GroupName { get; }
+
+    /// <summary>标签名。</summary>
+    public string TagName { get; }
+
+    /// <summary>单删命令（从筛选集移除该标签并刷新瀑布流）。</summary>
+    public IAsyncRelayCommand RemoveFilterCommand { get; }
 }
