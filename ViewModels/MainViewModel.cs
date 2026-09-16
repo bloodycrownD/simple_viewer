@@ -1,12 +1,17 @@
 // 职责：主查看器状态——单图导航/旋转/显示、双模式（图库/单图）互斥切换、图库扫描驱动、文件名标签分段、
-//       瀑布流数据源驱动（渐进追加）与卡片选中集、标签筛选（OR 语义）与标签栏数据/编辑执行（Step 9）。
+//       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
+//       批量打标管线与 InfoBar 进度/回执状态（Step 10，D13）、
+//       标签筛选（OR 语义）与标签栏数据/编辑执行（Step 9；筛选条 UI 属 Step 11）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
 //         ScanAsync 为同步磁盘 IO 迭代器，一律 Task.Run 后台消费、UI 线程仅经 Progress 收进度/扫描块（几十万张不假死口径）；
 //         扫描块经 Progress 回投 UI 线程后追加进 WaterfallViewModel（虚拟化数据源，绝不一次性同步灌入）；
-//         卡片选中集状态在本类（WaterfallViewModel 仅转发）；Ctrl/Shift 连选与 Ctrl+A 属 Step 10；
+//         卡片选中集状态在本类（WaterfallViewModel 仅转发）；Shift 连选基于当前呈现序列范围加选、锚点随点击更新；
+//         批量打标分批走 TagService（内部 Task.Run），批间回 UI 线程推进 InfoBar 进度（D13）；成功不回滚；
+//         打标后就地同步（索引 ReplacePath + 卡片 VM UpdateFrom + 单图列表路径替换）——卡片 VM 实例不变，
+//         选中集引用天然保持（Step 10：打标后选中集不丢，路径换新）；
 //         标签筛选集与命中数在本类（筛选条 UI 属 Step 11，最小反馈 = 侧栏 chip 高亮 + 状态行命中数）；
 //         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
-//         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免"文件已改、配置被拒"分裂；
+//         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
 // 调用链：App → MainWindow → MainViewModel → FileBrowser / ImageLoader / FileOperation / TagFilename / TagService /
@@ -16,6 +21,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.Helpers;
 using SimpleViewer.Models;
@@ -43,13 +49,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IImageLoaderService _imageLoader;
     private readonly IFileOperationService _fileOperations;
     private readonly ITagFilenameService _tagFilename;
-
-    // TagService 由 Step 10 批量打标消费；本步先行注入以稳定构造签名，
-    // 显式压制“赋值未使用”告警保住 0 警告口径。
-#pragma warning disable CS0414
     private readonly ITagService _tagService;
-#pragma warning restore CS0414
-
     private readonly IThumbnailService _thumbnailService;
     private readonly ILibraryScanService _scanService;
 
@@ -68,6 +68,12 @@ public partial class MainViewModel : ObservableObject
 
     // 卡片选中集（引用相等去重；筛选/重开图库时整体清空）。
     private readonly HashSet<GalleryItemViewModel> _selectedCards = [];
+
+    // Shift 连选锚点（最近一次点击的卡片 VM；随每次点击更新，Esc 清空选中时保留——对齐 demo 语义）。
+    private GalleryItemViewModel? _lastClickedCard;
+
+    // 批量打标/移除防重入闸（操作进行中忽略新的侧栏 chip 打标请求）。
+    private bool _isTagOperationRunning;
 
     // 标签筛选集（标签名，OR 语义；命中数与筛选条 UI 属 Step 11，本步最小反馈见 GalleryStatusText）。
     private readonly HashSet<string> _activeFilterTags = new(StringComparer.OrdinalIgnoreCase);
@@ -182,6 +188,47 @@ public partial class MainViewModel : ObservableObject
     /// <summary>瀑布流卡片选中数。</summary>
     [ObservableProperty]
     private int _selectedCardCount;
+
+    /// <summary>批量打标 InfoBar 是否打开（D13：主窗口内嵌回执区；用户关闭经 TwoWay 写回）。</summary>
+    [ObservableProperty]
+    private bool _isTagFeedbackOpen;
+
+    /// <summary>回执严重级别（进行中 Informational / 成功 Success / 部分失败 Warning / 全失败 Error）。</summary>
+    [ObservableProperty]
+    private InfoBarSeverity _tagFeedbackSeverity = InfoBarSeverity.Informational;
+
+    /// <summary>回执标题（操作名，如“添加标签「海」”）。</summary>
+    [ObservableProperty]
+    private string _tagFeedbackTitle = string.Empty;
+
+    /// <summary>回执主消息（进度文本 / 终态“成功 N 张，失败 M 张”）。</summary>
+    [ObservableProperty]
+    private string _tagFeedbackMessage = string.Empty;
+
+    /// <summary>批量标签操作是否进行中（进行中显示 ProgressBar）。</summary>
+    [ObservableProperty]
+    private bool _isTagOperationInProgress;
+
+    /// <summary>批量操作进度（0..1；分批推进）。</summary>
+    [ObservableProperty]
+    private double _tagOperationProgress;
+
+    // 失败明细（文件名：原因；整体拒绝为纯原因文本）。
+    private IReadOnlyList<string> _tagFeedbackDetails = [];
+
+    /// <summary>失败明细（回执区可展开列表；空 = 无失败）。</summary>
+    public IReadOnlyList<string> TagFeedbackDetails => _tagFeedbackDetails;
+
+    /// <summary>是否存在失败明细（明细列表可见性）。</summary>
+    public bool HasTagFeedbackDetails => _tagFeedbackDetails.Count > 0;
+
+    /// <summary>失败明细列表可见性。</summary>
+    public Visibility TagFeedbackDetailsVisibility =>
+        HasTagFeedbackDetails ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>批量操作进度条可见性（仅进行中显示）。</summary>
+    public Visibility TagOperationProgressVisibility =>
+        IsTagOperationInProgress ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>瀑布流空态文案（扫描完成 0 张 / 筛选无命中；由本类在状态切换点设置）。</summary>
     [ObservableProperty]
@@ -489,6 +536,81 @@ public partial class MainViewModel : ObservableObject
         return false;
     }
 
+    /// <summary>
+    /// 卡片点击入口（WaterfallView 转发，携带 Shift 状态；Step 10）：
+    /// Shift = 以锚点为起点的连选（当前呈现序列范围内全部加选，不清除已选）；
+    /// 无修饰/Ctrl = 选中切换（加选或取消，对齐 demo：Ctrl 与普通点击同为 toggle）；
+    /// 锚点随每次点击更新；锚点不在呈现集中时连选退化为切换。
+    /// </summary>
+    public void HandleCardTapped(GalleryItemViewModel viewModel, bool shift)
+    {
+        if (viewModel is null)
+        {
+            return;
+        }
+
+        if (shift && _lastClickedCard is not null)
+        {
+            SelectCardRange(_lastClickedCard, viewModel);
+        }
+        else
+        {
+            ToggleCardSelection(viewModel);
+        }
+
+        _lastClickedCard = viewModel;
+    }
+
+    /// <summary>锚点到目标卡片之间（当前呈现序列索引范围）全部加选；范围不可解析时退化为切换。</summary>
+    private void SelectCardRange(GalleryItemViewModel anchor, GalleryItemViewModel target)
+    {
+        var items = _waterfall.Items;
+        var anchorIndex = -1;
+        var targetIndex = -1;
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (ReferenceEquals(items[i], anchor))
+            {
+                anchorIndex = i;
+            }
+
+            if (ReferenceEquals(items[i], target))
+            {
+                targetIndex = i;
+            }
+        }
+
+        if (anchorIndex < 0 || targetIndex < 0)
+        {
+            ToggleCardSelection(target);
+            return;
+        }
+
+        for (var i = Math.Min(anchorIndex, targetIndex); i <= Math.Max(anchorIndex, targetIndex); i++)
+        {
+            if (_selectedCards.Add(items[i]))
+            {
+                items[i].IsSelected = true;
+            }
+        }
+
+        SelectedCardCount = _selectedCards.Count;
+    }
+
+    /// <summary>全选当前呈现集（Ctrl+A：选中“当前命中集”；MainWindow PreviewKeyDown 接线，Step 10）。</summary>
+    public void SelectAllCards()
+    {
+        foreach (var viewModel in _waterfall.Items)
+        {
+            if (_selectedCards.Add(viewModel))
+            {
+                viewModel.IsSelected = true;
+            }
+        }
+
+        SelectedCardCount = _selectedCards.Count;
+    }
+
     /// <summary>卡片单击 = 选中/取消选中（WaterfallViewModel 转发；Ctrl/Shift 连选与 Ctrl+A 属 Step 10）。</summary>
     public void ToggleCardSelection(GalleryItemViewModel viewModel)
     {
@@ -520,6 +642,322 @@ public partial class MainViewModel : ObservableObject
 
         _selectedCards.Clear();
         SelectedCardCount = 0;
+    }
+
+    // ==================== 批量打标（Step 10：选中集打标 / 单图当前图打标 / InfoBar 进度回执 D13） ====================
+
+    /// <summary>批量操作分批粒度（每批一次 TagService 调用；批间 await 回 UI 线程推进进度与就地同步）。</summary>
+    private const int TagBatchSize = 25;
+
+    /// <summary>失败明细最多展示条数（超出折叠为“其余 N 项从略”）。</summary>
+    private const int MaxFailureDetails = 20;
+
+    /// <summary>
+    /// 侧栏标签 chip 点击分流（Step 10 语义，对齐 demo onChipClick）：
+    /// 单图模式且有图 → 当前图打标（toggle：已含该标签则移除）；
+    /// 图库模式且选中集非空 → Shift = 从选中集移除该标签，否则 = 批量打标（互斥组按语义替换）；
+    /// 其余 → 切换筛选（Step 9 既有语义）。
+    /// </summary>
+    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：打标属普通非互斥操作）。</param>
+    /// <param name="tagName">标签名。</param>
+    /// <param name="shift">是否按住 Shift（移除语义）。</param>
+    public async Task HandleTagChipTappedAsync(TagGroup? ownerGroup, string tagName, bool shift)
+    {
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
+        {
+            return;
+        }
+
+        // 未分组/无组上下文：非互斥叠加（spec Step 9——为“未分组”标签打标属普通非互斥操作）。
+        var group = ownerGroup ?? new TagGroup
+        {
+            Name = TagSidebarViewModel.UngroupedGroupName,
+            Exclusive = false,
+        };
+
+        if (CurrentMode == ViewerMode.Single && HasImage)
+        {
+            await ToggleTagOnCurrentImageAsync(group, tagName);
+            return;
+        }
+
+        if (SelectedCardCount > 0)
+        {
+            if (shift)
+            {
+                await RemoveTagFromSelectionAsync(tagName);
+            }
+            else
+            {
+                await ApplyTagToSelectionAsync(group, tagName);
+            }
+
+            return;
+        }
+
+        await ToggleTagFilterAsync(tagName);
+    }
+
+    /// <summary>选中集批量打标（互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。</summary>
+    public async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
+    {
+        if (_selectedCards.Count == 0)
+        {
+            return;
+        }
+
+        // 选中集快照（防迭代中集合变化；Item 引用在批量过程中保持有效）。
+        var candidates = _selectedCards.Select(static vm => vm.Item).ToList();
+        var title = group.Exclusive
+            ? $"互斥组设置「{tagName}」"
+            : $"添加标签「{tagName}」";
+
+        _isTagOperationRunning = true;
+        try
+        {
+            BeginTagOperation(title, showProgress: true, candidates.Count);
+            var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove: false, showProgress: true);
+            ShowTagOperationResult(result, sync, exclusiveHint: group.Exclusive);
+            await RefreshTagDataAsync();
+        }
+        finally
+        {
+            _isTagOperationRunning = false;
+        }
+    }
+
+    /// <summary>从选中集批量移除标签（Shift+点击侧栏标签）。</summary>
+    public async Task RemoveTagFromSelectionAsync(string tagName)
+    {
+        if (_selectedCards.Count == 0)
+        {
+            return;
+        }
+
+        var candidates = _selectedCards.Select(static vm => vm.Item).ToList();
+
+        _isTagOperationRunning = true;
+        try
+        {
+            BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
+            var (result, sync) = await RunTagOperationAsync(
+                candidates,
+                new TagGroup { Name = string.Empty, Exclusive = false },
+                tagName,
+                remove: true,
+                showProgress: true);
+            ShowTagOperationResult(result, sync, exclusiveHint: false);
+            await RefreshTagDataAsync();
+        }
+        finally
+        {
+            _isTagOperationRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// 单图模式当前图打标（toggle 语义，对齐 demo viewerTags）：
+    /// 已含该标签 → 移除；未含 → 打标（互斥组先剔除同组再追加）。
+    /// 成功后更新翻页列表路径并重载（刷新文件名分段/状态行；图片内容不变，单张 ≤1s 口径）。
+    /// </summary>
+    public async Task ToggleTagOnCurrentImageAsync(TagGroup group, string tagName)
+    {
+        if (_isTagOperationRunning
+            || _currentIndex < 0
+            || _currentIndex >= _imageFiles.Count)
+        {
+            return;
+        }
+
+        var path = _imageFiles[_currentIndex];
+        if (!_tagFilename.TryParse(Path.GetFileName(path), out var baseName, out var extension, out var tags))
+        {
+            ShowInstantTagFeedback(
+                InfoBarSeverity.Warning,
+                "打标失败",
+                "当前文件名无法解析（目标名冲突或超长）。",
+                []);
+            return;
+        }
+
+        var remove = tags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
+
+        // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
+        // 不在呈现集（如 CLI 直开）时构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+        var candidate = FindPresentedItemByPath(path) ?? new GalleryItem
+        {
+            Path = path,
+            DirectoryName = Path.GetDirectoryName(path) ?? string.Empty,
+            BaseName = baseName,
+            Extension = extension,
+            Tags = tags,
+            SortKey = GalleryItemNaturalComparer.Tokenize(baseName),
+        };
+
+        _isTagOperationRunning = true;
+        try
+        {
+            var title = remove ? $"移除标签「{tagName}」" : $"添加标签「{tagName}」";
+            BeginTagOperation(title, showProgress: false, totalCount: 1);
+            var (result, sync) = await RunTagOperationAsync(
+                [candidate], group, tagName, remove, showProgress: false);
+            ShowTagOperationResult(result, sync, exclusiveHint: !remove && group.Exclusive);
+            await RefreshTagDataAsync();
+
+            // 改名成功：翻页列表路径已被就地替换（ReplaceGalleryItemState），重载刷新文件名分段与状态行。
+            if (sync.Synced > 0)
+            {
+                await LoadCurrentAsync();
+            }
+        }
+        finally
+        {
+            _isTagOperationRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// 批量打标/移除统一管线：分批 TagService 落盘（内部 Task.Run，不阻塞 UI）→
+    /// 每批后就地同步成功项（索引行替换 + 卡片/单图列表更新，保滚动位置与选中态）→
+    /// 分批推进 InfoBar 进度。返回聚合回执与同步统计。
+    /// </summary>
+    private async Task<(BatchOperationResult Result, SyncResult Sync)> RunTagOperationAsync(
+        IReadOnlyList<GalleryItem> candidates,
+        TagGroup group,
+        string tagName,
+        bool remove,
+        bool showProgress)
+    {
+        var succeeded = 0;
+        var failures = new List<TagOperationFailure>();
+        var syncedTotal = 0;
+        var failedTotal = 0;
+        var transform = remove
+            ? new Func<IReadOnlyList<string>, IReadOnlyList<string>>(tags => RemoveTag(tags, tagName))
+            : tags => TagSemantics.Apply(tags, group, tagName);
+
+        var processed = 0;
+        for (var offset = 0; offset < candidates.Count; offset += TagBatchSize)
+        {
+            var batch = candidates.Skip(offset).Take(TagBatchSize).ToList();
+            var batchPaths = batch.Select(static c => c.Path).ToList();
+            var result = remove
+                ? await _tagService.RemoveTagAsync(batchPaths, tagName)
+                : await _tagService.ApplyTagAsync(batchPaths, new TagDefinition { Name = tagName }, group);
+            succeeded += result.SucceededCount;
+            failures.AddRange(result.Failures);
+
+            var sync = await SyncRenamedItemsAsync(batch, transform);
+            syncedTotal += sync.Synced;
+            failedTotal += sync.Failed;
+
+            processed += batch.Count;
+            if (showProgress && processed < candidates.Count)
+            {
+                TagOperationProgress = (double)processed / candidates.Count;
+                TagFeedbackMessage = $"正在处理 {processed}/{candidates.Count} 张";
+            }
+        }
+
+        return (new BatchOperationResult(succeeded, failures), new SyncResult(syncedTotal, failedTotal));
+    }
+
+    /// <summary>进入批量操作态：打开 InfoBar、重置进度（D13）。</summary>
+    private void BeginTagOperation(string title, bool showProgress, int totalCount)
+    {
+        TagFeedbackSeverity = InfoBarSeverity.Informational;
+        TagFeedbackTitle = title;
+        TagFeedbackMessage = showProgress ? $"正在处理 0/{totalCount} 张" : "正在处理…";
+        _tagFeedbackDetails = [];
+        OnPropertyChanged(nameof(HasTagFeedbackDetails));
+        OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));
+        IsTagOperationInProgress = showProgress;
+        TagOperationProgress = 0;
+        IsTagFeedbackOpen = true;
+    }
+
+    /// <summary>终态回执：成功 Success、含失败 Warning（部分）/Error（全部）；失败明细可展开（成功不回滚）。</summary>
+    private void ShowTagOperationResult(BatchOperationResult result, SyncResult sync, bool exclusiveHint)
+    {
+        IsTagOperationInProgress = false;
+        var failedCount = Math.Max(result.Failures.Count, sync.Failed);
+        if (failedCount == 0)
+        {
+            TagFeedbackSeverity = InfoBarSeverity.Success;
+            TagFeedbackMessage = result.SucceededCount == 1
+                ? "已生效。"
+                : $"成功 {result.SucceededCount} 张。";
+            if (exclusiveHint && result.SucceededCount > 0)
+            {
+                TagFeedbackMessage += "（互斥组：同组旧标签已替换）";
+            }
+
+            _tagFeedbackDetails = [];
+        }
+        else
+        {
+            TagFeedbackSeverity = result.SucceededCount > 0 || sync.Synced > 0
+                ? InfoBarSeverity.Warning
+                : InfoBarSeverity.Error;
+            TagFeedbackMessage =
+                $"成功 {result.SucceededCount} 张，失败 {failedCount} 张（成功项不回滚，失败项可重试）。";
+            _tagFeedbackDetails = BuildFailureDetails(result.Failures);
+        }
+
+        OnPropertyChanged(nameof(HasTagFeedbackDetails));
+        OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));
+        IsTagFeedbackOpen = true;
+    }
+
+    /// <summary>即时回执（单张失败前置校验等，不经过批量管线）。</summary>
+    private void ShowInstantTagFeedback(
+        InfoBarSeverity severity, string title, string message, IReadOnlyList<string> details)
+    {
+        IsTagOperationInProgress = false;
+        TagFeedbackSeverity = severity;
+        TagFeedbackTitle = title;
+        TagFeedbackMessage = message;
+        _tagFeedbackDetails = details;
+        OnPropertyChanged(nameof(HasTagFeedbackDetails));
+        OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));
+        IsTagFeedbackOpen = true;
+    }
+
+    /// <summary>失败明细格式化（文件名：原因；整体拒绝为纯原因；超过上限折叠）。</summary>
+    private static IReadOnlyList<string> BuildFailureDetails(List<TagOperationFailure> failures)
+    {
+        var details = new List<string>();
+        foreach (var failure in failures)
+        {
+            details.Add(string.IsNullOrEmpty(failure.Path)
+                ? failure.Reason
+                : $"{Path.GetFileName(failure.Path)}：{failure.Reason}");
+            if (details.Count >= MaxFailureDetails)
+            {
+                break;
+            }
+        }
+
+        if (failures.Count > MaxFailureDetails)
+        {
+            details.Add($"……其余 {failures.Count - MaxFailureDetails} 项从略");
+        }
+
+        return details;
+    }
+
+    /// <summary>在当前呈现集中查找同路径项（单图打标的宽高/排序 key 继承源；找不到返回 null）。</summary>
+    private GalleryItem? FindPresentedItemByPath(string path)
+    {
+        foreach (var viewModel in _waterfall.Items)
+        {
+            if (string.Equals(viewModel.Item.Path, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return viewModel.Item;
+            }
+        }
+
+        return null;
     }
 
     // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义） ====================
@@ -883,24 +1321,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         // 索引与瀑布流就地同步：仅当旧路径消失且预测新路径存在（该文件实际改名成功）。
-        var failures = 0;
-        foreach (var candidate in candidates)
-        {
-            var newPath = TryBuildNewPath(candidate, transform);
-            if (newPath is null || File.Exists(candidate.Path) || !File.Exists(newPath))
-            {
-                if (File.Exists(candidate.Path))
-                {
-                    failures++; // 未改名（批量失败明细之一；TagService 回执已聚合原因）。
-                }
-
-                continue;
-            }
-
-            var newItem = BuildGalleryItem(newPath, candidate);
-            await _indexService.ReplacePathAsync(candidate.Path, newItem);
-            ReplaceGalleryItemState(candidate.Path, newItem);
-        }
+        var sync = await SyncRenamedItemsAsync(candidates, transform);
+        var failures = sync.Failed;
 
         StatusText = result.SucceededCount > 0 || failures > 0
             ? $"{statusPrefix}：成功 {result.SucceededCount} 张，失败 {failures} 张（失败项可重试）"
@@ -909,6 +1331,58 @@ public partial class MainViewModel : ObservableObject
         // 索引已同步：刷新计数快照并重建侧栏（后续配置保存路径的 Rebuild 复用新快照）。
         await RefreshTagDataAsync();
         return null;
+    }
+
+    /// <summary>改名后就地同步的统计（成功同步数与未改名失败数）。</summary>
+    private readonly record struct SyncResult(int Synced, int Failed);
+
+    /// <summary>
+    /// 批量改名后就地同步成功项：预测新路径 → 旧路径消失且新路径存在（实际改名成功）时
+    /// 索引行替换（ReplacePathAsync）+ 全量暂存/瀑布流卡片/单图翻页列表更新。
+    /// 幂等命中（新旧路径一致）不计数也不失败；预测失败或旧文件仍在（未改名）计 Failed
+    /// （失败原因已由 TagService 回执聚合）。
+    /// </summary>
+    private async Task<SyncResult> SyncRenamedItemsAsync(
+        IReadOnlyList<GalleryItem> candidates,
+        Func<IReadOnlyList<string>, IReadOnlyList<string>> transform)
+    {
+        var synced = 0;
+        var failed = 0;
+        foreach (var candidate in candidates)
+        {
+            var newPath = TryBuildNewPath(candidate, transform);
+            if (newPath is null)
+            {
+                failed++; // 预测失败（解析/超长/目标冲突）。
+                continue;
+            }
+
+            if (string.Equals(newPath, candidate.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                continue; // 幂等命中：文件名不变，无需同步。
+            }
+
+            if (File.Exists(candidate.Path) || !File.Exists(newPath))
+            {
+                if (File.Exists(candidate.Path))
+                {
+                    failed++; // 未改名（批量失败明细之一；TagService 回执已聚合原因）。
+                }
+
+                continue;
+            }
+
+            var newItem = BuildGalleryItem(newPath, candidate);
+            if (_indexService is not null)
+            {
+                await _indexService.ReplacePathAsync(candidate.Path, newItem);
+            }
+
+            ReplaceGalleryItemState(candidate.Path, newItem);
+            synced++;
+        }
+
+        return new SyncResult(synced, failed);
     }
 
     /// <summary>配置保存 + 侧栏重建（Save 内部执行 ValidateTagGroups/ValidateBindings 校验）。</summary>
@@ -1009,7 +1483,11 @@ public partial class MainViewModel : ObservableObject
         };
     }
 
-    /// <summary>同步全量暂存列表与瀑布流卡片（就地替换，保滚动位置与选中态）。</summary>
+    /// <summary>
+    /// 同步全量暂存列表、瀑布流卡片与单图翻页列表（就地更新，保滚动位置与选中态，D15）。
+    /// 卡片 VM 实例不变（UpdateFrom 而非替换）——选中集引用稳定，Step 10“打标后选中集保持”由此达成；
+    /// 单图翻页列表同步替换路径（当前呈现集语义下翻页路径正确，Step 11）。
+    /// </summary>
     private void ReplaceGalleryItemState(string oldPath, GalleryItem newItem)
     {
         for (var i = 0; i < _galleryItems.Count; i++)
@@ -1021,7 +1499,25 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        _waterfall.UpdateItem(oldPath, newItem);
+        // 瀑布流卡片：就地更新（不换 VM 实例；宽高/排序 key 经 BuildGalleryItem 继承旧值）。
+        foreach (var viewModel in _waterfall.Items)
+        {
+            if (string.Equals(viewModel.Item.Path, oldPath, StringComparison.OrdinalIgnoreCase))
+            {
+                viewModel.UpdateFrom(newItem);
+                break;
+            }
+        }
+
+        // 单图翻页列表：路径替换（若当前正显示该图，调用方负责刷新文件名分段/重载）。
+        for (var i = 0; i < _imageFiles.Count; i++)
+        {
+            if (string.Equals(_imageFiles[i], oldPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _imageFiles[i] = newItem.Path;
+                break;
+            }
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanNavigateImages))]
@@ -1222,6 +1718,11 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedCardCountChanged(int value)
     {
         OnPropertyChanged(nameof(GalleryStatusText));
+    }
+
+    partial void OnIsTagOperationInProgressChanged(bool value)
+    {
+        OnPropertyChanged(nameof(TagOperationProgressVisibility));
     }
 
     partial void OnWaterfallEmptyTextChanged(string value)

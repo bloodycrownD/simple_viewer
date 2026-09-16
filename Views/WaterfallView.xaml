@@ -32,7 +32,8 @@
                             BorderThickness="2"
                             CornerRadius="8"
                             DoubleTapped="{x:Bind OpenInViewer}"
-                            Tapped="{x:Bind ToggleSelected}">
+                            Tag="{x:Bind}"
+                            Tapped="OnCardTapped">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="*" />

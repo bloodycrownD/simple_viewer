@@ -1,11 +1,14 @@
-﻿// 职责：左侧标签栏视图模型（spec Step 9）——配置组 + 固定末位「未分组」虚拟组的展示模型、
-//       chip 交互（点击 = 切换筛选；选中集存在时点击 = 打标属 Step 10 挂钩）、编辑请求上抛。
+﻿// 职责：左侧标签栏视图模型（spec Step 9/10）——配置组 + 固定末位「未分组」虚拟组的展示模型、
+//       chip 交互分流（选中集非空/单图模式点击 = 打标，Shift = 移除；否则 = 切换筛选）、编辑请求上抛。
 // 不变量：组/chip 为不可变快照对象——任何变化（计数刷新/筛选切换/配置编辑）经 Rebuild 全量重建
 //         （侧栏规模为几十个 chip，重建开销可忽略，换取免 INPC 的简单性）；
 //         「未分组」为索引 TagCounts 中不属于任何配置组的标签聚合（不可配置互斥属性、非互斥、可筛选）；
+//         chip 点击经 HandleChipTappedAsync 分流（Step 10 语义，对齐 demo onChipClick）：
+//         单图模式 → 当前图打标；选中集非空 → 批量打标/Shift 移除；其余 → 切换筛选；
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
 //         落盘/索引/配置持久化统一在 MainViewModel.ExecuteTagEditAsync。
 // 调用链：MainViewModel.RefreshTagDataAsync → TagSidebarViewModel.Rebuild → TagSidebarControl（绑定）；
+//         chip 点击 → TagSidebarControl.OnChipTapped → HandleChipTappedAsync → MainViewModel.HandleTagChipTappedAsync；
 //         chip/组命令 → TagEditRequest → MainWindow.ShowTagEditorAsync → TagEditDialog → MainViewModel.ExecuteTagEditAsync。
 
 using System.Collections.ObjectModel;
@@ -137,7 +140,8 @@ public partial class TagSidebarViewModel : ObservableObject
                     count,
                     activeFilters.Contains(tag.Name),
                     group.Exclusive,
-                    CreateChipCommands(group, tag.Name)));
+                    group,
+                    CreateChipEditCommands(group, tag.Name)));
             }
 
             Groups.Add(new TagGroupViewModel(
@@ -166,7 +170,8 @@ public partial class TagSidebarViewModel : ObservableObject
                 pair.Value,
                 activeFilters.Contains(pair.Key),
                 showRadioDot: false,
-                CreateUngroupedChipCommands(pair.Key)));
+                ownerGroup: null,
+                CreateUngroupedChipEditCommands()));
         }
 
         if (ungrouped.Count > 0)
@@ -184,19 +189,23 @@ public partial class TagSidebarViewModel : ObservableObject
         IsEmpty = Groups.Count == 0;
     }
 
-    private TagChipCommands CreateChipCommands(TagGroup group, string tagName)
+    /// <summary>
+    /// chip 点击分流入口（TagSidebarControl.OnChipTapped 转发，携带 Shift 键状态；Step 10）：
+    /// 分流规则在 MainViewModel.HandleTagChipTappedAsync（单图打标/选中集批量/筛选切换）。
+    /// </summary>
+    public Task HandleChipTappedAsync(TagChipViewModel chip, bool shift)
+        => _owner.HandleTagChipTappedAsync(chip.OwnerGroup, chip.Name, shift);
+
+    /// <summary>配置组内标签的编辑命令集（重命名/删除）。</summary>
+    private TagChipCommands CreateChipEditCommands(TagGroup group, string tagName)
         => new(
-            ToggleFilter: new AsyncRelayCommand(() => _owner.ToggleTagFilterAsync(tagName)),
             Rename: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.RenameTag, group, tagName))),
             Delete: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.DeleteTag, group, tagName))));
 
-    private TagChipCommands CreateUngroupedChipCommands(string tagName)
-        => new(
-            ToggleFilter: new AsyncRelayCommand(() => _owner.ToggleTagFilterAsync(tagName)),
-            Rename: null, // 未分组标签不在配置中：重命名/删除属标签管理（配置组内）操作
-            Delete: null);
+    /// <summary>未分组标签无编辑命令（不在配置中：重命名/删除属标签管理操作）。</summary>
+    private static TagChipCommands CreateUngroupedChipEditCommands() => new(null, null);
 
     private GroupCommands CreateGroupCommands(TagGroup group)
         => new(
@@ -276,11 +285,10 @@ public sealed record GroupCommands(
     public static GroupCommands NoCommands { get; } = new(null, null, null, null);
 }
 
-/// <summary>标签 chip 命令集。</summary>
-/// <param name="ToggleFilter">点击 chip = 切换筛选（选中集存在时点击 = 批量打标属 Step 10 挂钩）。</param>
+/// <summary>标签 chip 命令集（编辑操作；点击主行为经 HandleChipTappedAsync 分流，见 Step 10）。</summary>
 /// <param name="Rename">重命名标签（未分组标签为 null）。</param>
 /// <param name="Delete">删除标签（未分组标签为 null）。</param>
-public sealed record TagChipCommands(ICommand ToggleFilter, ICommand? Rename, ICommand? Delete);
+public sealed record TagChipCommands(ICommand? Rename, ICommand? Delete);
 
 /// <summary>标签组展示模型（不可变快照，经 Rebuild 全量重建）。</summary>
 public sealed class TagGroupViewModel
@@ -328,12 +336,19 @@ public sealed class TagGroupViewModel
 /// <summary>标签 chip 展示模型（不可变快照）。</summary>
 public sealed class TagChipViewModel
 {
-    public TagChipViewModel(string name, int count, bool isFilterActive, bool showRadioDot, TagChipCommands commands)
+    public TagChipViewModel(
+        string name,
+        int count,
+        bool isFilterActive,
+        bool showRadioDot,
+        TagGroup? ownerGroup,
+        TagChipCommands commands)
     {
         Name = name;
         Count = count;
         IsFilterActive = isFilterActive;
         ShowRadioDot = showRadioDot;
+        OwnerGroup = ownerGroup;
         Commands = commands;
     }
 
@@ -348,6 +363,9 @@ public sealed class TagChipViewModel
 
     /// <summary>是否显示互斥组单选圆点。</summary>
     public bool ShowRadioDot { get; }
+
+    /// <summary>所属配置组（未分组虚拟组为 null——打标按非互斥叠加语义）。</summary>
+    public TagGroup? OwnerGroup { get; }
 
     /// <summary>chip 命令集。</summary>
     public TagChipCommands Commands { get; }

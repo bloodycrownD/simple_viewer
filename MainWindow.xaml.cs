@@ -1,6 +1,8 @@
-// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6）、对话框宿主、视图模型宿主回调注入、双模式壳装配。
+// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10）、对话框宿主、
+//       视图模型宿主回调注入、双模式壳装配与批量打标进度/回执区（D13 InfoBar，XAML 内嵌）。
 // 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
-//         ExitApp 分派点先经 Esc 三态路由拦截（单图+有图库→返回图库；瀑布流+选中集→清空选中（Step 10）；其余→原退出行为）。
+//         Ctrl+A 仅在快捷键表未占用时接管（用户自定义绑定优先）；
+//         ExitApp 分派点先经 Esc 三态路由拦截（单图+有图库→返回图库；瀑布流+选中集→清空选中；其余→原退出行为）。
 // 调用链：App → MainWindow → ShortcutService.TryMatch → MainViewModel 命令。
 
 using Microsoft.UI.Xaml;
@@ -148,6 +150,16 @@ public sealed partial class MainWindow : Window
         var match = _shortcutService.TryMatch(e.Key, control, shift, menu);
         if (match is null)
         {
+            // Ctrl+A：瀑布流全选当前命中集（Step 10）。仅当用户未把 Ctrl+A 绑定为命令时接管
+            // （绑定优先）；图库模式且已打开图库才生效，与 Esc 清空选中配套。
+            if (e.Key == VirtualKey.A && control && !shift && !menu
+                && ViewModel.CurrentMode == ViewerMode.Gallery
+                && ViewModel.HasGallery)
+            {
+                e.Handled = true;
+                ViewModel.SelectAllCards();
+            }
+
             return;
         }
 

@@ -1,19 +1,22 @@
 // 职责：瀑布流视图 code-behind——ItemsRepeater 装配（MasonryLayout 宽高比注入、批量数据源）、
-//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、resize 去抖重排。
+//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、卡片点击转发（Shift 键状态）、resize 去抖重排。
 // 不变量：缩略图按需加载（禁止一次性为全部项加载）；realized 元素经 Tag 槽位回查 VM（ItemsRepeater
-//         不设置 DataContext）；去抖窗口内连续 resize 不触发重排（避免拖拽中间态 O(n) 重算与视觉跳动）。
-// 调用链：MainWindow（ContentControl 宿主注入）→ WaterfallView → MainViewModel.Waterfall → GalleryItemViewModel。
+//         不设置 DataContext；卡片模板 Tag="{x:Bind}" 携带项 VM 自身，ElementPrepared 覆写为同一引用）；
+//         卡片点击经 Tag 槽位回查 VM 并读取 Shift 键状态交 MainViewModel 分流（连选属 Step 10）；
+//         去抖窗口内连续 resize 不触发重排（避免拖拽中间态 O(n) 重算与视觉跳动）。
+// 调用链：MainWindow（ContentControl 宿主注入）→ WaterfallView → MainViewModel.HandleCardTapped → GalleryItemViewModel。
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
 
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// 瀑布流图库视图（spec Step 8）。
+/// 瀑布流图库视图（spec Step 8/10）。
 /// </summary>
 public sealed partial class WaterfallView : UserControl
 {
@@ -49,6 +52,27 @@ public sealed partial class WaterfallView : UserControl
             Masonry.ForceRecompute = true;
             Repeater.InvalidateMeasure();
         };
+    }
+
+    /// <summary>
+    /// 卡片点击转发：Tag 槽位回查卡片 VM，Shift 键实时状态交 MainViewModel 分流（Step 10：连选）。
+    /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
+    /// （点击同步触发，状态可靠）。
+    /// </summary>
+    private void OnCardTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: GalleryItemViewModel viewModel })
+        {
+            ViewModel.HandleCardTapped(viewModel, IsShiftKeyDown());
+        }
+    }
+
+    private static bool IsShiftKeyDown()
+    {
+        var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Shift);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
+            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
     }
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)

@@ -1,10 +1,15 @@
-// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）与 x:Bind 函数转换器。
-// 不变量：无交互逻辑（命令全部在视图模型）；画刷惰性初始化仅 UI 线程访问；
+// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、chip 点击转发（携带修饰键）
+//       与 x:Bind 函数转换器。
+// 不变量：无交互逻辑（分流/命令全部在视图模型）；chip 点击经 Tag 槽位回查 VM（ItemsRepeater 不设置 DataContext）
+//         并携带 TappedRoutedEventArgs.KeyModifiers（Shift = 移除语义，Step 10）；
+//         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
-// 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel 命令 → MainViewModel。
+// 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
+//         → MainViewModel.HandleTagChipTappedAsync（打标/移除/筛选分流）。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
 using System.Windows.Input;
@@ -12,7 +17,7 @@ using System.Windows.Input;
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// 左侧标签栏（spec Step 9）。
+/// 左侧标签栏（spec Step 9/10）。
 /// </summary>
 public sealed partial class TagSidebarControl : UserControl
 {
@@ -25,6 +30,27 @@ public sealed partial class TagSidebarControl : UserControl
         Main = main;
         ViewModel = viewModel;
         InitializeComponent();
+    }
+
+    /// <summary>
+    /// chip 点击转发：Tag 槽位回查 chip VM，Shift 键实时状态交视图模型分流（Step 10：移除语义）。
+    /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
+    /// （点击同步触发，状态可靠）。
+    /// </summary>
+    private void OnChipTapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: TagChipViewModel chip })
+        {
+            _ = ViewModel.HandleChipTappedAsync(chip, IsShiftKeyDown());
+        }
+    }
+
+    private static bool IsShiftKeyDown()
+    {
+        var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Shift);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
+            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
     }
 }
 

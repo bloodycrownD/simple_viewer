@@ -147,17 +147,19 @@
                                                 Fill="{x:Bind views:TagSidebarConverters.RadioDotBrush(ShowRadioDot), Mode=OneWay}"
                                                 Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ShowRadioDot)}" />
 
-                                            <!-- chip 主体（点击 = 切换筛选；选中集存在时点击 = 打标属 Step 10 挂钩） -->
+                                            <!-- chip 主体（点击分流 Step 10：选中集非空 = 批量打标 / Shift = 移除；
+                                                 单图模式 = 当前图打标；其余 = 切换筛选。Tag 槽位携带 chip VM 供 code-behind 回查） -->
                                             <Button
                                                 Grid.Column="1"
-                                                Command="{x:Bind Commands.ToggleFilter}"
+                                                Tag="{x:Bind}"
+                                                Tapped="OnChipTapped"
                                                 Content="{x:Bind Name}"
                                                 FontSize="12"
                                                 HorizontalAlignment="Stretch"
                                                 HorizontalContentAlignment="Left"
                                                 Padding="8,4"
                                                 Background="{x:Bind views:TagSidebarConverters.ChipBackground(IsFilterActive), Mode=OneWay}"
-                                                ToolTipService.ToolTip="点击：筛选（选中集打标属后续步骤）" />
+                                                ToolTipService.ToolTip="点击：打标或筛选 · Shift+点击：从选中集移除标签" />
 
                                             <TextBlock
                                                 Grid.Column="2"
