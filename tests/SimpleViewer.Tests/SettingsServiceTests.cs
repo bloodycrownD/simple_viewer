@@ -24,7 +24,7 @@ public class SettingsServiceTests
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() => SettingsService.ValidateBindings(settings));
-        Assert.Contains("target folder", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("目标文件夹", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

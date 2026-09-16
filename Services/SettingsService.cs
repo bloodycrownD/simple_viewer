@@ -107,14 +107,14 @@ public sealed class SettingsService : ISettingsService
         {
             if (string.IsNullOrWhiteSpace(binding.VirtualKey))
             {
-                throw new InvalidOperationException("Each shortcut must have a key assigned.");
+                throw new InvalidOperationException("每个快捷键都必须指定按键。");
             }
 
             if (binding.Command == ViewerCommand.MoveToFolder
                 && string.IsNullOrWhiteSpace(binding.TargetPath))
             {
                 throw new InvalidOperationException(
-                    "Move to folder shortcuts require a target folder path.");
+                    "移动到文件夹的快捷键必须填写目标文件夹路径。");
             }
 
             if (binding.Command == ViewerCommand.ApplyTag)
