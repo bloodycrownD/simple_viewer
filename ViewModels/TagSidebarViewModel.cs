@@ -164,14 +164,14 @@ public partial class TagSidebarViewModel : ObservableObject
                 continue;
             }
 
-            ungroupedTotal += pair.Value;
-            ungrouped.Add(new TagChipViewModel(
-                pair.Key,
-                pair.Value,
-                activeFilters.Contains(pair.Key),
-                showRadioDot: false,
-                ownerGroup: null,
-                CreateUngroupedChipEditCommands()));
+                                ungroupedTotal += pair.Value;
+                                ungrouped.Add(new TagChipViewModel(
+                                    pair.Key,
+                                    pair.Value,
+                                    activeFilters.Contains(pair.Key),
+                                    showRadioDot: false,
+                                    ownerGroup: null,
+                                    CreateUngroupedChipEditCommands(pair.Key)));
         }
 
         if (ungrouped.Count > 0)
@@ -204,8 +204,22 @@ public partial class TagSidebarViewModel : ObservableObject
             Delete: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.DeleteTag, group, tagName))));
 
-    /// <summary>未分组标签无编辑命令（不在配置中：重命名/删除属标签管理操作）。</summary>
-    private static TagChipCommands CreateUngroupedChipEditCommands() => new(null, null);
+    /// <summary>
+    /// 未分组标签的编辑命令（2026-09-17 走查修复：存量标签同样需要重命名/删除入口——
+    /// TagService 按名操作文件，与配置无关；Execute*Async 对 GroupId=null 走"仅动文件、不动配置"分支）。
+    /// </summary>
+    private TagChipCommands CreateUngroupedChipEditCommands(string tagName) => new(
+        Rename: new RelayCommand(() => RaiseEdit(BuildUngroupedTagRequest(TagEditKind.RenameTag, tagName))),
+        Delete: new RelayCommand(() => RaiseEdit(BuildUngroupedTagRequest(TagEditKind.DeleteTag, tagName))));
+
+    private TagEditRequest BuildUngroupedTagRequest(TagEditKind kind, string tagName) => new()
+    {
+        Kind = kind,
+        GroupId = null,
+        GroupName = UngroupedGroupName,
+        TagName = tagName,
+        AffectedCount = _owner.GetTagCount(tagName),
+    };
 
     private GroupCommands CreateGroupCommands(TagGroup group)
         => new(

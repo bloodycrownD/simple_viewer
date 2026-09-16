@@ -152,7 +152,7 @@
                                             <Button
                                                 Grid.Column="1"
                                                 Tag="{x:Bind}"
-                                                Tapped="OnChipTapped"
+                                                Click="OnChipClicked"
                                                 Content="{x:Bind Name}"
                                                 FontSize="12"
                                                 HorizontalAlignment="Stretch"

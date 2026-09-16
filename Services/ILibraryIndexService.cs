@@ -29,6 +29,15 @@ public interface ILibraryIndexService : IDisposable
     /// <param name="cancellationToken">取消令牌（仅在任务调度前生效；进行中的 SQLite 写入不可中断）。</param>
     Task UpsertChunkAsync(IReadOnlyList<GalleryItem> items, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 清空 items 全表（2026-09-17 走查修复：重开图库时索引缓存全量重建）。
+    /// 索引是可丢弃缓存、事实源是文件名——打开图库即重扫全量，
+    /// 若不清表，上一轮的孤儿行（改名/删除前的旧 path）会污染候选集与计数
+    /// （曾表现为删除回执"成功 1 失败 1"且侧栏计数残留）。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task ClearAllItemsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>删除指定 path 的行（文件被删除/移出图库时调用）。</summary>
     /// <param name="path">要删除的文件全路径。</param>
     /// <param name="cancellationToken">取消令牌。</param>

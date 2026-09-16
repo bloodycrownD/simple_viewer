@@ -90,6 +90,19 @@ public sealed class LibraryIndexService : ILibraryIndexService
     }
 
     /// <inheritdoc />
+    public Task ClearAllItemsAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        // DELETE 不带 WHERE 走全表清空；索引是可重建缓存，语义见接口注释。
+        return Task.Run(() => RunCommand(connection =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM items";
+            command.ExecuteNonQuery();
+        }), cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Task UpdateTagsAsync(string path, IReadOnlyList<string> newTags, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(path);

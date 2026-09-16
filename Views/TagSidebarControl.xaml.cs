@@ -34,10 +34,12 @@ public sealed partial class TagSidebarControl : UserControl
 
     /// <summary>
     /// chip 点击转发：Tag 槽位回查 chip VM，Shift 键实时状态交视图模型分流（Step 10：移除语义）。
+    /// 用 Click 而非 Tapped（2026-09-17 走查修复）：Click 对鼠标/触摸/键盘/自动化调用均触发，
+    /// Tapped 仅真实指针手势触发，键盘与辅助功能路径会静默失效。
     /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
     /// （点击同步触发，状态可靠）。
     /// </summary>
-    private void OnChipTapped(object sender, TappedRoutedEventArgs e)
+    private void OnChipClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: TagChipViewModel chip })
         {

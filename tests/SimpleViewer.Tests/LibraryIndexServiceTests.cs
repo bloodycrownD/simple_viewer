@@ -203,6 +203,24 @@ public class LibraryIndexServiceTests
         Assert.Equal(1, counts["人像"]);
     }
 
+    [Fact]
+    public async Task T_IX_07_ClearAllItems_EmptiesTableForFullRebuild()
+    {
+        // 走查修复回归：重开图库清表重建，孤儿行不得残留污染候选集与计数。
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+        await service.UpsertChunkAsync(new[]
+        {
+            MakeItem(MakePath(temp.Path, "a[旧名].jpg"), "a", ".jpg", new[] { "旧名" }),
+            MakeItem(MakePath(temp.Path, "b.jpg"), "b", ".jpg", Array.Empty<string>()),
+        });
+
+        await service.ClearAllItemsAsync();
+
+        Assert.Empty(await service.QueryByTagsAsync(null));
+        Assert.Empty(await service.TagCountsAsync());
+    }
+
     /// <summary>以默认扫描服务构造被测实例（索引目录注入临时目录，rootPath 参与库文件名哈希）。</summary>
     private static LibraryIndexService CreateService(string indexDirectory, string? rootPath = null)
         => new(rootPath ?? System.IO.Path.Combine(indexDirectory, "root"), indexDirectory, new LibraryScanService());

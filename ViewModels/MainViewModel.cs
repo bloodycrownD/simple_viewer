@@ -92,7 +92,17 @@ public partial class MainViewModel : ObservableObject
     private readonly DispatcherQueue? _dispatcher;
 
     /// <summary>扫描期间标签计数节流刷新间隔（毫秒）。</summary>
-    private const int TagDataRefreshIntervalMs = 1500;
+    /// <summary>
+    /// 扫描期间标签计数刷新间隔（2026-09-17 走查修复：TagCounts 为全表聚合，大库扫描中
+    /// 1.5s 一刷会持续占用 UI 线程重建侧栏，输入明显卡顿；放宽到 5s，扫描结束仍有终态强刷）。
+    /// </summary>
+    private const int TagDataRefreshIntervalMs = 5000;
+
+    /// <summary>扫描 UI 追加合并的批量阈值（项）。</summary>
+    private const int UiFlushBatchSize = 2000;
+
+    /// <summary>扫描 UI 追加合并的时间阈值（毫秒）。</summary>
+    private const int UiFlushIntervalMs = 300;
 
     public MainViewModel(
         IFileBrowserService fileBrowser,
@@ -442,6 +452,11 @@ public partial class MainViewModel : ObservableObject
         _indexService?.Dispose();
         _indexService = indexService;
 
+        // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
+        // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
+        // 事实源是文件名，每次打开图库即清表重灌。
+        await indexService.ClearAllItemsAsync(token);
+
         _galleryItems.Clear();
         ClearCardSelection();
         _activeFilterTags.Clear();
@@ -469,17 +484,30 @@ public partial class MainViewModel : ObservableObject
             await Task.Run(async () =>
             {
                 var chunk = new List<GalleryItem>(LibraryScanService.ChunkSize);
+                // UI 追加合并缓冲（2026-09-17 走查修复）：瀑布流追加是 UI 线程操作，
+                // 大库扫描中每 500 项一报会高频触发集合通知与布局，挤压输入响应；
+                // 攒到 2000 项或距上次投递超 300ms 才 Report 一次（终块在循环外兜底冲刷）。
+                var uiBuffer = new List<GalleryItem>(UiFlushBatchSize);
+                var uiFlushWatch = Stopwatch.StartNew();
                 await foreach (var item in _scanService.ScanAsync(root, progress, token))
                 {
                     // 全量暂存 List + 分块 upsert 索引；瀑布流经 chunkProgress 渐进追加（UI 线程）。
                     _galleryItems.Add(item);
                     chunk.Add(item);
+                    uiBuffer.Add(item);
                     if (chunk.Count >= LibraryScanService.ChunkSize)
                     {
                         await indexService.UpsertChunkAsync(chunk, token);
-                        // Report 引用会被异步消费，复用 List 前必须快照。
-                        chunkProgress.Report(chunk.ToArray());
                         chunk.Clear();
+
+                        if (uiBuffer.Count >= UiFlushBatchSize
+                            || (uiBuffer.Count > 0 && uiFlushWatch.ElapsedMilliseconds >= UiFlushIntervalMs))
+                        {
+                            // Report 引用会被异步消费，复用 List 前必须快照。
+                            chunkProgress.Report(uiBuffer.ToArray());
+                            uiBuffer.Clear();
+                            uiFlushWatch.Restart();
+                        }
 
                         if (lastTagRefresh.ElapsedMilliseconds >= TagDataRefreshIntervalMs)
                         {
@@ -492,7 +520,12 @@ public partial class MainViewModel : ObservableObject
                 if (chunk.Count > 0)
                 {
                     await indexService.UpsertChunkAsync(chunk, token);
-                    chunkProgress.Report(chunk.ToArray());
+                }
+
+                if (uiBuffer.Count > 0)
+                {
+                    chunkProgress.Report(uiBuffer.ToArray());
+                    uiBuffer.Clear();
                 }
             }, token);
 
