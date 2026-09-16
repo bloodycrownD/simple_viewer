@@ -181,7 +181,7 @@ SimpleViewer.sln
 | 打标即改名与排序/索引漂移 | PRD 已拍板接受；索引行级更新 + UI 就地刷新避免全量重排；默认排序 = 发现顺序（正式决策见 D15） | — |
 | SQLite native 在发布链未实测 | Step 14 发布冒烟为 blocking；Core 加包后先本地 `dotnet test` 验证 | 换 LiteDB 纯托管（决策点已评估，D2） |
 | dotnet CLI 构建脆弱（MRT/PRI 三开关历史坑） | 不动三开关（D12 资源决策）；每相结束回归 `dotnet build SimpleViewer.sln -p:Platform=x64` | — |
-| **XamlCompiler 间歇沉默崩溃（环境级，2026-09-16 实测）**：WinAppSDK 1.6.240923002 的 XamlCompiler（net472）以约 10-30% 概率退出码 1 崩溃且无输出（MSB3073），与源码内容无因果（干净副本复现）；并行 MSBuild 节点/进程复用显著加剧（默认 5/6 失败，`-m:1 -nr:false` 1/6） | **验证构建一律走 `scripts\build.ps1`**（单节点禁复用 + 3 次重试 + obj 清理）；XAML 规避清单继续遵守（无 DockPanel/无 PUA 字形/无 U+00AB、BB/中文 XAML 带 BOM）；若重试仍连续失败再排查 Defender 实时扫描排除项（需用户决策） | 重试协议掩盖的是环境非确定性，不引入代码回滚 |
+| **XamlCompiler 间歇沉默崩溃（环境级，2026-09-16 实测）**：WinAppSDK 1.6.240923002 的 XamlCompiler（net472）以约 10-30% 概率退出码 1 崩溃且无输出（MSB3073），与源码内容无因果（干净副本复现）；并行 MSBuild 节点/进程复用显著加剧（默认 5/6 失败，`-m:1 -nr:false` 1/6） | **验证构建一律走 `scripts\build.ps1`**（单节点禁复用 + 3 次原样重试（不清 obj，利用预热缓存）+ 冷重建兜底（清 obj + 强制还原，仅重试均败后执行））；XAML 规避清单继续遵守（无 DockPanel/无 PUA 字形/无 U+00AB、BB/中文 XAML 带 BOM）；若重试仍连续失败再排查 Defender 实时扫描排除项（需用户决策） | 重试协议掩盖的是环境非确定性，不引入代码回滚 |
 | 旧版 exe 回退运行并保存设置丢 TagGroups | 交付说明注明；schema 向前兼容（读取不炸） | — |
 | 批量重命名中途失败 | BatchOperationResult 成功不回滚（PRD 拍板）；失败项可重试 | — |
 | 性能不达标（5 万首屏/10 万筛选） | 各性能关键点均有独立缓存层（索引/缩略图/排序 key），可逐层扩预算；SQLite tags 列 LIKE 查询 10 万行实测不达标时升级为标签行表（多对多）结构；USN Journal 首扫优化列为后备手段（本期不实现） | 降低 PRD 性能口径需用户重新拍板 |

@@ -1,9 +1,9 @@
 // 职责：瀑布流薄壳视图模型（spec：逻辑尽量下沉 Core，本类只做项包装与集合通知）——
-//       渐进追加/整体重置/就地更新卡片项，卡片交互向 MainViewModel 转发。
+//       渐进追加/整体重置，卡片交互向 MainViewModel 转发。
 // 不变量：GallerySource 仅允许 UI 线程变更（扫描块经 Progress<T> 回投 UI 线程后追加）；
-//         追加走批量 Add 通知（每扫描块一次），不整块 Reset（Reset 会丢失虚拟化与滚动状态）；
-//         打标/重命名走就地 Replace（保滚动位置与选中态，D15）。
-// 调用链：MainViewModel（扫描块回投/筛选重置/编辑后更新）→ WaterfallViewModel → GallerySource → ItemsRepeater。
+//         扫描渐进追加走批量 Add 通知（每扫描块一次，不逐项通知）；
+//         打标/重命名/筛选切换后走整体 Reset 刷新（卡片 VM 全部重建，缩略图由缓存兜底）。
+// 调用链：MainViewModel（扫描块回投/打标与筛选后重置）→ WaterfallViewModel → GallerySource → ItemsRepeater。
 
 using System.Collections.Specialized;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,7 +27,7 @@ public partial class WaterfallViewModel : ObservableObject
         Items = new GallerySource();
     }
 
-    /// <summary>瀑布流项集合（ItemsRepeater 数据源；批量追加通知 + Reset + 就地 Replace）。</summary>
+    /// <summary>瀑布流项集合（ItemsRepeater 数据源；批量追加通知 + Reset）。</summary>
     public GallerySource Items { get; }
 
     /// <summary>项集合内容变化（追加/重置/替换）时通知宿主刷新空态等派生属性。</summary>
@@ -75,15 +75,6 @@ public partial class WaterfallViewModel : ObservableObject
         ItemsChanged?.Invoke();
     }
 
-    /// <summary>打标/重命名后就地替换卡片项（保滚动位置与选中态；找不到旧路径时为无操作）。</summary>
-    public void UpdateItem(string oldPath, GalleryItem newItem)
-    {
-        if (Items.ReplaceByPath(oldPath, new GalleryItemViewModel(newItem, this, _thumbnailService)))
-        {
-            ItemsChanged?.Invoke();
-        }
-    }
-
     /// <summary>卡片单击转发（选中/取消选中；选中集状态在 MainViewModel）。</summary>
     internal void RaiseCardTapped(GalleryItemViewModel viewModel) => _owner.ToggleCardSelection(viewModel);
 
@@ -93,7 +84,7 @@ public partial class WaterfallViewModel : ObservableObject
 
 /// <summary>
 /// 瀑布流项集合：轻量批量通知数据源（IReadOnlyList + INotifyCollectionChanged）。
-/// 追加走单次多项 Add 通知（每扫描块一次，而非每项一次），重置走 Reset，替换走 Replace；
+/// 追加走单次多项 Add 通知（每扫描块一次，而非每项一次），重置走 Reset；
 /// 只在 UI 线程使用（与 ObservableCollection 相同的线程亲和性约束）。
 /// 退路说明：若 ItemsRepeater 对多项 Add 通知出现兼容问题（M2 走查发现），可退化为
 /// AddRange 内逐项发单项 Add 通知（语义与 ObservableCollection 完全一致），不影响调用方。
@@ -133,27 +124,6 @@ public sealed class GallerySource : IReadOnlyList<GalleryItemViewModel>, INotify
         _items.Clear();
         _items.AddRange(items);
         OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-    }
-
-    /// <summary>按旧路径就地替换卡片项（Replace 通知）；旧路径不存在返回 false。</summary>
-    public bool ReplaceByPath(string oldPath, GalleryItemViewModel newItem)
-    {
-        for (var i = 0; i < _items.Count; i++)
-        {
-            if (string.Equals(_items[i].Item.Path, oldPath, StringComparison.OrdinalIgnoreCase))
-            {
-                var oldItem = _items[i];
-                _items[i] = newItem;
-                OnCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Replace,
-                    new[] { newItem },
-                    new[] { oldItem },
-                    i));
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <inheritdoc />

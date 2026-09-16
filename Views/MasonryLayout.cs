@@ -4,7 +4,7 @@
 //         宽高比推算），列分配以“估算行”纯数据完成——无需 realize 元素即可确定全部卡片位置；
 //         每轮布局只 realize 视口 ± 缓冲区内的元素，视口外元素由 ItemsRepeater 自动回收；
 //         位置数组缓存在 LayoutState：尾部追加增量续算（D15：渐进呈现不重排已布局项）、
-//         列数变化/Count 回退时全量重算；数据源 Reset/Replace/Remove 由宿主（WaterfallView 订阅
+//         列数变化/Count 回退时全量重算；数据源非 Add 通知（如 Reset）由宿主（WaterfallView 订阅
 //         CollectionChanged）置 ForceRecompute 全量重算（WinAppSDK 1.6 的 OnItemsChanged 虚方法
 //         不可重写，重算标记经宿主侧触发，效果等价）；列数不变的窄幅宽度变化走滞后阈值（resize 去抖配合）。
 // 两段提交说明（spec 风险表既定策略）：第一段为 NonVirtualizingLayout 正确版（已提交），
@@ -68,10 +68,9 @@ public class MasonryLayout : VirtualizingLayout
         var viewportWidth = ResolveViewportWidth(availableSize);
         var columns = ComputeColumns(viewportWidth);
 
-        // 布局复用条件：已有布局、无强制重排/脏标记、列数相同、宽度在滞后阈值内、且数据只增不减（尾部追加）。
+        // 布局复用条件：已有布局、无强制重排、列数相同、宽度在滞后阈值内、且数据只增不减（尾部追加）。
         var canReuse = state.HasLayout
             && !ForceRecompute
-            && !state.Dirty
             && state.ColumnCount == columns
             && Math.Abs(viewportWidth - state.AppliedWidth) <= WidthSnapTolerance
             && state.Count <= context.ItemCount;
@@ -176,9 +175,6 @@ internal sealed class MasonryLayoutState
     /// <summary>是否已建立布局（Reset 至少执行过一次）。</summary>
     public bool HasLayout { get; private set; }
 
-    /// <summary>脏标记：数据源 Remove/Replace/Reset 后置位，下轮度量全量重算。</summary>
-    public bool Dirty { get; set; }
-
     /// <summary>布局采用的总项数（位置数组的有效前缀长度）。</summary>
     public int Count { get; set; }
 
@@ -207,7 +203,6 @@ internal sealed class MasonryLayoutState
         _positions = [];
         _columnHeights = new double[columns];
         Count = 0;
-        Dirty = false;
         HasLayout = true;
     }
 
