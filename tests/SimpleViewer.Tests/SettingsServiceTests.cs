@@ -37,7 +37,9 @@ public class SettingsServiceTests
         var settings = service.Load();
 
         Assert.True(File.Exists(settingsPath));
-        Assert.Equal(1, settings.Version);
+        Assert.Equal(2, settings.Version);
+        Assert.NotNull(settings.TagGroups);
+        Assert.Empty(settings.TagGroups);
         Assert.Equal(7, settings.Shortcuts.Count);
         Assert.DoesNotContain(settings.Shortcuts, static b => b.Command == ViewerCommand.MoveToFolder);
 
@@ -48,6 +50,226 @@ public class SettingsServiceTests
         AssertShortcut(settings, "Escape", [], ViewerCommand.ExitApp);
         AssertShortcut(settings, "F2", [], ViewerCommand.ToggleFullscreen);
         AssertShortcut(settings, "Delete", [], ViewerCommand.DeleteImage);
+    }
+
+    /// <summary>spec T-ST1：v1 配置读取 → TagGroups 空、Version 升 2 并回写磁盘。</summary>
+    [Fact]
+    public void T_ST_03_V1Config_MigratesToV2AndWritesBack()
+    {
+        var settingsPath = CreateTempSettingsPath();
+        try
+        {
+            var v1Json = """
+                {
+                  "version": 1,
+                  "shortcuts": [
+                    { "virtualKey": "Right", "modifiers": [], "command": "nextImage" },
+                    { "virtualKey": "Delete", "modifiers": [], "command": "deleteImage" }
+                  ]
+                }
+                """;
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+            File.WriteAllText(settingsPath, v1Json);
+
+            var settings = new SettingsService(settingsPath).Load();
+
+            // 内存对象：Version 升 2、TagGroups 补空、既有快捷键无损。
+            Assert.Equal(2, settings.Version);
+            Assert.NotNull(settings.TagGroups);
+            Assert.Empty(settings.TagGroups);
+            Assert.Equal(2, settings.Shortcuts.Count);
+            AssertShortcut(settings, "Right", [], ViewerCommand.NextImage);
+            AssertShortcut(settings, "Delete", [], ViewerCommand.DeleteImage);
+
+            // 磁盘文件：已回写 v2（再次 Load 不再触发迁移路径也能读到 v2）。
+            var rewritten = File.ReadAllText(settingsPath);
+            Assert.Contains("\"version\": 2", rewritten);
+            Assert.Contains("\"tagGroups\": []", rewritten);
+        }
+        finally
+        {
+            CleanupTempDirectory(settingsPath);
+        }
+    }
+
+    /// <summary>spec T-ST2：v2 配置读写往返无损（快捷键 + 标签组共存）。</summary>
+    [Fact]
+    public void T_ST_04_V2Config_RoundTripsShortcutsAndTagGroups()
+    {
+        var settingsPath = CreateTempSettingsPath();
+        try
+        {
+            var original = new AppSettings
+            {
+                Shortcuts =
+                [
+                    new ShortcutBinding { VirtualKey = "Right", Modifiers = [], Command = ViewerCommand.NextImage },
+                    new ShortcutBinding
+                    {
+                        VirtualKey = "M",
+                        Modifiers = ["Control"],
+                        Command = ViewerCommand.MoveToFolder,
+                        TargetPath = @"C:\pictures",
+                    },
+                ],
+                TagGroups =
+                [
+                    new TagGroup
+                    {
+                        Id = "group-1",
+                        Name = "评分",
+                        Exclusive = true,
+                        Tags = [new TagDefinition { Id = "tag-1", Name = "好评" }],
+                    },
+                    new TagGroup
+                    {
+                        Id = "group-2",
+                        Name = "主题",
+                        Exclusive = false,
+                        Tags =
+                        [
+                            new TagDefinition { Id = "tag-2", Name = "风景" },
+                            new TagDefinition { Id = "tag-3", Name = "已修" },
+                        ],
+                    },
+                ],
+            };
+
+            var service = new SettingsService(settingsPath);
+            service.Save(original);
+            var loaded = service.Load();
+
+            Assert.Equal(2, loaded.Version);
+
+            var moveBinding = Assert.Single(loaded.Shortcuts, b => b.Command == ViewerCommand.MoveToFolder);
+            Assert.Equal("M", moveBinding.VirtualKey);
+            Assert.Equal(@"C:\pictures", moveBinding.TargetPath);
+
+            Assert.Equal(2, loaded.TagGroups.Count);
+
+            Assert.Equal("group-1", loaded.TagGroups[0].Id);
+            Assert.Equal("评分", loaded.TagGroups[0].Name);
+            Assert.True(loaded.TagGroups[0].Exclusive);
+            var rating = Assert.Single(loaded.TagGroups[0].Tags);
+            Assert.Equal("tag-1", rating.Id);
+            Assert.Equal("好评", rating.Name);
+
+            Assert.Equal("group-2", loaded.TagGroups[1].Id);
+            Assert.Equal("主题", loaded.TagGroups[1].Name);
+            Assert.False(loaded.TagGroups[1].Exclusive);
+            Assert.Equal(2, loaded.TagGroups[1].Tags.Count);
+            Assert.Equal("风景", loaded.TagGroups[1].Tags[0].Name);
+            Assert.Equal("已修", loaded.TagGroups[1].Tags[1].Name);
+        }
+        finally
+        {
+            CleanupTempDirectory(settingsPath);
+        }
+    }
+
+    /// <summary>spec T-ST3：标签组校验——组内重名/跨组重名/非法字符（空白、方括号、空名）拒绝。</summary>
+    [Fact]
+    public void T_ST_05_TagGroupValidation_RejectsInvalidGroups()
+    {
+        // 合法配置不抛异常。
+        var valid = new AppSettings
+        {
+            TagGroups =
+            [
+                new TagGroup
+                {
+                    Id = "g1", Name = "评分", Exclusive = true,
+                    Tags = [new TagDefinition { Id = "t1", Name = "好评" }],
+                },
+                new TagGroup
+                {
+                    Id = "g2", Name = "主题",
+                    Tags = [new TagDefinition { Id = "t2", Name = "风景" }],
+                },
+            ],
+        };
+        Assert.Null(Record.Exception(() => SettingsService.ValidateTagGroups(valid)));
+
+        // 组内重名。
+        var inGroupDuplicate = WithGroups(new TagGroup
+        {
+            Id = "g1", Name = "评分",
+            Tags =
+            [
+                new TagDefinition { Id = "t1", Name = "好评" },
+                new TagDefinition { Id = "t2", Name = "好评" },
+            ],
+        });
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => SettingsService.ValidateTagGroups(inGroupDuplicate));
+        Assert.Contains("组内标签重名", ex.Message);
+
+        // 跨组重名。
+        var crossGroupDuplicate = WithGroups(
+            new TagGroup { Id = "g1", Name = "评分", Tags = [new TagDefinition { Id = "t1", Name = "好评" }] },
+            new TagGroup { Id = "g2", Name = "主题", Tags = [new TagDefinition { Id = "t2", Name = "好评" }] });
+        ex = Assert.Throws<InvalidOperationException>(
+            () => SettingsService.ValidateTagGroups(crossGroupDuplicate));
+        Assert.Contains("跨组标签重名", ex.Message);
+
+        // 标签空名。
+        ex = Assert.Throws<InvalidOperationException>(
+            () => SettingsService.ValidateTagGroups(WithGroups(
+                new TagGroup { Id = "g1", Name = "评分", Tags = [new TagDefinition { Id = "t1", Name = "" }] })));
+        Assert.Contains("标签名不能为空", ex.Message);
+
+        // 空白字符全集：普通空格、全角空格（U+3000）、不换行空格（U+00A0）。
+        foreach (var name in new[] { "风 景", "风\u3000景", "风\u00A0景" })
+        {
+            ex = Assert.Throws<InvalidOperationException>(
+                () => SettingsService.ValidateTagGroups(WithGroups(
+                    new TagGroup { Id = "g1", Name = "主题", Tags = [new TagDefinition { Id = "t1", Name = name }] })));
+            Assert.Contains("空白字符", ex.Message);
+        }
+
+        // 方括号（TagSpaces 文件名协议保留字符）。
+        foreach (var name in new[] { "[风景]", "风景]", "[风景" })
+        {
+            ex = Assert.Throws<InvalidOperationException>(
+                () => SettingsService.ValidateTagGroups(WithGroups(
+                    new TagGroup { Id = "g1", Name = "主题", Tags = [new TagDefinition { Id = "t1", Name = name }] })));
+            Assert.Contains("方括号", ex.Message);
+        }
+
+        // 组名空白。
+        ex = Assert.Throws<InvalidOperationException>(
+            () => SettingsService.ValidateTagGroups(WithGroups(
+                new TagGroup { Id = "g1", Name = "  ", Tags = [] })));
+        Assert.Contains("标签组名称不能为空", ex.Message);
+    }
+
+    /// <summary>spec T-ST4：保存原子性——替换失败（目标只读）时原文件内容不被破坏、无临时文件残留。</summary>
+    [Fact]
+    public void T_ST_06_SaveFailure_KeepsOriginalFileIntact()
+    {
+        var settingsPath = CreateTempSettingsPath();
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+            var originalJson = "{\n  \"version\": 2,\n  \"shortcuts\": [],\n  \"tagGroups\": []\n}";
+            File.WriteAllText(settingsPath, originalJson);
+
+            // 目标文件只读：临时文件写入成功但 File.Move 覆盖失败 → 模拟写入中途失败。
+            File.SetAttributes(settingsPath, FileAttributes.ReadOnly);
+
+            var service = new SettingsService(settingsPath);
+            var ex = Record.Exception(() => service.Save(SettingsService.CreateDefaultSettings()));
+
+            Assert.NotNull(ex);
+            Assert.Equal(originalJson, File.ReadAllText(settingsPath));
+            Assert.False(File.Exists(settingsPath + ".tmp"));
+        }
+        finally
+        {
+            // 恢复属性以便清理临时目录。
+            File.SetAttributes(settingsPath, FileAttributes.Normal);
+            CleanupTempDirectory(settingsPath);
+        }
     }
 
     private static void AssertShortcut(
@@ -64,6 +286,39 @@ public class SettingsServiceTests
         foreach (var modifier in modifiers)
         {
             Assert.Contains(binding.Modifiers, m => string.Equals(m, modifier, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private static AppSettings WithGroups(params TagGroup[] groups)
+    {
+        return new AppSettings { TagGroups = [.. groups] };
+    }
+
+    private static string CreateTempSettingsPath()
+    {
+        return Path.Combine(
+            Path.GetTempPath(),
+            "sv-settings-" + Guid.NewGuid().ToString("N"),
+            "settings.json");
+    }
+
+    private static void CleanupTempDirectory(string settingsPath)
+    {
+        var directory = Path.GetDirectoryName(settingsPath);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 }

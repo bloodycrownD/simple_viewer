@@ -204,11 +204,10 @@ public partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            var settings = new AppSettings
-            {
-                Version = 1,
-                Shortcuts = Items.Select(static i => i.ToBinding()).ToList(),
-            };
+            // load-modify-save：读取现设置后仅替换 Shortcuts 字段，
+            // 保留 Version/TagGroups 等其他字段（避免整体重建抹掉标签组配置）。
+            var settings = _settingsService.Load();
+            settings.Shortcuts = Items.Select(static i => i.ToBinding()).ToList();
 
             SettingsService.ValidateBindings(settings);
             _settingsService.Save(settings);
