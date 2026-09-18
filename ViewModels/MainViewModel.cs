@@ -1228,6 +1228,9 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>主题切换后的视觉刷新入口（公开给 MainWindow）：重建侧栏与筛选条，使 x:Bind 颜色函数按新主题重算。</summary>
+    public void RefreshThemeDependentVisuals() => RebuildTagSidebar();
+
     /// <summary>
     /// 重建筛选条 chip 集合（Step 11）：激活标签 → 「组名：标签名」chip + 单删命令；
     /// 组名取配置组（跨组重名已被校验拒绝），不在任何配置组的标签归「未分组」；

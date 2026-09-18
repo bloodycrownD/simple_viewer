@@ -82,8 +82,10 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 应用根主题（Content.RequestedTheme 影响 RootGrid 内全部 ThemeResource 解析，标题栏跟随）：
+    /// 应用根主题（RootGrid.RequestedTheme 影响 RootGrid 内全部 ThemeResource 解析，标题栏跟随）：
     /// Dark/Light 显式指定；System（含未知值）清除覆盖回系统主题。
+    /// 同步更新代码侧颜色标志并重建侧栏/筛选条（TagSidebarConverters 的 x:Bind 颜色函数不认
+    /// RootGrid 主题覆盖，须按 IsDarkTheme 双值重算——深色下 chip 文字发黑的走查修复）。
     /// </summary>
     private void ApplyTheme(string preferred)
     {
@@ -99,6 +101,8 @@ public sealed partial class MainWindow : Window
             "Light" => Microsoft.UI.Xaml.ElementTheme.Light,
             _ => Microsoft.UI.Xaml.ElementTheme.Default,
         };
+        Views.TagSidebarConverters.IsDarkTheme = RootGrid.ActualTheme == Microsoft.UI.Xaml.ElementTheme.Dark;
+        ViewModel.RefreshThemeDependentVisuals();
     }
 
     /// <summary>工具栏「主题」按钮：三态循环并持久化（load-modify-save，保留其他字段）。</summary>

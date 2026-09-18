@@ -143,6 +143,15 @@ public static class TagSidebarConverters
     private const byte AlphaBorder = 0x8C;
     private const byte AlphaSolid = 0xD9;
 
+    /// <summary>
+    /// 当前有效主题是否深色（2026-09-17 走查修复：深色下 chip 文字发黑）。
+    /// 根因：Application.Current.Resources 的 ThemeResource 查找不认 RootGrid.RequestedTheme
+    /// 的运行时覆盖（按应用/系统主题解析），深色模式下取回浅色主题的深色文字画刷。
+    /// 故代码侧颜色一律改为该标志驱动的明暗双值；由 MainWindow.ApplyTheme 在应用主题时写入，
+    /// 并触发侧栏/筛选条重建使 x:Bind 函数重新求值。默认 true（默认主题 Dark）。
+    /// </summary>
+    public static bool IsDarkTheme { get; set; } = true;
+
     private static readonly SolidColorBrush WhiteBrush =
         new(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
     private static readonly SolidColorBrush TransparentBrush =
@@ -169,15 +178,25 @@ public static class TagSidebarConverters
             ? TransparentBrush
             : FromHsl(hue, IsUngroupedHue(hue) ? 0.15 : 0.45, 0.55, AlphaBorder);
 
-    /// <summary>chip 前景：激活 = 白字；未激活 = 主题主文字色。</summary>
+    /// <summary>chip 前景：激活 = 白字；未激活 = 主题主文字色（明暗双值，见 IsDarkTheme 注释）。</summary>
     public static Brush ChipForeground(bool isActive)
-        => isActive ? WhiteBrush : ThemeBrush("TextFillColorPrimaryBrush");
+        => isActive
+            ? WhiteBrush
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(
+                0xFF,
+                (byte)(IsDarkTheme ? 0xF1 : 0x1B),
+                (byte)(IsDarkTheme ? 0xF1 : 0x1B),
+                (byte)(IsDarkTheme ? 0xF1 : 0x1B)));
 
     /// <summary>chip 内计数前景：激活 = 85% 白；未激活 = 主题次要色（demo .tag-count 10px）。</summary>
     public static Brush ChipCountForeground(bool isActive)
         => isActive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(0xD9, 0xFF, 0xFF, 0xFF))
-            : ThemeBrush("TextFillColorSecondaryBrush");
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(
+                0xFF,
+                (byte)(IsDarkTheme ? 0xA0 : 0x6C),
+                (byte)(IsDarkTheme ? 0xA0 : 0x6B),
+                (byte)(IsDarkTheme ? 0xA0 : 0x69)));
 
     /// <summary>互斥组单选圆点描边：激活 = 白；未激活 = 组 hue 45%（demo .radio-dot）。</summary>
     public static Brush RadioDotStroke(int hue, bool isActive)
@@ -187,17 +206,26 @@ public static class TagSidebarConverters
     public static Brush RadioDotFill(bool isActive)
         => isActive ? WhiteBrush : TransparentBrush;
 
-    /// <summary>互斥/多选小徽章底色：互斥 = 琥珀 16% 透明（demo .group-badge.excl）；多选 = 主题浅底。</summary>
+    /// <summary>互斥/多选小徽章底色：互斥 = 琥珀 16% 透明（demo .group-badge.excl）；多选 = 中性淡底（明暗双值）。</summary>
     public static Brush ExclusiveBadgeBackground(bool exclusive)
         => exclusive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(0x29, 0xF0, 0xB4, 0x29))
-            : ThemeBrush("ControlFillColorSecondaryBrush");
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(
+                (byte)(IsDarkTheme ? 0x24 : 0x14), 0xFF, 0xFF, 0xFF));
 
-    /// <summary>互斥/多选小徽章字色：互斥 = 深琥珀；多选 = 主题次要色。</summary>
+    /// <summary>互斥/多选小徽章字色：互斥 = 琥珀（深色下提亮）；多选 = 中性次要色。</summary>
     public static Brush ExclusiveBadgeForeground(bool exclusive)
         => exclusive
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xB0, 0x79, 0x0A))
-            : ThemeBrush("TextFillColorSecondaryBrush");
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+                0xFF,
+                (byte)(IsDarkTheme ? 0xFF : 0xB0),
+                (byte)(IsDarkTheme ? 0xC8 : 0x79),
+                (byte)(IsDarkTheme ? 0x3D : 0x0A)))
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(
+                0xFF,
+                (byte)(IsDarkTheme ? 0xC8 : 0x6C),
+                (byte)(IsDarkTheme ? 0xC8 : 0x6B),
+                (byte)(IsDarkTheme ? 0xC8 : 0x69)));
 
     /// <summary>徽章描边厚度：互斥 = 无边框（琥珀淡底自足）；多选 = 1px 中性描边（demo .group-badge.multi）。</summary>
     public static Thickness MultiBadgeStroke(bool exclusive)
@@ -251,9 +279,6 @@ public static class TagSidebarConverters
             : TagGroupViewModel.HueOfName(groupName);
 
     private static bool IsUngroupedHue(int hue) => hue == TagGroupViewModel.UngroupedHue;
-
-    /// <summary>主题画刷查找（Application.Resources；返回主题共享实例）。</summary>
-    private static Brush ThemeBrush(string key) => (Brush)Application.Current.Resources[key];
 
     /// <summary>
     /// HSL → SolidColorBrush（hue 0-359；sat/light 0-1；alpha 半透明叠加用）。
