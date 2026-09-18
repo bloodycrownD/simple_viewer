@@ -32,6 +32,15 @@ public sealed partial class SingleImageView : UserControl
     /// <summary>缩放上限（相对 fit 尺寸；放大超过解码分辨率会像素化，属已知限制）。</summary>
     private const double MaxZoom = 8.0;
 
+    /// <summary>
+    /// 全分辨率重解码触发阈值（2026-09-19）：解码尺寸 ≈ fit 尺寸，缩放超过此值即放大了
+    /// 解码像素，通知 VM 按需加载全分辨率版本（每图一次，失败不重试）。
+    /// </summary>
+    private const double FullResZoomThreshold = 1.2;
+
+    /// <summary>缩放/平移交互态归属的图路径（切图复位依据；同图分辨率升级不重置）。</summary>
+    private string? _zoomOwnerPath;
+
     /// <summary>拖拽中的指针 id（<see cref="uint.MaxValue"/> = 未拖拽）。</summary>
     private uint _dragPointerId = uint.MaxValue;
 
@@ -71,8 +80,14 @@ public sealed partial class SingleImageView : UserControl
         }
         else if (e.PropertyName == nameof(MainViewModel.ImageSource))
         {
-            // 切图复位缩放/平移（缩放属上一张的交互态，不跨图保留）。
-            ResetZoom();
+            // ImageSource 变化有两种：切图（复位缩放/平移）与同图全分辨率升级
+            // （保持交互态——放大正是触发升级的动作，换源后合成器用高分辨率纹理重采样）。
+            var path = ViewModel.CurrentImagePath;
+            if (!string.Equals(path, _zoomOwnerPath, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetZoom();
+                _zoomOwnerPath = path;
+            }
         }
     }
 
@@ -93,6 +108,13 @@ public sealed partial class SingleImageView : UserControl
             MinZoom,
             MaxZoom);
         ZoomAt(point.Position, targetScale);
+
+        // 放大跨过阈值：按需全分辨率重解码（fire-and-forget；VM 内部防重入）。
+        if (targetScale >= FullResZoomThreshold)
+        {
+            _ = ViewModel.EnsureFullResolutionAsync();
+        }
+
         e.Handled = true;
     }
 

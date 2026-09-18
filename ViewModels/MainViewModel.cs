@@ -265,6 +265,63 @@ public partial class MainViewModel : ObservableObject
     public string? LibraryRootPath => _libraryRootPath;
 
     /// <summary>
+    /// 当前单图路径（无图为 null）。视图以此区分「切图」与「同图分辨率升级」——
+    /// 后者换 ImageSource 但须保持缩放/平移交互态（2026-09-19 放大自动全分辨率重解码）。
+    /// </summary>
+    public string? CurrentImagePath
+        => _currentIndex >= 0 && _currentIndex < _imageFiles.Count ? _imageFiles[_currentIndex] : null;
+
+    /// <summary>当前图最近一次加载结果（切图清空；全分辨率升级后指向全分辨率版）。</summary>
+    private LoadedImage? _currentLoaded;
+
+    /// <summary>当前图是否已请求过全分辨率升级（每图一次；切图重置，失败不重试）。</summary>
+    private bool _fullResLoadedForCurrent;
+
+    /// <summary>
+    /// 放大超过解码分辨率时按需全分辨率重解码并原地换源（2026-09-19）：
+    /// fit 解码保证平移浏览性能，放大 ≥1.2× 后视口实际需要更多像素，用 decodeSize=null
+    /// 重解码原图（LRU 以 decodeSize 为键，两档共存）。换源后 WriteableBitmap 自然尺寸变大但
+    /// Uniform 布局渲染尺寸不变——视觉无缝，合成器以更高分辨率纹理采样，放大区细节不再像素化。
+    /// </summary>
+    public async Task EnsureFullResolutionAsync()
+    {
+        if (!HasImage || _fullResLoadedForCurrent || _currentLoaded is not { IsGif: false } loaded)
+        {
+            return;
+        }
+
+        // 原图不比当前解码大（小图或已 1:1）：升级无意义。
+        if (loaded.DecodedWidth >= loaded.PixelWidth && loaded.DecodedHeight >= loaded.PixelHeight)
+        {
+            _fullResLoadedForCurrent = true;
+            return;
+        }
+
+        var path = CurrentImagePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        _fullResLoadedForCurrent = true;
+        try
+        {
+            var full = await _imageLoader.LoadAsync(path, decodeSize: null, rotationBucket: 0);
+            if (!HasImage || !string.Equals(CurrentImagePath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return; // 等待期间用户已切图：结果丢弃（新图自会按需加载）。
+            }
+
+            ImageSource = ImageSourceHelper.FromLoadedImage(full);
+            _currentLoaded = full;
+        }
+        catch (Exception ex)
+        {
+            App.WriteDiagnosticLog($"[全分辨率升级失败] path={path}", ex);
+        }
+    }
+
+    /// <summary>
     /// 应用启动参数（文件或 目录+索引）。帮助信息已在 App 侧处理，窗口打开前完成。
     /// </summary>
     public async Task InitializeAsync(LaunchOptions? options)
@@ -2064,6 +2121,8 @@ public partial class MainViewModel : ObservableObject
             ImageSource = ImageSourceHelper.FromLoadedImage(loaded);
             HasImage = true;
             _lastAppliedDecodeSize = _decodeSize ?? 0;
+            _currentLoaded = loaded;
+            _fullResLoadedForCurrent = false;
             UpdateStatusText(loaded);
 
             _imageLoader.PrefetchAdjacent(_imageFiles, _currentIndex, _decodeSize);
@@ -2172,6 +2231,8 @@ public partial class MainViewModel : ObservableObject
         _loadCts?.Cancel();
         ReleaseCurrentImageSource();
         HasImage = false;
+        _currentLoaded = null;
+        _fullResLoadedForCurrent = false;
         ClearFileNameSegments();
         StatusText = string.Empty;
         RotationAngle = 0;
