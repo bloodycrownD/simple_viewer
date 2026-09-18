@@ -33,19 +33,19 @@ public sealed partial class SettingsPage : UserControl
             return;
         }
 
-        var control = IsModifierDown(VirtualKey.Control, e);
-        var shift = IsModifierDown(VirtualKey.Shift, e);
-        var menu = IsModifierDown(VirtualKey.Menu, e);
+        var control = IsModifierDown(VirtualKey.Control);
+        var shift = IsModifierDown(VirtualKey.Shift);
+        var menu = IsModifierDown(VirtualKey.Menu);
 
         ViewModel.RecordKey(e.Key.ToString(), control, shift, menu);
         e.Handled = true;
     }
 
-    private static bool IsModifierDown(VirtualKey modifier, KeyRoutedEventArgs e)
+    private static bool IsModifierDown(VirtualKey modifier)
     {
+        // 只判 Down：Locked 位对修饰键无意义，中文 IME 切中英文会置位（曾致快捷键录制误判 Shift）。
         var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(modifier);
-        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
-            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     private async void OnPickFolderClick(object sender, RoutedEventArgs e)

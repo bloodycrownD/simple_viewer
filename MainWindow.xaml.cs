@@ -244,9 +244,10 @@ public sealed partial class MainWindow : Window
 
     private static bool IsKeyDown(VirtualKey key)
     {
+        // 只判 Down：Locked 是 Caps/Num 类锁定键的 toggle 位，Shift/Ctrl/Alt 并无意义，
+        // 但中文 IME 用 Shift 切中英文会把它置位（曾致每次点击被误判为 Shift 连选）。
         var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key);
-        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
-            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     private static bool IsTextInputFocused()

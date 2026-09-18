@@ -141,9 +141,6 @@ public partial class GalleryItemViewModel : ObservableObject
         }
     }
 
-    /// <summary>卡片单击 = 选中/取消选中（事件 x:Bind 入口；Ctrl/Shift 连选与 Ctrl+A 属 Step 10）。</summary>
-    public void ToggleSelected(object sender, TappedRoutedEventArgs e) => _owner.RaiseCardTapped(this);
-
     /// <summary>卡片双击 → 以单图模式打开（MainViewModel.OpenImageAsSingle）。</summary>
     public void OpenInViewer(object sender, DoubleTappedRoutedEventArgs e) => _owner.RaiseCardDoubleTapped(this);
 

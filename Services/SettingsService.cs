@@ -238,6 +238,8 @@ public sealed class SettingsService : ISettingsService
 
     /// <summary>
     /// Factory defaults aligned with legacy viewer shortcuts (no MoveToFolder paths).
+    /// 旋转默认键用 Ctrl+L/Ctrl+R（2026-09-18 修复：旧默认 Ctrl+A/Ctrl+D 与图库 Ctrl+A 全选冲突，
+    /// 绑定优先逻辑会让全选在出厂默认下永远不触发；存量 settings.json 不自动迁移）。
     /// </summary>
     public static AppSettings CreateDefaultSettings()
     {
@@ -248,8 +250,8 @@ public sealed class SettingsService : ISettingsService
             [
                 new ShortcutBinding { VirtualKey = "Right", Modifiers = [], Command = ViewerCommand.NextImage },
                 new ShortcutBinding { VirtualKey = "Left", Modifiers = [], Command = ViewerCommand.PrevImage },
-                new ShortcutBinding { VirtualKey = "A", Modifiers = ["Control"], Command = ViewerCommand.RotateLeft },
-                new ShortcutBinding { VirtualKey = "D", Modifiers = ["Control"], Command = ViewerCommand.RotateRight },
+                new ShortcutBinding { VirtualKey = "L", Modifiers = ["Control"], Command = ViewerCommand.RotateLeft },
+                new ShortcutBinding { VirtualKey = "R", Modifiers = ["Control"], Command = ViewerCommand.RotateRight },
                 new ShortcutBinding { VirtualKey = "Escape", Modifiers = [], Command = ViewerCommand.ExitApp },
                 new ShortcutBinding { VirtualKey = "F2", Modifiers = [], Command = ViewerCommand.ToggleFullscreen },
                 new ShortcutBinding { VirtualKey = "Delete", Modifiers = [], Command = ViewerCommand.DeleteImage },

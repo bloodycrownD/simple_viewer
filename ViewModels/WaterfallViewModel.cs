@@ -76,9 +76,6 @@ public partial class WaterfallViewModel : ObservableObject
         ItemsChanged?.Invoke();
     }
 
-    /// <summary>卡片单击转发（选中/取消选中；选中集状态在 MainViewModel）。</summary>
-    internal void RaiseCardTapped(GalleryItemViewModel viewModel) => _owner.ToggleCardSelection(viewModel);
-
     /// <summary>卡片双击转发（以单图模式打开）。</summary>
     internal void RaiseCardDoubleTapped(GalleryItemViewModel viewModel) => _ = _owner.OpenImageAsSingle(viewModel.Item);
 }

@@ -1816,6 +1816,40 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        if (_currentIndex < 0 || _currentIndex >= _imageFiles.Count)
+        {
+            return;
+        }
+
+        var path = _imageFiles[_currentIndex];
+        try
+        {
+            _fileOperations.DeleteToRecycleBin(path);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"删除失败：{ex.Message}";
+            return;
+        }
+
+        // 磁盘事实已变（2026-09-18 走查修复：旧实现只删内存列表，文件从未进回收站，
+        // 重开图库"已删"图片复活）。图库打开时同步列表/索引/瀑布流呈现，事实源永远是磁盘。
+        var galleryIndex = _galleryItems.FindIndex(item =>
+            string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (galleryIndex >= 0)
+        {
+            _galleryItems.RemoveAt(galleryIndex);
+            if (_indexService is not null)
+            {
+                await _indexService.RemovePathAsync(path);
+            }
+
+            // 扫描计数文案同步（ApplyTagFilterAsync 只重建瀑布流不刷新 ScanStatusText，
+            // 否则状态栏残留删除前的"共 N 张"）。
+            ScanStatusText = $"共 {_galleryItems.Count} 张";
+            await ApplyTagFilterAsync();
+        }
+
         await RemoveCurrentImageAfterFileOperationAsync();
     }
 

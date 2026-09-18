@@ -45,8 +45,10 @@ public class SettingsServiceTests
 
         AssertShortcut(settings, "Right", [], ViewerCommand.NextImage);
         AssertShortcut(settings, "Left", [], ViewerCommand.PrevImage);
-        AssertShortcut(settings, "A", ["Control"], ViewerCommand.RotateLeft);
-        AssertShortcut(settings, "D", ["Control"], ViewerCommand.RotateRight);
+        // 2026-09-18 修复：旋转默认键让出 Ctrl+A（旧默认与图库 Ctrl+A 全选冲突，
+        // 绑定优先逻辑会让全选在出厂默认下永不触发）。
+        AssertShortcut(settings, "L", ["Control"], ViewerCommand.RotateLeft);
+        AssertShortcut(settings, "R", ["Control"], ViewerCommand.RotateRight);
         AssertShortcut(settings, "Escape", [], ViewerCommand.ExitApp);
         AssertShortcut(settings, "F2", [], ViewerCommand.ToggleFullscreen);
         AssertShortcut(settings, "Delete", [], ViewerCommand.DeleteImage);

@@ -114,10 +114,10 @@ public sealed partial class WaterfallView : UserControl
 
     private static bool IsShiftKeyDown()
     {
+        // 只判 Down：Locked 位对 Shift 无意义，中文 IME 切中英文会置位（曾致普通点击全变连选）。
         var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
             Windows.System.VirtualKey.Shift);
-        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
-            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
