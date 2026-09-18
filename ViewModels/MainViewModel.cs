@@ -1541,10 +1541,14 @@ public partial class MainViewModel : ObservableObject
         var failed = 0;
         foreach (var candidate in candidates)
         {
-            var newPath = TryBuildNewPath(candidate, transform);
+            // 宽松预测（2026-09-17 走查修复）：本阶段运行在 TagService 改名落盘之后，
+            // 预测出的目标路径必然已存在——若沿用 BuildNewPath 的目标存在性冲突预检，
+            // 每一次成功的改名都会被误判为冲突并跳过同步（索引/卡片停留旧路径、计数失真、
+            // 回执误报"失败 N 张"）。此处只做语法与长度预检，改名的成败以磁盘事实判定。
+            var newPath = TryComposeNewPath(candidate, transform);
             if (newPath is null)
             {
-                failed++; // 预测失败（解析/超长/目标冲突）。
+                failed++; // 解析/标签校验/超长等预测失败。
                 continue;
             }
 
@@ -1553,16 +1557,19 @@ public partial class MainViewModel : ObservableObject
                 continue; // 幂等命中：文件名不变，无需同步。
             }
 
-            if (File.Exists(candidate.Path) || !File.Exists(newPath))
+            if (File.Exists(candidate.Path))
             {
-                if (File.Exists(candidate.Path))
-                {
-                    failed++; // 未改名（批量失败明细之一；TagService 回执已聚合原因）。
-                }
-
+                failed++; // 旧路径仍在 = 该文件未被改名（TagService 回执已聚合原因）。
                 continue;
             }
 
+            if (!File.Exists(newPath))
+            {
+                failed++; // 旧不在、新也不在：文件被外部移动/删除的异常态。
+                continue;
+            }
+
+            // 旧路径消失 + 新路径存在 = 改名已落盘，同步索引与瀑布流。
             var newItem = BuildGalleryItem(newPath, candidate);
             if (_indexService is not null)
             {
@@ -1640,17 +1647,36 @@ public partial class MainViewModel : ObservableObject
     private static IReadOnlyList<string> RemoveTag(IReadOnlyList<string> tags, string tagName)
         => tags.Where(t => !string.Equals(t, tagName, StringComparison.OrdinalIgnoreCase)).ToArray();
 
-    /// <summary>预测重命名后的新全路径（TagFilenameService.BuildNewPath 预检；预测失败返回 null）。</summary>
-    private string? TryBuildNewPath(GalleryItem item, Func<IReadOnlyList<string>, IReadOnlyList<string>> transform)
+    /// <summary>
+    /// 预测重命名后的新全路径（仅语法校验与 260 长度预检，**不做目标存在性冲突预检**）：
+    /// 同步阶段运行在 TagService 改名之后，目标文件存在恰是改名成功的证据（见 SyncRenamedItemsAsync 注释）。
+    /// </summary>
+    private string? TryComposeNewPath(GalleryItem item, Func<IReadOnlyList<string>, IReadOnlyList<string>> transform)
     {
         var fileName = Path.GetFileName(item.Path);
-        if (!_tagFilename.TryParse(fileName, out _, out _, out var tags))
+        if (!_tagFilename.TryParse(fileName, out var baseName, out var extension, out var tags))
         {
             return null;
         }
 
-        var build = _tagFilename.BuildNewPath(item.Path, transform(tags));
-        return build.Success ? build.NewFullPath : null;
+        string newName;
+        try
+        {
+            newName = _tagFilename.Compose(baseName, extension, transform(tags));
+        }
+        catch (ArgumentException)
+        {
+            return null; // transform 产生了非法标签（调用方语义 bug 的兜底）。
+        }
+
+        var directory = Path.GetDirectoryName(item.Path);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return null;
+        }
+
+        var fullPath = Path.Combine(directory, newName);
+        return fullPath.Length <= TagFilenameService.MaxPathLength ? fullPath : null;
     }
 
     /// <summary>
