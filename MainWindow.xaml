@@ -60,6 +60,12 @@
                 Command="{x:Bind ViewModel.OpenSettingsCommand}"
                 Icon="Setting"
                 Label="设置" />
+            <!-- 主题三态循环（深色默认/浅色/跟随系统），demo 深色优先的观感由此保证 -->
+            <AppBarButton
+                x:Name="ThemeButton"
+                Click="OnThemeButtonClick"
+                Icon="Highlight"
+                Label="主题" />
             <AppBarButton
                 Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
                 Icon="View"

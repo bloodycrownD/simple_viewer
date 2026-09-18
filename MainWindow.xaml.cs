@@ -68,6 +68,50 @@ public sealed partial class MainWindow : Window
 
         ConfigureWindowChrome();
         ApplySystemBackdrop();
+        ApplyThemeFromSettings();
+    }
+
+    /// <summary>主题三态循环顺序（demo 深色优先：默认 Dark）。</summary>
+    private static readonly string[] ThemeCycle = ["Dark", "Light", "System"];
+
+    /// <summary>按设置应用根主题（未知/缺失值容错为跟随系统）。</summary>
+    private void ApplyThemeFromSettings()
+    {
+        var preferred = _settingsService.Load().PreferredTheme;
+        ApplyTheme(preferred);
+    }
+
+    /// <summary>
+    /// 应用根主题（Content.RequestedTheme 影响 RootGrid 内全部 ThemeResource 解析，标题栏跟随）：
+    /// Dark/Light 显式指定；System（含未知值）清除覆盖回系统主题。
+    /// </summary>
+    private void ApplyTheme(string preferred)
+    {
+        ThemeButton.Label = preferred switch
+        {
+            "Dark" => "深色",
+            "Light" => "浅色",
+            _ => "跟随系统",
+        };
+        RootGrid.RequestedTheme = preferred switch
+        {
+            "Dark" => Microsoft.UI.Xaml.ElementTheme.Dark,
+            "Light" => Microsoft.UI.Xaml.ElementTheme.Light,
+            _ => Microsoft.UI.Xaml.ElementTheme.Default,
+        };
+    }
+
+    /// <summary>工具栏「主题」按钮：三态循环并持久化（load-modify-save，保留其他字段）。</summary>
+    private void OnThemeButtonClick(object sender, RoutedEventArgs e)
+    {
+        var settings = _settingsService.Load();
+        var current = ThemeCycle.Contains(settings.PreferredTheme, StringComparer.Ordinal)
+            ? settings.PreferredTheme
+            : "System";
+        var next = ThemeCycle[(Array.IndexOf(ThemeCycle, current) + 1) % ThemeCycle.Length];
+        settings.PreferredTheme = next;
+        _settingsService.Save(settings);
+        ApplyTheme(next);
     }
 
     private void ConfigureWindowChrome()
