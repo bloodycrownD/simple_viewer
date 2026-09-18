@@ -14,6 +14,7 @@
 - 含中文的 XAML 必须保存为 UTF-8 带 BOM（丢 BOM 会解析乱码）。
 - 新引用 ThemeResource 键必须核对 WinUI 3 真实存在（`LayerFillColorSecondaryBrush` 事故曾致启动即崩，编译期不校验）。
 - 交互用 `Click` 不用 `Tapped`：Tapped 仅真实指针手势触发，键盘/自动化/辅助功能路径静默失效。
+- **修饰键检测只判 `CoreVirtualKeyStates.Down`，禁止 `|| Locked`**：Locked 是 Caps/Num 类 toggle 位，对 Shift 无意义，但中文 IME 切中英文会把 Shift 的该位置位（曾致所有普通点击被误判 Shift 连选且无法取消）——4 处同模式坑（MainWindow/WaterfallView/TagSidebarControl/SettingsPage）已修，勿回潮。
 
 ## 主题与颜色
 
@@ -31,6 +32,12 @@
 
 - 崩溃/卡死先看 `%LocalAppData%\SimpleViewer\logs\startup.log`：全局未处理异常 + UI 心跳看门狗（≥15s 无响应自动转储操作追踪与 UI 线程堆栈）+ 缩略图失败明细。
 - `Services\DiagnosticTrace` 打点关键路径；`scripts\fg-monitor.ps1`（前置窗口监控）、`scripts\freeze-stress.ps1`（清缓存冻结压力测试）。
+
+## 实机 UI 测试（2026-09-18 走查方法论）
+
+- 交互类 bug（选择/修饰键/菜单）必须实机走查：UIA 元素树断言（`get_app_state` 找文本/计数）比视觉模型可靠；**主题/颜色断言用屏幕像素采样**（CopyFromScreen），视觉模型对深浅主题误判过两次。
+- 合成 Shift/Ctrl+点击用 `scripts\shift-click-test.ps1`（SendInput）：① x64 INPUT 结构体必须按联合体 40 字节对齐（32 字节版 SendInput 静默失败且不报错）；② 注入前必须激活目标窗口（键盘事件只进前台窗口线程，后台注入的修饰键目标进程永远看不到）；③ PowerShell 须 `SetProcessDPIAware`，否则 SetCursorPos 坐标被 DPI 虚拟化重映射。
+- 临时改用户 `%LocalAppData%\SimpleViewer\settings.json` 做测试时：先备份、测完原样还原（app 只在改设置时写盘，退出不覆盖）。
 
 ## 杂项
 
