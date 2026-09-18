@@ -57,7 +57,69 @@ public partial class GalleryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
-    /// <summary>标签角标文本：每图标签前 3 个 + "+N"（组色调简化为统一强调色，由模板前景色呈现）。</summary>
+    /// <summary>未映射到配置组的标签角标色相（灰蓝 200，视觉对齐 demo 未分组语义）。</summary>
+    private const int UngroupedBadgeHue = 200;
+
+    /// <summary>「+N」折叠角标的哨兵色相（转换器特判为黑色半透明底）。</summary>
+    private const int MoreBadgeHue = -1;
+
+    /// <summary>标签名 → 组色相索引（TagSidebarViewModel.Rebuild 在 UI 线程原子替换；纯展示数据）。</summary>
+    private static IReadOnlyDictionary<string, int> _tagHues =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 以最新配置组重建「标签名 → 组色相」索引（UI 线程；由 TagSidebarViewModel.Rebuild 调用，
+    /// 纯展示数据，与业务筛选/打标逻辑无关）。
+    /// </summary>
+    internal static void UpdateTagHues(IReadOnlyList<TagGroup> configGroups)
+    {
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in configGroups)
+        {
+            var hue = TagGroupViewModel.HueOfName(group.Name);
+            foreach (var tag in group.Tags)
+            {
+                map[tag.Name] = hue;
+            }
+        }
+
+        _tagHues = map;
+    }
+
+    /// <summary>
+    /// 缩略图左下角标签角标展示模型（前 3 个标签药丸 + 第 4 个起「+N」；
+    /// 每个角标取其所属组色相，未分组标签灰蓝 200——对齐 demo .badge）。
+    /// </summary>
+    public IReadOnlyList<TagBadgeViewModel> Badges
+    {
+        get
+        {
+            var tags = Item.Tags;
+            if (tags.Count == 0)
+            {
+                return [];
+            }
+
+            var shown = Math.Min(tags.Count, MaxVisibleTagBadges);
+            var list = new List<TagBadgeViewModel>(shown + 1);
+            for (var i = 0; i < shown; i++)
+            {
+                var name = tags[i];
+                list.Add(new TagBadgeViewModel(
+                    name,
+                    _tagHues.TryGetValue(name, out var hue) ? hue : UngroupedBadgeHue));
+            }
+
+            if (tags.Count > shown)
+            {
+                list.Add(new TagBadgeViewModel("+" + (tags.Count - shown), MoreBadgeHue));
+            }
+
+            return list;
+        }
+    }
+
+    /// <summary>标签角标文本行：每图标签前 3 个 + "+N"（组色调简化为统一强调色，由模板前景色呈现）。</summary>
     public string BadgeLine
     {
         get
@@ -69,8 +131,8 @@ public partial class GalleryItemViewModel : ObservableObject
             }
 
             var shown = tags.Count <= MaxVisibleTagBadges
-                ? string.Join(" ", tags)
-                : string.Join(" ", tags.Take(MaxVisibleTagBadges)) + " +" + (tags.Count - MaxVisibleTagBadges);
+                ? string.Join(" · ", tags)
+                : string.Join(" · ", tags.Take(MaxVisibleTagBadges)) + " +" + (tags.Count - MaxVisibleTagBadges);
             return shown;
         }
     }
@@ -112,6 +174,7 @@ public partial class GalleryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(FullFileName));
         OnPropertyChanged(nameof(AspectRatio));
         OnPropertyChanged(nameof(BadgeLine));
+        OnPropertyChanged(nameof(Badges));
     }
 
     private async Task LoadThumbnailAsync(CancellationToken cancellationToken)
@@ -146,3 +209,6 @@ public partial class GalleryItemViewModel : ObservableObject
         }
     }
 }
+
+/// <summary>标签角标展示模型（Text = 标签名或「+N」；Hue = 所属组色相，&lt;0 表示「+N」黑底样式）。</summary>
+public sealed record TagBadgeViewModel(string Text, int Hue);

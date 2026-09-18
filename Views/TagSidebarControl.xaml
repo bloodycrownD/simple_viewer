@@ -8,17 +8,21 @@
     <!-- 职责：左侧标签栏（spec Step 9）——按组展示标签行（互斥组单选圆点、每标签实时计数、
               点击 = 切换筛选，chip 高亮为筛选最小可见反馈）、组管理按钮（＋标签 / ⇄ 互斥切换 / ✎ 重命名 / ✕ 删除）、
               固定末位「未分组」虚拟组（隐藏管理按钮，只读聚合）、底部「新建标签组」。
+              视觉对齐 demo：chip 为组 hue 胶囊（10% 淡底/55% 边框/激活实心 85% 白字，hover 叠加加深）、
+              组内标签流式换行（WrapPanel）、组头互斥徽章琥珀色系、管理按钮 ghost 风格。
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
-              （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。 -->
+              （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
+              交互不变量：chip 主点击经 OnChipClicked 分流（Click 直达事件不冒泡，内嵌 ✎✕ 按钮不误触）；
+              未分组 ✎✕ 入口、Esc 三态等已验证行为保持。 -->
 
-    <Grid Margin="8" RowSpacing="8">
+    <Grid Margin="10,12,10,10" RowSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 标题行 -->
+        <!-- 标题行（demo .sidebar-head：标签库 + 小型 ghost 按钮） -->
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -28,12 +32,12 @@
                 VerticalAlignment="Center"
                 FontSize="14"
                 FontWeight="SemiBold"
-                Text="标签" />
+                Text="标签库" />
             <Button
                 Grid.Column="1"
                 Command="{x:Bind Main.ToggleSidebarCommand}"
                 Content="收起"
-                FontSize="12"
+                Style="{StaticResource GhostButtonStyle}"
                 ToolTipService.ToolTip="收起标签栏" />
         </Grid>
 
@@ -50,7 +54,7 @@
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:TagGroupViewModel">
                         <StackPanel Spacing="4">
-                            <!-- 组头：组名 + 互斥/多选徽章 + 计数 + 管理按钮（未分组隐藏） -->
+                            <!-- 组头（demo .group-head）：组名 13 SemiBold + 互斥/多选徽章 + 计数 + ghost 管理按钮（未分组隐藏） -->
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -71,13 +75,13 @@
                                     Grid.Column="1"
                                     Padding="5,1"
                                     VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                    Background="{x:Bind views:TagSidebarConverters.ExclusiveBadgeBackground(Exclusive)}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1"
+                                    BorderThickness="{x:Bind views:TagSidebarConverters.MultiBadgeStroke(Exclusive)}"
                                     CornerRadius="4">
                                     <TextBlock
                                         FontSize="10"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Foreground="{x:Bind views:TagSidebarConverters.ExclusiveBadgeForeground(Exclusive)}"
                                         Text="{x:Bind views:TagSidebarConverters.ExclusiveBadge(Exclusive)}" />
                                 </Border>
                                 <TextBlock
@@ -85,123 +89,113 @@
                                     Margin="4,0,0,0"
                                     VerticalAlignment="Center"
                                     FontSize="11"
-                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind views:TagSidebarConverters.GroupCountText(TotalCount)}"
                                     TextTrimming="CharacterEllipsis" />
                                 <Button
                                     Grid.Column="3"
                                     Command="{x:Bind Commands.AddTag}"
                                     Content="＋"
-                                    FontSize="12"
-                                    Padding="5,2"
+                                    Style="{StaticResource GhostIconButtonStyle}"
                                     ToolTipService.ToolTip="新建标签"
                                     Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
                                 <Button
                                     Grid.Column="4"
                                     Command="{x:Bind Commands.ToggleExclusive}"
                                     Content="⇄"
-                                    FontSize="12"
-                                    Padding="5,2"
+                                    Style="{StaticResource GhostIconButtonStyle}"
                                     ToolTipService.ToolTip="切换互斥/多选"
                                     Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
                                 <Button
                                     Grid.Column="5"
                                     Command="{x:Bind Commands.RenameGroup}"
                                     Content="✎"
-                                    FontSize="12"
-                                    Padding="5,2"
+                                    Style="{StaticResource GhostIconButtonStyle}"
                                     ToolTipService.ToolTip="重命名组"
                                     Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
                                 <Button
                                     Grid.Column="6"
                                     Command="{x:Bind Commands.DeleteGroup}"
                                     Content="✕"
-                                    FontSize="12"
-                                    Padding="5,2"
+                                    Style="{StaticResource GhostIconButtonStyle}"
                                     ToolTipService.ToolTip="删除组"
                                     Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
                             </Grid>
 
-                            <!-- 标签行列表：点击整行 = 切换筛选 -->
-                            <ItemsRepeater ItemsSource="{x:Bind Tags}">
-                                <ItemsRepeater.Layout>
-                                    <StackLayout Spacing="2" />
-                                </ItemsRepeater.Layout>
-                                <ItemsRepeater.ItemTemplate>
+                            <!-- 标签胶囊行（demo .group-tags：flex-wrap 流式换行）：
+                                 胶囊 = 组 hue 边框 + 10% 淡底；激活 = 实心 85% 白字；
+                                 内嵌 ✎✕ 为独立 Button（Click 直达事件不冒泡，不打断主点击分流） -->
+                            <ItemsControl ItemsSource="{x:Bind Tags}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <views:WrapPanel ItemSpacing="6" LineSpacing="6" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:TagChipViewModel">
-                                        <Grid ColumnSpacing="6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-
-                                            <!-- 互斥组单选圆点 -->
-                                            <Ellipse
-                                                Width="8"
-                                                Height="8"
-                                                Margin="4,0,0,0"
-                                                VerticalAlignment="Center"
-                                                Fill="{x:Bind views:TagSidebarConverters.RadioDotBrush(ShowRadioDot), Mode=OneWay}"
-                                                Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ShowRadioDot)}" />
-
-                                            <!-- chip 主体（点击分流 Step 10：选中集非空 = 批量打标 / Shift = 移除；
-                                                 单图模式 = 当前图打标；其余 = 切换筛选。Tag 槽位携带 chip VM 供 code-behind 回查） -->
-                                            <Button
-                                                Grid.Column="1"
-                                                Tag="{x:Bind}"
-                                                Click="OnChipClicked"
-                                                Content="{x:Bind Name}"
-                                                FontSize="12"
-                                                HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Left"
-                                                Padding="8,4"
-                                                Background="{x:Bind views:TagSidebarConverters.ChipBackground(IsFilterActive), Mode=OneWay}"
-                                                ToolTipService.ToolTip="点击：打标或筛选 · Shift+点击：从选中集移除标签" />
-
-                                            <TextBlock
-                                                Grid.Column="2"
-                                                MinWidth="28"
-                                                VerticalAlignment="Center"
-                                                FontSize="11"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                Text="{x:Bind views:TagSidebarConverters.CountText(Count)}"
-                                                TextAlignment="Right" />
-                                            <Button
-                                                Grid.Column="3"
-                                                Command="{x:Bind Commands.Rename}"
-                                                Content="✎"
-                                                FontSize="11"
-                                                Padding="4,1"
-                                                ToolTipService.ToolTip="重命名标签"
-                                                Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Rename)}" />
-                                            <Button
-                                                Grid.Column="4"
-                                                Command="{x:Bind Commands.Delete}"
-                                                Content="✕"
-                                                FontSize="11"
-                                                Padding="4,1"
-                                                ToolTipService.ToolTip="删除标签"
-                                                Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Delete)}" />
-                                        </Grid>
+                                        <Button
+                                            Background="{x:Bind views:TagSidebarConverters.ChipBackground(Hue, IsFilterActive)}"
+                                            BorderBrush="{x:Bind views:TagSidebarConverters.ChipBorderBrush(Hue, IsFilterActive)}"
+                                            Click="OnChipClicked"
+                                            Foreground="{x:Bind views:TagSidebarConverters.ChipForeground(IsFilterActive)}"
+                                            Style="{StaticResource ChipCoreButtonStyle}"
+                                            Tag="{x:Bind}"
+                                            ToolTipService.ToolTip="点击：打标或筛选 · Shift+点击：从选中集移除标签">
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <!-- 互斥组单选圆点（hue 描边；激活白实心） -->
+                                                <Ellipse
+                                                    Width="7"
+                                                    Height="7"
+                                                    VerticalAlignment="Center"
+                                                    Fill="{x:Bind views:TagSidebarConverters.RadioDotFill(IsFilterActive)}"
+                                                    Stroke="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsFilterActive)}"
+                                                    StrokeThickness="1.5"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ShowRadioDot)}" />
+                                                <TextBlock
+                                                    VerticalAlignment="Center"
+                                                    Text="{x:Bind Name}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <TextBlock
+                                                    VerticalAlignment="Center"
+                                                    FontSize="10"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
+                                                    Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
+                                                <Button
+                                                    Command="{x:Bind Commands.Rename}"
+                                                    Content="✎"
+                                                    FontSize="11"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
+                                                    Padding="2,0"
+                                                    Style="{StaticResource GhostIconButtonStyle}"
+                                                    ToolTipService.ToolTip="重命名标签"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Rename)}" />
+                                                <Button
+                                                    Command="{x:Bind Commands.Delete}"
+                                                    Content="✕"
+                                                    FontSize="11"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
+                                                    Padding="2,0"
+                                                    Style="{StaticResource GhostIconButtonStyle}"
+                                                    ToolTipService.ToolTip="删除标签"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Delete)}" />
+                                            </StackPanel>
+                                        </Button>
                                     </DataTemplate>
-                                </ItemsRepeater.ItemTemplate>
-                            </ItemsRepeater>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
                     </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
             </ItemsRepeater>
         </ScrollViewer>
 
-        <!-- 新建标签组（固定入口） -->
+        <!-- 新建标签组（固定入口；ghost 描边风格） -->
         <Button
             Grid.Row="2"
             Command="{x:Bind ViewModel.AddGroupCommand}"
             Content="＋ 新建标签组"
-            FontSize="12"
-            HorizontalAlignment="Stretch" />
+            HorizontalAlignment="Stretch"
+            Style="{StaticResource GhostButtonStyle}" />
 
         <!-- 空态引导 -->
         <TextBlock

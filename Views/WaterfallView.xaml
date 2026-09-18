@@ -26,12 +26,16 @@
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:GalleryItemViewModel">
+                        <!-- 卡片（demo .card）：圆角 10、选中 2px 强调色描边（未选透明，靠底色分层）、
+                             hover 上浮 2px（code-behind Translation，等价 demo translateY(-2px)） -->
                         <Border
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{x:Bind views:WaterfallConverters.CardBorderBrush(IsSelected), Mode=OneWay}"
                             BorderThickness="2"
-                            CornerRadius="8"
+                            CornerRadius="10"
                             DoubleTapped="{x:Bind OpenInViewer}"
+                            PointerEntered="OnCardPointerEntered"
+                            PointerExited="OnCardPointerExited"
                             Tag="{x:Bind}"
                             Tapped="OnCardTapped">
                             <Grid>
@@ -50,41 +54,75 @@
                                     </Grid.OpacityTransition>
                                     <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill" />
 
-                                    <!-- 选中角标（左上；Step 8 单击选中，Ctrl/Shift 连选属 Step 10） -->
+                                    <!-- 选中勾选章（demo .check）：右上 22px 圆形——
+                                         未选 = 半透明黑底白描边仅 hover 显示（code-behind 控制 Opacity）；
+                                         选中 = 实心强调色 85% + 白勾常显 -->
                                     <Border
-                                        Width="20"
-                                        Height="20"
-                                        Margin="6"
-                                        Padding="0,1,0,0"
-                                        HorizontalAlignment="Left"
+                                        x:Name="CheckBadge"
+                                        Width="22"
+                                        Height="22"
+                                        Margin="8"
+                                        Padding="0,2,0,0"
+                                        HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
-                                        Background="{x:Bind views:WaterfallConverters.CardBorderBrush(IsSelected), Mode=OneWay}"
-                                        CornerRadius="10"
-                                        Visibility="{x:Bind views:WaterfallConverters.SelectedToVisibility(IsSelected), Mode=OneWay}">
+                                        Background="{x:Bind views:WaterfallConverters.CheckBackground(IsSelected), Mode=OneWay}"
+                                        BorderBrush="{x:Bind views:WaterfallConverters.CheckBorderBrush(IsSelected), Mode=OneWay}"
+                                        BorderThickness="1.5"
+                                        CornerRadius="11"
+                                        Opacity="{x:Bind views:WaterfallConverters.SelectedToOpacity(IsSelected), Mode=OneWay}">
                                         <TextBlock
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center"
-                                            FontSize="12"
+                                            FontSize="13"
                                             FontWeight="Bold"
                                             Foreground="White"
                                             Text="&#x2713;" />
                                     </Border>
+
+                                    <!-- 标签角标（demo .badge）：缩略图左下 4px 圆角小药丸，
+                                         底色取所属组 hue 92% 白字 10px；第 4 个起「+N」黑色 55% 底；
+                                         不参与命中测试（不吞卡片点击，等价 demo pointer-events:none） -->
+                                    <ItemsControl
+                                        Margin="8"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Bottom"
+                                        IsHitTestVisible="False"
+                                        ItemsSource="{x:Bind Badges, Mode=OneWay}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <views:WrapPanel ItemSpacing="4" LineSpacing="4" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:TagBadgeViewModel">
+                                                <Border
+                                                    Padding="6,1"
+                                                    Background="{x:Bind views:WaterfallConverters.BadgeBackground(Hue)}"
+                                                    CornerRadius="4">
+                                                    <TextBlock
+                                                        FontSize="10"
+                                                        Foreground="White"
+                                                        Text="{x:Bind Text}" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </Grid>
 
-                                <!-- 文字区：文件名（剥离标签段）+ 标签角标（前 3 个 + "+N"，统一强调色） -->
+                                <!-- 文字区：文件名（剥离标签段）12px + 标签行 10px 次要色（demo .fname/.ftags） -->
                                 <StackPanel
                                     Grid.Row="1"
                                     Height="48"
-                                    Padding="8,4"
-                                    Spacing="2">
+                                    Padding="9,6,9,7"
+                                    Spacing="1">
                                     <TextBlock
                                         FontSize="12"
                                         Text="{x:Bind DisplayName, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis"
                                         ToolTipService.ToolTip="{x:Bind FullFileName, Mode=OneWay}" />
                                     <TextBlock
-                                        FontSize="11"
-                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                        FontSize="10"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                         Text="{x:Bind BadgeLine, Mode=OneWay}"
                                         TextTrimming="CharacterEllipsis"
                                         Visibility="{x:Bind views:WaterfallConverters.NonEmptyTextToVisibility(BadgeLine), Mode=OneWay}" />

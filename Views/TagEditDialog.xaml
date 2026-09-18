@@ -11,9 +11,11 @@
               时显示于本对话框且不关闭；宿主 ContentDialog 的 PrimaryButtonClick 经 deferral 异步等待 TrySaveAsync。 -->
 
     <StackPanel Spacing="12">
-        <!-- 说明文本（影响张数/操作范围提示） -->
+        <!-- 说明文本（影响张数/操作范围提示；13px 次要色，行距宽松，对齐 demo .modal-msg） -->
         <TextBlock
+            FontSize="13"
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            LineHeight="22"
             Text="{x:Bind Description, Mode=OneWay}"
             TextWrapping="Wrap" />
 

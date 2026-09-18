@@ -35,17 +35,17 @@
                 Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
         </Grid>
 
-        <!-- 完整文件名：前缀 + 高亮标签段 + 后缀（等宽字体；Inlines 由 code-behind 组装） -->
+        <!-- 完整文件名：前缀 + 高亮标签段 + 后缀（等宽字体 14px，对齐 demo #viewerFileName；Inlines 由 code-behind 组装） -->
         <Border
             Grid.Row="1"
-            Padding="12,6"
+            Padding="20,8"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="0,1,0,0">
             <TextBlock
                 x:Name="FileNameText"
                 FontFamily="Cascadia Mono,Consolas"
-                FontSize="13"
+                FontSize="14"
                 IsTextSelectionEnabled="True"
                 TextAlignment="Center"
                 TextTrimming="CharacterEllipsis"

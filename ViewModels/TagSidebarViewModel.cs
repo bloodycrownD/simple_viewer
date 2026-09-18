@@ -114,11 +114,14 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <param name="configGroups">配置组（SettingsService.Load().TagGroups）。</param>
     /// <param name="tagCounts">最近一次索引标签计数快照。</param>
     /// <param name="activeFilters">当前激活的筛选标签集（chip 高亮）。</param>
-    public void Rebuild(
-        IReadOnlyList<TagGroup> configGroups,
-        IReadOnlyDictionary<string, int> tagCounts,
-        IReadOnlyCollection<string> activeFilters)
+        public void Rebuild(
+            IReadOnlyList<TagGroup> configGroups,
+            IReadOnlyDictionary<string, int> tagCounts,
+            IReadOnlyCollection<string> activeFilters)
     {
+        // 视觉对齐 demo：同步「标签名 → 组色相」索引，供瀑布流角标着色（纯展示数据，不落盘）。
+        GalleryItemViewModel.UpdateTagHues(configGroups);
+
         Groups.Clear();
         var configuredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -320,9 +323,26 @@ public sealed class TagGroupViewModel
         Name = name;
         Exclusive = exclusive;
         IsUngrouped = isUngrouped;
+        // 组色相由组名哈希（对齐 demo hueOf；未分组固定灰蓝低饱和），纯展示字段不持久化。
+        Hue = isUngrouped ? UngroupedHue : HueOfName(name);
         TotalCount = totalCount;
         Tags = tags;
         Commands = commands;
+    }
+
+    /// <summary>未分组虚拟组的固定色相（灰蓝 220，配低饱和使用）。</summary>
+    public const int UngroupedHue = 220;
+
+    /// <summary>组名 → 色相（0-359）：与 demo.js hueOf 相同的多项式 31 哈希（按 UTF-16 码元逐项累加）。</summary>
+    public static int HueOfName(string name)
+    {
+        var h = 0;
+        foreach (var c in name)
+        {
+            h = (h * 31 + c) % 360;
+        }
+
+        return h;
     }
 
     /// <summary>组 Id（未分组为 <see cref="TagSidebarViewModel.UngroupedGroupId"/>）。</summary>
@@ -336,6 +356,9 @@ public sealed class TagGroupViewModel
 
     /// <summary>是否「未分组」虚拟组（隐藏组管理按钮）。</summary>
     public bool IsUngrouped { get; }
+
+    /// <summary>组色相（chip 边框/底色由 x:Bind 转换器转为 HSL 画刷；纯展示，不持久化）。</summary>
+    public int Hue { get; }
 
     /// <summary>组内标签计数之和（张数引用合计）。</summary>
     public int TotalCount { get; }
@@ -363,6 +386,8 @@ public sealed class TagChipViewModel
         IsFilterActive = isFilterActive;
         ShowRadioDot = showRadioDot;
         OwnerGroup = ownerGroup;
+        // chip 色相跟随所属组（未分组灰蓝 220），纯展示字段不持久化。
+        Hue = ownerGroup is null ? TagGroupViewModel.UngroupedHue : TagGroupViewModel.HueOfName(ownerGroup.Name);
         Commands = commands;
     }
 
@@ -377,6 +402,9 @@ public sealed class TagChipViewModel
 
     /// <summary>是否显示互斥组单选圆点。</summary>
     public bool ShowRadioDot { get; }
+
+    /// <summary>chip 色相（胶囊边框/底色；纯展示，不持久化）。</summary>
+    public int Hue { get; }
 
     /// <summary>所属配置组（未分组虚拟组为 null——打标按非互斥叠加语义）。</summary>
     public TagGroup? OwnerGroup { get; }
