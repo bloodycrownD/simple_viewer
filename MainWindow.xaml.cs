@@ -189,9 +189,9 @@ public sealed partial class MainWindow : Window
 
     private void OnRootGridSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var width = (int)e.NewSize.Width;
-        var height = (int)e.NewSize.Height;
-        _ = ViewModel.OnViewportSizeChangedAsync(width, height);
+        // 视口尺寸源已改为 SingleImageView.ImageHost（实际显示区，随侧栏收展变化；
+        // 2026-09-19 修复二次缩放锯齿：整窗尺寸解码会让显示层再缩一次，重新引入毛刺）。
+        // RootGrid 尺寸仅保留给窗口最小尺寸约束等用途，不再驱动解码尺寸。
     }
 
     private void OnFullscreenChanged(object? sender, bool isFullscreen)

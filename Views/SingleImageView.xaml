@@ -12,17 +12,27 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="8">
+        <Grid
+            x:Name="ImageHost"
+            Grid.Row="0"
+            Padding="8"
+            PointerMoved="OnImagePointerMoved"
+            PointerPressed="OnImagePointerPressed"
+            PointerReleased="OnImagePointerReleased"
+            PointerWheelChanged="OnImagePointerWheelChanged">
             <Image
                 x:Name="ViewerImage"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
+                DoubleTapped="OnImageDoubleTapped"
                 RenderTransformOrigin="0.5,0.5"
                 Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
                 Stretch="Uniform"
                 Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
                 <Image.RenderTransform>
-                    <RotateTransform Angle="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
+                    <!-- CompositeTransform：旋转（VM 绑定）+ 缩放/平移（code-behind 滚轮缩放）；
+                         应用顺序 Scale→Rotate→Translate，平移在最外层故拖拽按屏幕 delta 累加即可。 -->
+                    <CompositeTransform x:Name="ViewerTransform" Rotation="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
                 </Image.RenderTransform>
             </Image>
 

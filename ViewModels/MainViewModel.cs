@@ -2182,6 +2182,10 @@ public partial class MainViewModel : ObservableObject
         NextCommand.NotifyCanExecuteChanged();
     }
 
+    /// <summary>
+    /// 依显示区尺寸计算解码上限边（2026-09-19：尺寸源改为 SingleImageView.ImageHost 实际显示区，
+    /// 不再扣 chrome——旧口径按整窗解码导致显示层二次缩小，重新引入缩小锯齿/毛刺）。
+    /// </summary>
     private static int? CalculateDecodeSize(int viewportWidth, int viewportHeight)
     {
         if (viewportWidth <= 0 || viewportHeight <= 0)
@@ -2189,10 +2193,7 @@ public partial class MainViewModel : ObservableObject
             return null;
         }
 
-        const int chromeHeight = 96;
-        var contentHeight = Math.Max(1, viewportHeight - chromeHeight);
-        var contentWidth = Math.Max(1, viewportWidth);
-        return Math.Max(contentWidth, contentHeight);
+        return Math.Max(viewportWidth, viewportHeight);
     }
 }
 

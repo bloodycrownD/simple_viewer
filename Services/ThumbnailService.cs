@@ -253,7 +253,8 @@ public sealed class ThumbnailService : IThumbnailService
         return await ReadStreamBytesAsync(encoded);
     }
 
-    /// <summary>按目标宽度分桶缩放；源图不放大（宽不超桶宽时保持原尺寸）。</summary>
+    /// <summary>按目标宽度分桶缩放；源图不放大（宽不超桶宽时保持原尺寸）。
+    /// 缩小插值用 Fant（2026-09-19 修复"线条毛刺"）：默认 Linear 大倍率缩小会锯齿/摩尔纹。</summary>
     private static BitmapTransform CreateTransform(uint sourceWidth, uint sourceHeight, int bucket)
     {
         var transform = new BitmapTransform();
@@ -262,6 +263,7 @@ public sealed class ThumbnailService : IThumbnailService
             return transform;
         }
 
+        transform.InterpolationMode = BitmapInterpolationMode.Fant;
         transform.ScaledWidth = (uint)bucket;
         transform.ScaledHeight = (uint)Math.Max(1, Math.Round((double)sourceHeight * bucket / sourceWidth));
         return transform;

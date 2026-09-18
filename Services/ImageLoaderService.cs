@@ -169,6 +169,10 @@ public sealed class ImageLoaderService : IImageLoaderService
             return transform;
         }
 
+        // 缩小插值用 Fant（2026-09-19 修复"线条毛刺"）：WIC 默认 Linear 双线性，
+        // 大倍率缩小时高频细节欠采样产生锯齿/摩尔纹；Fant 专为高质量 minification 设计。
+        transform.InterpolationMode = BitmapInterpolationMode.Fant;
+
         if (sourceWidth >= sourceHeight)
         {
             transform.ScaledWidth = limit;
