@@ -69,7 +69,34 @@ public sealed partial class MainWindow : Window
         ConfigureWindowChrome();
         ApplySystemBackdrop();
         ApplyThemeFromSettings();
+        ConfigureThumbnailDpiBucket();
     }
+
+    /// <summary>
+    /// DPI 感知的缩略图分桶（2026-09-17 走查修复模糊）：卡片逻辑宽 240 × 显示缩放，
+    /// 向上取整到 120 的倍数（100%→240、150%→360、200%→480）。
+    /// 用窗口句柄 P/Invoke 查 DPI（XamlRoot.RasterizationScale 在互斥 Visibility 容器内
+    /// 首次加载时不可靠，曾导致 200% 屏仍请求 360 桶、缩略图拉伸发糊）。
+    /// </summary>
+    private void ConfigureThumbnailDpiBucket()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var dpi = GetDpiForWindow(hwnd);
+            var scale = dpi <= 0 ? 1.0 : dpi / 96.0;
+            App.DisplayScale = scale;
+            ViewModels.GalleryItemViewModel.ThumbnailBucket =
+                (int)Math.Ceiling(Views.MasonryLayout.TargetCardWidth * scale / 120.0) * 120;
+        }
+        catch
+        {
+            // DPI 查询失败：保持默认桶（360），仅影响清晰度不影响功能。
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     /// <summary>主题三态循环顺序（demo 深色优先：默认 Dark）。</summary>
     private static readonly string[] ThemeCycle = ["Dark", "Light", "System"];

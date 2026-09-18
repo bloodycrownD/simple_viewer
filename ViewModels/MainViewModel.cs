@@ -377,7 +377,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 打开图库：经宿主回调选取根目录 → 切换到图库模式并后台启动递归扫描。
-    /// 扫描仅由此命令触发（CLI/单图直开绝不扫描，保冷启动口径）。
+    /// 扫描仅由本命令与「上次图库自动恢复」触发（CLI/单图直开绝不扫描，保冷启动口径）。
     /// </summary>
     [RelayCommand]
     private async Task OpenLibraryAsync()
@@ -391,6 +391,28 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(folder))
         {
             return;
+        }
+
+        await OpenLibraryRootAsync(folder);
+    }
+
+    /// <summary>
+    /// 打开指定根目录的图库并记录到设置（LastLibraryRoot，供下次启动自动恢复）。
+    /// </summary>
+    public async Task OpenLibraryRootAsync(string folder)
+    {
+        try
+        {
+            var settings = _settingsService?.Load();
+            if (settings is not null && !string.Equals(settings.LastLibraryRoot, folder, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.LastLibraryRoot = folder;
+                _settingsService!.Save(settings);
+            }
+        }
+        catch
+        {
+            // 记录失败不阻断打开图库。
         }
 
         await StartLibraryScanAsync(folder);
@@ -437,6 +459,7 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private async Task StartLibraryScanAsync(string root)
     {
+        SimpleViewer.Services.DiagnosticTrace.Mark($"scan:start {root}");
         _scanCts?.Cancel();
         _scanCts?.Dispose();
         _scanCts = new CancellationTokenSource();
@@ -530,6 +553,7 @@ public partial class MainViewModel : ObservableObject
             }, token);
 
             ScanStatusText = $"共 {_galleryItems.Count} 张";
+            SimpleViewer.Services.DiagnosticTrace.Mark($"scan:end {_galleryItems.Count}");
             if (_galleryItems.Count == 0)
             {
                 WaterfallEmptyText = "未在所选目录发现图片";

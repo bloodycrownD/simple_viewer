@@ -1,4 +1,4 @@
-// 职责：瀑布流卡片项视图模型——显示名（剥离标签段）/标签角标/缩略图槽位/选中态与卡片交互。
+﻿// 职责：瀑布流卡片项视图模型——显示名（剥离标签段）/标签角标/缩略图槽位/选中态与卡片交互。
 // 不变量：缩略图按需加载（ElementPrepared 触发、ElementClearing 取消；禁止一次性为全部项加载）；
 //         JPEG 字节经 MemoryStream → BitmapImage 在 UI 线程桥接（ThumbnailResult.ImageBytes 契约）；
 //         解码/读盘失败保持浅色占位不抛出；打标重命名后就地 UpdateFrom 更新（不重建、不重排，D15）。
@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using SimpleViewer.Models;
 using SimpleViewer.Services;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading;
 
 namespace SimpleViewer.ViewModels;
 
@@ -20,8 +21,11 @@ namespace SimpleViewer.ViewModels;
 /// </summary>
 public partial class GalleryItemViewModel : ObservableObject
 {
-    /// <summary>缩略图分桶宽度（D8：固定目标宽 360px 分桶）。</summary>
-    public const int ThumbnailBucket = 360;
+    /// <summary>
+    /// 缩略图分桶宽度（D8）。默认 360；由 WaterfallView 在加载时按 DPI 放大
+    /// （2026-09-17 走查修复模糊：200% 缩放下卡片物理宽 480px，360px 缩略图拉伸显示发糊）。
+    /// </summary>
+    public static int ThumbnailBucket { get; set; } = 360;
 
     /// <summary>卡片角标最多显示的标签数，其余折叠为 "+N"。</summary>
     private const int MaxVisibleTagBadges = 3;
@@ -177,6 +181,16 @@ public partial class GalleryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(Badges));
     }
 
+    /// <summary>同类加载失败的日志配额（每 VM 实例最多记 5 条进诊断日志）。</summary>
+    private int _loadFailureLogCount;
+
+    /// <summary>
+    /// UI 侧缩略图应用闸门（2026-09-17 走查修复卡死）：BitmapImage.SetSourceAsync 与合成器交互，
+    /// 首帧渲染期并发应用多张（清缓存后的全新解码风暴）曾致 UI 线程死锁（心跳 <1s 即停、消息泵假活）。
+    /// 串行化应用段，一次只进一张；解码仍在后台并行，仅 UI 应用段排队。
+    /// </summary>
+    private static readonly SemaphoreSlim UiApplyGate = new(1, 1);
+
     private async Task LoadThumbnailAsync(CancellationToken cancellationToken)
     {
         try
@@ -184,23 +198,37 @@ public partial class GalleryItemViewModel : ObservableObject
             var result = await _thumbnailService.GetThumbnailAsync(Item.Path, ThumbnailBucket, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
-            // JPEG 字节 → BitmapImage：UI 线程创建（ElementPrepared 与本 await 续体均在 UI 线程）。
-            var bitmap = new BitmapImage();
-            using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+            // JPEG 字节 → BitmapImage：UI 线程创建（ElementPrepared 与本 await 续体均在 UI 线程）；
+            // 应用段经闸门串行（见 UiApplyGate 注释）。
+            await UiApplyGate.WaitAsync(cancellationToken);
+            try
             {
-                await bitmap.SetSourceAsync(stream);
-            }
+                var bitmap = new BitmapImage();
+                using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+                {
+                    await bitmap.SetSourceAsync(stream);
+                }
 
-            cancellationToken.ThrowIfCancellationRequested();
-            Thumbnail = bitmap;
+                cancellationToken.ThrowIfCancellationRequested();
+                Thumbnail = bitmap;
+            }
+            finally
+            {
+                UiApplyGate.Release();
+            }
         }
         catch (OperationCanceledException)
         {
             // 视口外回收取消：占位保持，元素再次 Realize 时重新加载。
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             // 解码/读盘失败：保持浅色占位（瀑布流不中断；缩略图服务对缺失文件抛 FileNotFoundException）。
+            // 2026-09-17 走查：占位块不消失问题定位——被吞的异常落诊断日志（每实例前 5 条，防刷屏）。
+            if (Interlocked.Increment(ref _loadFailureLogCount) <= 5)
+            {
+                App.WriteDiagnosticLog($"[缩略图加载失败] bucket={ThumbnailBucket} path={Item.Path}", exception);
+            }
         }
         finally
         {

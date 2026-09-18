@@ -170,6 +170,7 @@ public sealed class ThumbnailService : IThumbnailService
         await _decodeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            DiagnosticTrace.Mark($"thumb:decode {Path.GetFileName(path)}");
             // 双检：排队等待期间缓存可能已被填充（如另一实例并发落盘）。
             if (TryGetMemory(cacheKey, out var memoryAgain))
             {

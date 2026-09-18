@@ -23,6 +23,9 @@ public partial class App : Application
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SimpleViewer", "logs", "startup.log");
 
+    /// <summary>主窗口显示缩放（DPI/96，如 150% = 1.5；MainWindow 初始化时写入，缩略图分桶用）。</summary>
+    public static double DisplayScale { get; internal set; } = 1.0;
+
     public App()
     {
         InitializeComponent();
@@ -120,6 +123,78 @@ public partial class App : Application
         CurrentWindow = window;
         window.Activate();
 
+        StartUiHeartbeatWatchdog();
+
+        // 无 CLI 参数且记录了上次图库根目录 → 自动恢复（目录失效则静默跳过）。
+        // 冷启动口径不变：CLI（viewer <file> / -d -i）路径不触发扫描，仅此自动恢复路径例外。
+        if (string.IsNullOrEmpty(launchOptions.FilePath)
+            && string.IsNullOrEmpty(launchOptions.DirectoryPath))
+        {
+            var lastRoot = settingsService.Load().LastLibraryRoot;
+            if (!string.IsNullOrWhiteSpace(lastRoot) && Directory.Exists(lastRoot))
+            {
+                _ = viewModel.OpenLibraryRootAsync(lastRoot);
+            }
+        }
+
         _ = viewModel.InitializeAsync(launchOptions);
+    }
+
+    /// <summary>
+    /// UI 心跳看门狗（2026-09-17 走查诊断）：UI 线程每秒自增心跳并记录自身托管堆栈快照；
+    /// 后台线程每 5s 检查，连续 15s 无心跳视为无响应，把最近操作追踪 + 最后一份 UI 线程堆栈
+    /// 转储进诊断日志（定位"打开图库卡死"类问题的现场）。每次无响应只记录一次，恢复后重置。
+    /// </summary>
+    private static void StartUiHeartbeatWatchdog()
+    {
+        var heartbeat = 0L;
+        var lastUiStack = "<尚未采样>";
+        var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        if (dispatcher is null)
+        {
+            return;
+        }
+
+        var timer = dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(100);
+        timer.Tick += (_, _) =>
+        {
+            // 心跳同时留一份 UI 线程栈快照：卡死时它就是"卡在哪"的现场。
+            // 100ms 间隔：走查发现首帧渲染期（<1s）即可冻死，1s 采样来不及。
+            lastUiStack = Environment.StackTrace;
+            Interlocked.Increment(ref heartbeat);
+        };
+        timer.Start();
+
+        _ = Task.Run(async () =>
+        {
+            var lastSeen = Interlocked.Read(ref heartbeat);
+            var stalled = 0;
+            while (true)
+            {
+                await Task.Delay(5000);
+                var current = Interlocked.Read(ref heartbeat);
+                if (current == lastSeen)
+                {
+                    stalled++;
+                    if (stalled == 3)
+                    {
+                        WriteDiagnosticLog(
+                            $"[UI 无响应] 心跳停止 ≥15s（疑似卡死）。最近操作追踪：{Environment.NewLine}{DiagnosticTrace.Dump()}"
+                            + $"{Environment.NewLine}最后一份 UI 线程堆栈：{Environment.NewLine}{lastUiStack}");
+                    }
+                }
+                else
+                {
+                    if (stalled >= 3)
+                    {
+                        WriteDiagnosticLog("[UI 恢复响应]");
+                    }
+
+                    stalled = 0;
+                    lastSeen = current;
+                }
+            }
+        });
     }
 }

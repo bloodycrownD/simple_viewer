@@ -59,6 +59,13 @@ public class MasonryLayout : VirtualizingLayout
     /// </summary>
     public bool ForceRecompute { get; set; }
 
+    /// <summary>
+    /// 最近一次布局的实际卡宽（视口均分，可大于目标 240）。
+    /// 宿主据此按"实际卡宽 × DPI"更新缩略图分桶（2026-09-17 走查修复模糊：
+    /// 宽视口少列数时实际卡宽可达 ~307 逻辑，固定 360 桶在 150% 屏会被拉伸发糊）。
+    /// </summary>
+    public double ActualCardWidth { get; private set; } = TargetCardWidth;
+
     /// <inheritdoc />
     protected override Size MeasureOverride(VirtualizingLayoutContext context, Size availableSize)
     {
@@ -80,6 +87,8 @@ public class MasonryLayout : VirtualizingLayout
         {
             state.Reset(columns, viewportWidth, ComputeCardWidth(viewportWidth, columns));
         }
+
+        ActualCardWidth = state.CardWidth;
 
         // 估算行实现列分配：纯数据续算新增项 [state.Count, context.ItemCount)，
         // 不需要 realize 元素（卡片高度只依赖宽高比与列宽）。

@@ -21,4 +21,10 @@ public sealed class AppSettings
     /// 旧配置缺失时回退 Dark；非法值按 System 处理（MainWindow.ApplyTheme 容错）。
     /// </summary>
     public string PreferredTheme { get; set; } = "Dark";
+
+    /// <summary>
+    /// 上次打开的图库根目录（2026-09-17 走查补充）：下次启动无 CLI 参数时自动恢复。
+    /// 空串 = 无记录（首次使用）；目录不存在时静默忽略。
+    /// </summary>
+    public string LastLibraryRoot { get; set; } = "";
 }

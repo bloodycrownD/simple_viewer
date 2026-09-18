@@ -53,6 +53,17 @@ public sealed partial class WaterfallView : UserControl
             Masonry.ForceRecompute = true;
             Repeater.InvalidateMeasure();
         };
+
+        // 布局后按"实际卡宽 × 显示缩放"更新缩略图分桶（宽视口少列数时实际卡宽 > 目标 240，
+        // 固定 240×DPI 桶会被拉伸发糊；值变化才更新，避免每次布局都动静态状态）。
+        Repeater.LayoutUpdated += (_, _) =>
+        {
+            var bucket = (int)Math.Ceiling(Masonry.ActualCardWidth * App.DisplayScale / 120.0) * 120;
+            if (bucket > 0 && bucket != GalleryItemViewModel.ThumbnailBucket)
+            {
+                GalleryItemViewModel.ThumbnailBucket = bucket;
+            }
+        };
     }
 
     /// <summary>
