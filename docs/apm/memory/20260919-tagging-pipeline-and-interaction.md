@@ -152,3 +152,9 @@ user:
 
 assistant:
 外层 Grid 包裹方案被用户实测证伪——Q&A "Drag Grid with Streached elements" 给了机制：**可命中子元素拦截指针输入，祖先 CanDrag 手势只在自身空白区触发**；Button 拉满宿主 Grid = 全部按压落在 Button 上，外层手势永不启动（与 Button.CanDrag 失效同族，包裹只对"子元素不占满/不捕获"有效）。二次修复（710f2c1）改**命令式 StartDragAsync**：ElementPrepared 对卡片根 AddHandler(handledEventsToo:true) 挂 PointerPressed/Moved/Released/CaptureLost（XAML 挂接在 Button 标记已处理后收不到，必须代码挂），按压记录起点、位移超 8 DIP 一次性 StartDragAsync(pointerPoint)，DragStarting 仍在根元素触发走既有链路；Click/双击小位移不受影响；ElementClearing 成对 RemoveHandler 防复用重复挂接。教训入 RULE：拖拽类修复必须给出可被用户一键复测的构建（本环境手势注入不可达，两次方案都只能静态保证）；CanDrag 手势路径在本项目卡片形态下不可用是定论，后续拖拽需求一律走 StartDragAsync。本地包已重打（42.9MB 一次过），Debug bin 同步最新，v1.0.0 tag 四移至 710f2c1。拖拽实测仍留用户（方案升级为命令式 API，把握度高于手势路径）。
+
+user:
+这次修复了。
+
+assistant:
+用户实测确认拖拽打标恢复（StartDragAsync 命令式方案成立，710f2c1）。至此当晚三伤全清：①卡片细长条（9c52bc3 行序回归）；②拖拽失效（710f2c1 两轮修复，CanDrag 手势路径在卡片形态下定论不可用）；③发布链路四坑（隐式还原踩踏/发布目录残留代际错配/散装 xbf 不拷/还原守卫，c8ccd47 起 release.ps1 连续三次一次过）。v1.0.0 最终形态：.NET 自包含 + WinAppSDK 框架依赖（机器装一次 1.6 运行时），42.9MB。GitHub Actions run 终态经匿名缓存页未能确证（draft release 仅 owner 可见），留用户到 Actions/Releases 页核对 draft 并手动 Publish——这是发布流程设计的最终人工闸门。CR 回归教训（控件形态变更必须实机走查视觉+手势）已固化 RULE 两条。
