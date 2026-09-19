@@ -22,6 +22,12 @@ assistant:
 环境经验入 RULE：双 csproj 同目录 restore 踩踏（dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 解法）；SendInput 移动被丢；UIA 坐标=屏幕点勿乘缩放。留痕：features/tagging-pipeline-fixes 与 tag-interaction-rework 的 prd/spec。待用户确认。
 
 user:
+优化弹窗主题：弹窗与深色主题不符；且弹窗中的标签库应与左侧栏标签库用相同 UI 样式（附截图：目录弹窗白底）。
+
+assistant:
+两处修复（7b0791e，71/71 绿）：①弹窗白底根因 = ContentDialog 宿主在 popup 层、不在 RootGrid 视觉树内，ThemeResource 与底色按应用/系统主题解析、不认 RootGrid.RequestedTheme 运行时覆盖（与侧栏画刷问题同族的另一半）——MainWindow 新增 ApplyDialogTheme(dialog)（dialog.RequestedTheme = RootGrid.RequestedTheme），四处 ContentDialog（设置/标签编辑/标签目录/删除确认）统一调用。②目录弹窗行样式对齐侧栏：组头行复刻侧栏组头（静态 ▾ chevron——目录内组恒展开状态真实、组名 SemiBold、互斥/兼容徽章、右对齐计数、36 高）、标签行复用 TagTreeRowButtonStyle + 缩进连接线 + 互斥组单选圆点（组色相描边、已含实心）+ ✓已有 + 右对齐计数；计数经 GetTagCatalogSnapshot 第三返回值与侧栏同源（_latestTagCounts），目录与侧栏计数永不分裂。实机验证：深色弹窗文字可读、像素级放大核实 chevron/连接线/圆点均渲染（低对比淡雅，与侧栏同款）；用户 settings 备份还原（保留用户自建组）。
+
+user:
 你测试了吗？怎么我一用就是 bug？1. 删除标签后，左侧的标签列表也一同删除了；2. 图片详情显示完整名字，列表页显示剥离标签的名字，不统一——要么都显示名字要么都显示完整名。
 
 assistant:
