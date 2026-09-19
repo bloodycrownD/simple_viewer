@@ -100,7 +100,7 @@ public class LibraryIndexServiceTests
 
         // 空标签列表 → 全量
         var all = await service.QueryByTagsAsync(Array.Empty<string>());
-        Assert.Equal(7, all.Count);
+        Assert.Equal(8, all.Count);
 
         // LIKE 通配符转义（cr/P2-15）："a_b" 只命中字面 a_b，不误命中 axb（无 ESCAPE 时 _ 匹配任意单字符）
         var underscore = await service.QueryByTagsAsync(new[] { "a_b" });
