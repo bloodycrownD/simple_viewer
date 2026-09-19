@@ -158,8 +158,10 @@ public sealed partial class WaterfallView : UserControl
     /// （常规体验：小缩略图随鼠标），无小位图回退整张缩略图 BitmapImage（bucket 360+ 偏大但仍优于
     /// 整卡快照），两者皆无才落系统默认（被拖元素整体快照）。同步禁用 GetDeferral 异步生成——
     /// 拖拽启动须即时，异步等待会拖慢入场。多选计数 caption 由目标侧 TagSidebarControl.DragOver 设置。
-    /// 拖拽与 Click/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响
-    /// （cr/P1-6 卡片 Button 化后依旧，Button 的 Click 判定被系统拖拽接管时自然取消）。
+    /// 拖拽与 Click/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响。
+    /// 发送方为卡片模板外层的拖拽宿主 Grid（2026-09-19 回归修复）：WinUI 3 的 Button 吞指针输入，
+    /// Button.CanDrag 不会触发 DragStarting（已知问题）——cr/P1-6 卡片 Button 化时拖拽源随之失效，
+    /// 官方解法是拖拽源放外层普通 UIElement；Tag 槽位由 OnElementPrepared 写在模板根（即宿主 Grid）。
     /// </summary>
     private void OnCardDragStarting(object sender, DragStartingEventArgs e)
     {
