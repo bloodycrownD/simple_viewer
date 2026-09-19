@@ -112,6 +112,11 @@ select {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 14px 8px; font-weight: 600;
 }
+/* 标题行右侧动作区（∅ 无标签筛选 + 新建组） */
+.head-actions { display: flex; align-items: center; gap: 6px; }
+/* ∅ 无标签筛选按钮：激活 = 强调色淡底（参照 .tag-row.filter-on 的 var(--row-active) 激活先例，
+   强调色系更贴合“筛选中”语义，与 .drop-on 同源） */
+.untagged-btn.on { background: var(--accent-soft); color: var(--accent); }
 #groupList { flex: 1; overflow-y: auto; padding: 0 10px 10px; }
 .sidebar-tip {
   padding: 10px 14px; font-size: 11px; line-height: 1.8; color: var(--text-2);

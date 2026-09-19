@@ -1,6 +1,7 @@
 /* =========================================================
  * Simple Viewer 打标签 + 瀑布流 交互原型
  * 纯前端模拟：不落盘、不真的改名，刷新后按 localStorage 恢复
+ * 无标签筛选（untagged-filter-entry）：侧栏标题 ∅ 按钮 toggle，与标签筛选互斥
  * ========================================================= */
 "use strict";
 
@@ -82,6 +83,7 @@ const state = {
   groups: defaultGroups(),
   images: genImages(TOTAL),
   filters: new Set(),      // tagId 集合，OR 语义
+  untagged: false,         // 「无标签」筛选激活（untagged-filter-entry；与 filters 互斥）
   selection: new Set(),    // imageId 集合
   discovered: 0,           // 模拟扫描进度
   scanDone: false,
@@ -132,6 +134,10 @@ function groupTagCount(group) { return group.tags.reduce((n, t) => n + tagCount(
 function discoveredImages() { return state.images.slice(0, state.discovered); }
 function filteredImages() {
   let list = discoveredImages();
+  if (state.untagged) {
+    // 无标签筛选（untagged-filter-entry）：只保留无任何标签的图（与标签筛选互斥，不会叠加）
+    list = list.filter(im => !im.tags.length);
+  }
   if (state.filters.size) {
     const fs = [...state.filters];
     list = list.filter(im => fs.some(id => im.tags.includes(id)));
@@ -296,22 +302,38 @@ function layoutCards() {
 /* ---- 筛选条 / 状态栏 ---- */
 function renderFilterBar() {
   const bar = $("#filterBar");
-  if (!state.filters.size) { bar.classList.add("empty"); return; }
+  // ∅ 无标签按钮激活态同步（筛选条隐藏分支也要刷）
+  $("#untaggedBtn").classList.toggle("on", state.untagged);
+  if (!state.filters.size && !state.untagged) { bar.classList.add("empty"); return; }
   bar.classList.remove("empty");
-  const chips = [...state.filters].map(id => {
-    const info = tagIdInfo(id); if (!info) return "";
-    return `<span class="filter-chip" style="--hue:${info.group.hue}">
+  const chips = [];
+  if (state.untagged) {
+    // 无标签 chip（✕ 关闭 = 退出无标签模式，对齐 WinUI ToggleUntaggedFilter）
+    chips.push(`<span class="filter-chip">无标签<button data-clear="untagged" title="取消该筛选">✕</button></span>`);
+  }
+  for (const id of state.filters) {
+    const info = tagIdInfo(id); if (!info) continue;
+    chips.push(`<span class="filter-chip" style="--hue:${info.group.hue}">
       ${esc(info.group.name)}：${esc(info.tag.name)}
-      <button data-clear="${id}" title="取消该筛选">✕</button></span>`;
-  }).join("");
-  $("#activeFilters").innerHTML = (state.filters.size > 1 ? `<span class="filter-chip" style="border-style:dashed">任一命中（OR）</span>` : "") + chips;
+      <button data-clear="${id}" title="取消该筛选">✕</button></span>`);
+  }
+  $("#activeFilters").innerHTML = (state.filters.size > 1 ? `<span class="filter-chip" style="border-style:dashed">任一命中（OR）</span>` : "") + chips.join("");
   $("#filterStats").textContent = `命中 ${filteredImages().length} / 已发现 ${state.discovered} 张`;
 }
 $("#filterBar").addEventListener("click", e => {
   const btn = e.target.closest("[data-clear]");
-  if (btn) { state.filters.delete(btn.dataset.clear); refreshAll(); }
+  if (btn) {
+    if (btn.dataset.clear === "untagged") state.untagged = false;
+    else state.filters.delete(btn.dataset.clear);
+    refreshAll();
+  }
 });
-$("#clearFilterBtn").addEventListener("click", () => { state.filters.clear(); refreshAll(); });
+/* ∅ 无标签筛选 toggle（untagged-filter-entry）：激活时清标签筛选（互斥），再点取消回全量 */
+$("#untaggedBtn").addEventListener("click", () => {
+  state.untagged = !state.untagged;
+  if (state.untagged) state.filters.clear();
+  refreshAll();
+});
 
 function renderStatus() {
   const hit = filteredImages().length;
@@ -356,6 +378,7 @@ function syncSelectionClass() {
 
 /* ---- 标签点击：一律筛选（2026-09-19 交互重构：打标走拖拽/详情右栏） ---- */
 function onChipClick(tagId) {
+  state.untagged = false; // 互斥（untagged-filter-entry）：点任何标签筛选自动退出无标签模式
   state.filters.has(tagId) ? state.filters.delete(tagId) : state.filters.add(tagId);
   refreshAll();
 }

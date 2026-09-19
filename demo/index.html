@@ -30,7 +30,6 @@
     <div id="activeFilters"></div>
     <div class="filter-right">
       <span id="filterStats"></span>
-      <button id="clearFilterBtn" class="ghost-btn small">清空筛选</button>
     </div>
   </div>
 
@@ -38,7 +37,11 @@
     <aside id="sidebar">
       <div class="sidebar-head">
         <span>标签库</span>
-        <button id="addGroupBtn" class="ghost-btn small">＋ 新建组</button>
+        <span class="head-actions">
+          <!-- ∅ 无标签筛选（对齐 WinUI 侧栏标题行；「清空筛选」按钮已移除，取消走二次点击/chip ✕） -->
+          <button id="untaggedBtn" class="icon-btn untagged-btn" title="筛选无标签图片（再点取消）">∅</button>
+          <button id="addGroupBtn" class="ghost-btn small">＋ 新建组</button>
+        </span>
       </div>
       <div id="groupList"></div>
       <div class="sidebar-tip">
