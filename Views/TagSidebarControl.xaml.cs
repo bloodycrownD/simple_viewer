@@ -1,7 +1,7 @@
-// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、chip 点击转发（携带修饰键）
-//       与 x:Bind 函数转换器。
-// 不变量：无交互逻辑（分流/命令全部在视图模型）；chip 点击经 Tag 槽位回查 VM（ItemsRepeater 不设置 DataContext）
-//         并携带 TappedRoutedEventArgs.KeyModifiers（Shift = 移除语义，Step 10）；
+// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、行点击转发（携带修饰键）、
+//       行悬停浮现管理按钮（RowCommands 容器 Opacity 切换）与 x:Bind 函数转换器。
+// 不变量：无交互逻辑（分流/命令全部在视图模型）；标签行/组行点击经 Tag 槽位回查 VM（ItemsRepeater 不设置
+//         DataContext）并携带当前线程 Shift 键状态（Shift = 移除语义，Step 10）；
 //         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
 // 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
@@ -18,7 +18,7 @@ using Windows.Foundation;
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// 水平流式换行面板（视觉对齐 demo .group-tags 的 flex-wrap；组内 chip 数量小，不做虚拟化）。
+/// 水平流式换行面板（WaterfallView 卡片角标条使用；侧栏已改为目录树行式节点，不再使用本面板）。
 /// </summary>
 public sealed class WrapPanel : Panel
 {
@@ -107,7 +107,8 @@ public sealed partial class TagSidebarControl : UserControl
     }
 
     /// <summary>
-    /// chip 点击转发：Tag 槽位回查 chip VM，Shift 键实时状态交视图模型分流（Step 10：移除语义）。
+    /// 标签行点击转发（模板已从胶囊 chip 改为目录树整行，语义不变）：Tag 槽位回查 chip VM，
+    /// Shift 键实时状态交视图模型分流（Step 10：移除语义）。
     /// 用 Click 而非 Tapped（2026-09-17 走查修复）：Click 对鼠标/触摸/键盘/自动化调用均触发，
     /// Tapped 仅真实指针手势触发，键盘与辅助功能路径会静默失效。
     /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
@@ -141,20 +142,69 @@ public sealed partial class TagSidebarControl : UserControl
             Windows.System.VirtualKey.Shift);
         return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
+
+    /// <summary>行内悬停浮现管理按钮容器的固定名（组行 ＋⇄✎✕ 与标签行 ✎✕ 共用，视觉树按名检索）。</summary>
+    private const string RowCommandsName = "RowCommands";
+
+    /// <summary>
+    /// 行悬停：浮现该行右侧的管理按钮容器（RowCommands，Opacity 0→1）。
+    /// 用 Opacity 而非 Visibility——按钮保持在 UIA 树中可命中，键盘/自动化路径不失效（项目 RULE）。
+    /// 子按钮位于行边界内，行内移动不触发 Exited；离开行即隐藏。
+    /// </summary>
+    private void OnRowPointerEntered(object sender, PointerRoutedEventArgs e)
+        => SetRowCommandsOpacity(sender, 1d);
+
+    /// <summary>行离开：隐藏该行的管理按钮容器（Opacity→0，占位不变避免布局跳动）。</summary>
+    private void OnRowPointerExited(object sender, PointerRoutedEventArgs e)
+        => SetRowCommandsOpacity(sender, 0d);
+
+    /// <summary>按名检索行视觉树中的 RowCommands 容器并切其 Opacity（DataTemplate 内 x:Name 不生成字段，走视觉树回查）。</summary>
+    private static void SetRowCommandsOpacity(object sender, double opacity)
+    {
+        if (sender is not FrameworkElement root)
+        {
+            return;
+        }
+
+        foreach (var element in EnumerateDescendants(root))
+        {
+            if (element.Name == RowCommandsName)
+            {
+                element.Opacity = opacity;
+            }
+        }
+    }
+
+    /// <summary>深度枚举视觉树后代（行模板小，递归开销可忽略）。</summary>
+    private static IEnumerable<FrameworkElement> EnumerateDescendants(FrameworkElement root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (VisualTreeHelper.GetChild(root, i) is FrameworkElement child)
+            {
+                yield return child;
+                foreach (var descendant in EnumerateDescendants(child))
+                {
+                    yield return descendant;
+                }
+            }
+        }
+    }
 }
 
 /// <summary>
 /// 标签栏模板的 x:Bind 函数转换器（静态函数绑定；画刷随主题惰性初始化，仅 UI 线程访问）。
-/// 视觉规格对齐 demo.css：chip 为胶囊（组 hue 边框 55% 透明 + 10% 淡底、hover 22%、激活实心 85% 白字）；
-/// 所有 hue 色均以半透明 alpha 叠加呈现，不硬编码明暗背景（深浅主题通用）。
+/// 目录树行式节点（Eagle 风格，单色系）：行高亮/连接线/计数/名字色全部为 IsDarkTheme 明暗双值
+/// 半透明叠加（不硬编码明暗背景，深浅主题通用）；互斥徽章保留琥珀色系、单选圆点保留组 hue 描边。
+/// 筛选条（FilterChip*）与瀑布流角标（FromHsl）沿用组 hue 色彩，与侧栏树行无关。
 /// </summary>
 public static class TagSidebarConverters
 {
-    // 常量 alpha（十六进制分量）：10% = 0x1A，16% = 0x29，55% = 0x8C，85% = 0xD9；
-    // hover 加深 22% 由 chip 模板内同底色叠加层（opacity 0→1）实现，无需独立画刷。
+    // 常量 alpha（十六进制分量）：10% = 0x1A，55% = 0x8C；
+    // 树行高亮/连接线的叠加 alpha 见各函数注释。
     private const byte AlphaFaint = 0x1A;
     private const byte AlphaBorder = 0x8C;
-    private const byte AlphaSolid = 0xD9;
 
     /// <summary>
     /// 当前有效主题是否深色（2026-09-17 走查修复：深色下 chip 文字发黑）。
@@ -173,45 +223,50 @@ public static class TagSidebarConverters
     /// <summary>互斥/兼容徽章文本（兼容组 = 非互斥组：组内标签可共存叠加）。</summary>
     public static string ExclusiveBadge(bool exclusive) => exclusive ? "互斥" : "兼容";
 
-    /// <summary>组计数文本（组内标签引用张数合计）。</summary>
-    public static string GroupCountText(int count) => $"{count} 张";
+    /// <summary>组行右对齐计数文本（纯数字；语义 = 该组去重命中张数 TotalCount）。</summary>
+    public static string GroupCountText(int count) => count.ToString();
 
-    /// <summary>chip 计数文本。</summary>
+    /// <summary>标签行右对齐计数文本（纯数字）。</summary>
     public static string CountText(int count) => count.ToString();
 
-    /// <summary>chip 底色：激活 = 组 hue 实心 85%；未激活 = 组 hue 10%（未分组灰蓝低饱和）。</summary>
-    public static Brush ChipBackground(int hue, bool isActive)
+    /// <summary>
+    /// 树行底色：激活（筛选命中）= 整行圆角浅灰叠加（深色 12% 白 / 浅色 9% 黑，明暗双值）；
+    /// 普通 = 透明（悬停高亮由 TagTreeRowButtonStyle 的 HoverOverlay 叠加层承担）。
+    /// </summary>
+    public static Brush TagRowBackground(bool isActive)
         => isActive
-            ? FromHsl(hue, 0.60, 0.50, AlphaSolid)
-            : FromHsl(hue, IsUngroupedHue(hue) ? 0.10 : 0.50, 0.50, AlphaFaint);
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+                IsDarkTheme ? (byte)0x1F : (byte)0x16,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00))
+            : TransparentBrush;
 
-    /// <summary>chip 边框：组 hue 55% 透明（激活时隐藏边框，对齐 demo .chip.filter-on）。</summary>
-    public static Brush ChipBorderBrush(int hue, bool isActive)
-        => isActive
-            ? TransparentBrush
-            : FromHsl(hue, IsUngroupedHue(hue) ? 0.15 : 0.45, 0.55, AlphaBorder);
+    /// <summary>树形竖向连接线颜色（1px 缩进导线，次级描边感：深色 14% 白 / 浅色 10% 黑）。</summary>
+    public static Brush TreeLineBrush()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            IsDarkTheme ? (byte)0x24 : (byte)0x1A,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00));
 
-    /// <summary>chip 前景：激活 = 白字；未激活 = 主题主文字色（明暗双值，见 IsDarkTheme 注释）。</summary>
-    public static Brush ChipForeground(bool isActive)
-        => isActive
-            ? WhiteBrush
-            : new SolidColorBrush(Windows.UI.Color.FromArgb(
-                0xFF,
-                (byte)(IsDarkTheme ? 0xF1 : 0x1B),
-                (byte)(IsDarkTheme ? 0xF1 : 0x1B),
-                (byte)(IsDarkTheme ? 0xF1 : 0x1B)));
+    /// <summary>标签行名字色：激活 = 主题主文字；普通 = 次要灰（明暗双值，单色系树观感）。</summary>
+    public static Brush TagRowNameForeground(bool isActive)
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x6C)),
+            (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x6B)),
+            (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x69))));
 
-    /// <summary>chip 内计数前景：激活 = 85% 白；未激活 = 主题次要色（demo .tag-count 10px）。</summary>
-    public static Brush ChipCountForeground(bool isActive)
-        => isActive
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(0xD9, 0xFF, 0xFF, 0xFF))
-            : new SolidColorBrush(Windows.UI.Color.FromArgb(
-                0xFF,
-                (byte)(IsDarkTheme ? 0xA0 : 0x6C),
-                (byte)(IsDarkTheme ? 0xA0 : 0x6B),
-                (byte)(IsDarkTheme ? 0xA0 : 0x69)));
+    /// <summary>树行计数前景（纯数字右对齐）：次要灰（明暗双值）。</summary>
+    public static Brush TreeCountForeground()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            (byte)(IsDarkTheme ? 0xA0 : 0x6C),
+            (byte)(IsDarkTheme ? 0xA0 : 0x6B),
+            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
 
-    /// <summary>互斥组单选圆点描边：激活 = 白；未激活 = 组 hue 45%（demo .radio-dot）。</summary>
+    /// <summary>互斥组单选圆点描边：激活 = 白；未激活 = 组 hue 45%（沿用胶囊时代样式）。</summary>
     public static Brush RadioDotStroke(int hue, bool isActive)
         => isActive ? WhiteBrush : FromHsl(hue, IsUngroupedHue(hue) ? 0.15 : 0.45, 0.55, 0xFF);
 
@@ -277,7 +332,7 @@ public static class TagSidebarConverters
     public static Visibility BoolToVisibility(bool value)
         => value ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>组展开 → 标签行可见（目录树态：折叠时整行 chip 收起）。</summary>
+    /// <summary>组展开 → 标签行列表可见（目录树态：折叠时子行整体收起）。</summary>
     public static Visibility IsExpandedToVisibility(bool isExpanded)
         => isExpanded ? Visibility.Visible : Visibility.Collapsed;
 

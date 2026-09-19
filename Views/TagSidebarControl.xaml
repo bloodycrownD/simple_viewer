@@ -5,17 +5,18 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:SimpleViewer.ViewModels"
     xmlns:views="using:SimpleViewer.Views">
-    <!-- 职责：左侧标签栏（spec Step 9）——目录树形结构：组头整行按钮点击展开/折叠组内标签行
-              （chevron ▸折叠/▾展开，BMP 文本字符 U+25B8/U+25BE；展开状态会话内记忆，见 TagSidebarViewModel）；
-              按组展示标签行（互斥组单选圆点、每标签实时计数、点击 = 切换筛选，chip 高亮为筛选最小可见反馈）、
-              组管理按钮（＋标签 / ⇄ 互斥切换 / ✎ 重命名 / ✕ 删除，嵌于组头按钮内——WinUI 嵌套 Button
-              点击各自直达不冒泡，点管理按钮不触发展开切换）、固定末位「未分组」虚拟组（隐藏管理按钮、同享展开折叠）、
-              底部「新建标签组」。
-              视觉对齐 demo：chip 为组 hue 胶囊（10% 淡底/55% 边框/激活实心 85% 白字，hover 叠加加深）、
-              组内标签流式换行（WrapPanel）、组头互斥徽章琥珀色系、管理按钮 ghost 风格。
+    <!-- 职责：左侧标签栏（spec Step 9）——目录树形结构（Eagle 风格标签树，单色系行式节点）：
+              组行（父节点）= 整行 Button：chevron（▸折叠/▾展开，BMP 文本字符 U+25B8/U+25BE）→ 组名 →
+              互斥/兼容徽章 → 弹性空位 → 右对齐纯数字计数（TotalCount = 该组去重命中张数）→ 悬停浮现
+              ＋⇄✎✕ 管理按钮；子标签行（子节点）= 一级缩进 + 1px 竖向连接线（相邻行连续成树）→
+              互斥组单选圆点 → 标签名 → 右对齐纯数字计数 → 悬停浮现 ✎✕；点击组行展开/折叠
+              （展开状态会话内记忆，见 TagSidebarViewModel）；激活标签行（筛选命中）= 整行圆角浅灰叠加高亮。
+              行内无常显管理按钮（干净的单行只读观感）——悬停浮现经 RowCommands 容器 Opacity 0↔1
+              （不用 Visibility：按钮保持在 UIA 树中可命中，键盘/自动化路径不失效，见项目 RULE）。
+              未分组虚拟组固定末位（隐藏管理按钮、同享展开折叠）、底部「新建标签组」。
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
               （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
-              交互不变量：chip 主点击经 OnChipClicked 分流（Click 直达事件不冒泡，内嵌 ✎✕ 按钮不误触）；
+              交互不变量：标签行主点击经 OnChipClicked 分流（Click 直达事件不冒泡，内嵌 ✎✕ 按钮不误触）；
               未分组 ✎✕ 入口、Esc 三态等已验证行为保持。 -->
 
     <Grid Margin="10,12,10,10" RowSpacing="8">
@@ -52,16 +53,19 @@
             ZoomMode="Disabled">
             <ItemsRepeater ItemsSource="{x:Bind ViewModel.Groups, Mode=OneWay}">
                 <ItemsRepeater.Layout>
-                    <StackLayout Spacing="10" />
+                    <StackLayout Spacing="6" />
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:TagGroupViewModel">
-                        <StackPanel Spacing="4">
-                            <!-- 组头（目录树态）：整行 Button 承担展开/折叠（Tag 槽位回查组 VM，Click 直达）；
-                                 chevron（▸折叠/▾展开）前置，组名/互斥徽章/计数/管理按钮保持原布局；
-                                 管理按钮（未分组隐藏）为嵌套独立 Button——点击不冒泡，不触发展开切换 -->
+                        <StackPanel Spacing="0">
+                            <!-- 组行（父节点）：整行 Button 承担展开/折叠（Tag 槽位回查组 VM，Click 直达）；
+                                 布局 = chevron → 组名 → 徽章 → 弹性空位 → 右对齐纯数字计数 → 悬停浮现 ＋⇄✎✕；
+                                 管理按钮（未分组隐藏）嵌于 RowCommands 容器（Opacity 0，行悬停浮现 1，
+                                 占位不变避免布局跳动；嵌套独立 Button 点击不冒泡，不触发展开切换） -->
                             <Button
                                 Click="OnGroupHeaderClicked"
+                                PointerEntered="OnRowPointerEntered"
+                                PointerExited="OnRowPointerExited"
                                 Style="{StaticResource GroupHeaderButtonStyle}"
                                 Tag="{x:Bind}"
                                 ToolTipService.ToolTip="展开/折叠组内标签">
@@ -73,14 +77,14 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock
+                                        Width="10"
                                         VerticalAlignment="Center"
                                         FontSize="10"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind views:TagSidebarConverters.ChevronGlyph(IsExpanded)}" />
+                                        Text="{x:Bind views:TagSidebarConverters.ChevronGlyph(IsExpanded)}"
+                                        TextAlignment="Center" />
                                     <TextBlock
                                         Grid.Column="1"
                                         VerticalAlignment="Center"
@@ -102,68 +106,84 @@
                                             Text="{x:Bind views:TagSidebarConverters.ExclusiveBadge(Exclusive)}" />
                                     </Border>
                                     <TextBlock
-                                        Grid.Column="3"
-                                        Margin="4,0,0,0"
+                                        Grid.Column="4"
                                         VerticalAlignment="Center"
                                         FontSize="11"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        Text="{x:Bind views:TagSidebarConverters.GroupCountText(TotalCount)}"
-                                        TextTrimming="CharacterEllipsis" />
-                                    <Button
-                                        Grid.Column="4"
-                                        Command="{x:Bind Commands.AddTag}"
-                                        Content="＋"
-                                        Style="{StaticResource GhostIconButtonStyle}"
-                                        ToolTipService.ToolTip="新建标签"
-                                        Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
-                                    <Button
+                                        Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
+                                        Text="{x:Bind views:TagSidebarConverters.GroupCountText(TotalCount)}" />
+                                    <StackPanel
+                                        x:Name="RowCommands"
                                         Grid.Column="5"
-                                        Command="{x:Bind Commands.ToggleExclusive}"
-                                        Content="⇄"
-                                        Style="{StaticResource GhostIconButtonStyle}"
-                                        ToolTipService.ToolTip="切换互斥/兼容"
-                                        Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
-                                    <Button
-                                        Grid.Column="6"
-                                        Command="{x:Bind Commands.RenameGroup}"
-                                        Content="✎"
-                                        Style="{StaticResource GhostIconButtonStyle}"
-                                        ToolTipService.ToolTip="重命名组"
-                                        Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
-                                    <Button
-                                        Grid.Column="7"
-                                        Command="{x:Bind Commands.DeleteGroup}"
-                                        Content="✕"
-                                        Style="{StaticResource GhostIconButtonStyle}"
-                                        ToolTipService.ToolTip="删除组"
-                                        Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                        Orientation="Horizontal"
+                                        Opacity="0">
+                                        <Button
+                                            Command="{x:Bind Commands.AddTag}"
+                                            Content="＋"
+                                            Style="{StaticResource GhostIconButtonStyle}"
+                                            ToolTipService.ToolTip="新建标签"
+                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                        <Button
+                                            Command="{x:Bind Commands.ToggleExclusive}"
+                                            Content="⇄"
+                                            Style="{StaticResource GhostIconButtonStyle}"
+                                            ToolTipService.ToolTip="切换互斥/兼容"
+                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                        <Button
+                                            Command="{x:Bind Commands.RenameGroup}"
+                                            Content="✎"
+                                            Style="{StaticResource GhostIconButtonStyle}"
+                                            ToolTipService.ToolTip="重命名组"
+                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                        <Button
+                                            Command="{x:Bind Commands.DeleteGroup}"
+                                            Content="✕"
+                                            Style="{StaticResource GhostIconButtonStyle}"
+                                            ToolTipService.ToolTip="删除组"
+                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                    </StackPanel>
                                 </Grid>
                             </Button>
 
-                            <!-- 标签胶囊行（demo .group-tags：flex-wrap 流式换行；折叠时整行收起）：
-                                 胶囊 = 组 hue 边框 + 10% 淡底；激活 = 实心 85% 白字；
-                                 内嵌 ✎✕ 为独立 Button（Click 直达事件不冒泡，不打断主点击分流） -->
+                            <!-- 子标签行列表（行式树节点，折叠时整体收起）：每行 = 缩进 + 竖向连接线
+                                 （1px 贯穿行高，相邻行 0 间距连续成树）→ 单选圆点（仅互斥组）→ 标签名 →
+                                 右对齐纯数字计数 → 悬停浮现 ✎✕；整行 Button 撑满内容区宽度（计数右对齐前提） -->
                             <ItemsControl
                                 ItemsSource="{x:Bind Tags}"
                                 Visibility="{x:Bind views:TagSidebarConverters.IsExpandedToVisibility(IsExpanded)}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <views:WrapPanel ItemSpacing="6" LineSpacing="6" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:TagChipViewModel">
                                         <Button
-                                            Background="{x:Bind views:TagSidebarConverters.ChipBackground(Hue, IsFilterActive)}"
-                                            BorderBrush="{x:Bind views:TagSidebarConverters.ChipBorderBrush(Hue, IsFilterActive)}"
+                                            Background="{x:Bind views:TagSidebarConverters.TagRowBackground(IsFilterActive)}"
                                             Click="OnChipClicked"
-                                            Foreground="{x:Bind views:TagSidebarConverters.ChipForeground(IsFilterActive)}"
-                                            Style="{StaticResource ChipCoreButtonStyle}"
+                                            PointerEntered="OnRowPointerEntered"
+                                            PointerExited="OnRowPointerExited"
+                                            Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}"
                                             ToolTipService.ToolTip="点击：打标或筛选 · Shift+点击：从选中集移除标签">
-                                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                                <!-- 互斥组单选圆点（hue 描边；激活白实心） -->
+                                            <Grid ColumnSpacing="6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <!-- 一级缩进 + 竖向连接线（行高拉伸，贯穿整行） -->
+                                                <Border Width="14">
+                                                    <Border
+                                                        Width="1"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Stretch"
+                                                        Background="{x:Bind views:TagSidebarConverters.TreeLineBrush()}" />
+                                                </Border>
+                                                <!-- 互斥组单选圆点（hue 描边；激活白实心；兼容组整列收起） -->
                                                 <Ellipse
+                                                    Grid.Column="1"
                                                     Width="7"
                                                     Height="7"
                                                     VerticalAlignment="Center"
@@ -172,33 +192,38 @@
                                                     StrokeThickness="1.5"
                                                     Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ShowRadioDot)}" />
                                                 <TextBlock
+                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
+                                                    FontSize="13"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.TagRowNameForeground(IsFilterActive)}"
                                                     Text="{x:Bind Name}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
+                                                    Grid.Column="3"
                                                     VerticalAlignment="Center"
-                                                    FontSize="10"
-                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
+                                                    FontSize="11"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
                                                     Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
-                                                <Button
-                                                    Command="{x:Bind Commands.Rename}"
-                                                    Content="✎"
-                                                    FontSize="11"
-                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
-                                                    Padding="2,0"
-                                                    Style="{StaticResource GhostIconButtonStyle}"
-                                                    ToolTipService.ToolTip="重命名标签"
-                                                    Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Rename)}" />
-                                                <Button
-                                                    Command="{x:Bind Commands.Delete}"
-                                                    Content="✕"
-                                                    FontSize="11"
-                                                    Foreground="{x:Bind views:TagSidebarConverters.ChipCountForeground(IsFilterActive)}"
-                                                    Padding="2,0"
-                                                    Style="{StaticResource GhostIconButtonStyle}"
-                                                    ToolTipService.ToolTip="删除标签"
-                                                    Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Delete)}" />
-                                            </StackPanel>
+                                                <!-- 悬停浮现的管理按钮（Opacity 0↔1；未分组标签无命令整组收起） -->
+                                                <StackPanel
+                                                    x:Name="RowCommands"
+                                                    Grid.Column="4"
+                                                    Orientation="Horizontal"
+                                                    Opacity="0">
+                                                    <Button
+                                                        Command="{x:Bind Commands.Rename}"
+                                                        Content="✎"
+                                                        Style="{StaticResource GhostIconButtonStyle}"
+                                                        ToolTipService.ToolTip="重命名标签"
+                                                        Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Rename)}" />
+                                                    <Button
+                                                        Command="{x:Bind Commands.Delete}"
+                                                        Content="✕"
+                                                        Style="{StaticResource GhostIconButtonStyle}"
+                                                        ToolTipService.ToolTip="删除标签"
+                                                        Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Delete)}" />
+                                                </StackPanel>
+                                            </Grid>
                                         </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
