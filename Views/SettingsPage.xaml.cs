@@ -14,7 +14,7 @@ using WinRT.Interop;
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// Keyboard shortcut settings UI hosted in a <see cref="ContentDialog"/>.
+/// 承载于 <see cref="ContentDialog"/> 的键盘快捷键设置界面。
 /// </summary>
 public sealed partial class SettingsPage : UserControl
 {
@@ -77,6 +77,6 @@ public sealed partial class SettingsPage : UserControl
         }
     }
 
-    /// <summary>Validates and saves bindings. Returns false when validation fails.</summary>
+    /// <summary>校验并保存绑定；校验失败（失败原因已由视图模型写入状态区）返回 false，宿主据此阻止关闭对话框。</summary>
     public bool TrySave() => ViewModel.TrySave();
 }
