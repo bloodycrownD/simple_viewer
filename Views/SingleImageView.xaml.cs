@@ -1,7 +1,7 @@
-// 职责：单图视图 code-behind——文件名 Inlines 组装（标签段高亮；右栏信息区，底部文件名栏已移除）、
+// 职责：单图视图 code-behind——文件名文本组装（显示名 = 剥离标签段；右栏信息区，底部文件名栏已移除）、
 //       滚轮缩放/拖拽平移交互、右栏标签管理转发（chip ✕ 移除 → MainViewModel 单图 toggle 管线）。
 // 不变量：ViewModel 构造注入（先赋值后 InitializeComponent，沿用 SettingsPage 惯例）；
-//         仅响应三段属性变更重建 Inlines，其余绑定走 XAML x:Bind；
+//         仅响应显示名/完整名属性变更重建文件名文本，其余绑定走 XAML x:Bind；
 //         遮盖式布局（2026-09-19）：ImageHost 画布铺满整根（几何=整窗恒定），右栏（280/36）与
 //         文件名栏为浮层——收展右栏只改变遮盖范围，画布几何不变、不触发重解码；
 //         ImageHost.SizeChanged 仍是解码尺寸源（仅窗口 resize 触发）；
@@ -101,10 +101,7 @@ public sealed partial class SingleImageView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(MainViewModel.FileNamePrefix)
-            or nameof(MainViewModel.FileNameTagSegment)
-            or nameof(MainViewModel.FileNameSuffix)
-            or nameof(MainViewModel.CurrentImageDisplayName)
+        if (e.PropertyName is nameof(MainViewModel.CurrentImageDisplayName)
             or nameof(MainViewModel.CurrentFileFullName))
         {
             RebuildFileNameInlines();

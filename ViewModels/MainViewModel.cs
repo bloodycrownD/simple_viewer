@@ -287,18 +287,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _waterfallEmptyText = string.Empty;
 
-    /// <summary>当前文件名的标签前前缀段（含“[”，无标签时为完整文件名）。</summary>
-    [ObservableProperty]
-    private string _fileNamePrefix = string.Empty;
-
-    /// <summary>当前文件名的标签段（方括号内文本；无标签为空串）。</summary>
-    [ObservableProperty]
-    private string _fileNameTagSegment = string.Empty;
-
-    /// <summary>当前文件名的标签后后缀段（“]”+ 扩展名；无标签为空串）。</summary>
-    [ObservableProperty]
-    private string _fileNameSuffix = string.Empty;
-
     /// <summary>
     /// 当前图显示名（剥离方括号标签段的 base 名 + 扩展名；解析失败回退完整文件名）。
     /// 2026-09-19 统一口径：单图模式（底部文件名栏/右栏信息区）与瀑布流卡片
@@ -2754,10 +2742,10 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 依据文件名尾部标签段解析显示信息：三段式属性（prefix + 标签段 + suffix，2026-09-19 起仅作
-    /// 解析结果保留）、显示名 <see cref="CurrentImageDisplayName"/>（剥离标签段，单图/瀑布流统一口径）
-    /// 与完整名 <see cref="CurrentFileFullName"/>（tooltip 用）；同时重建右栏当前标签 chips
-    /// （同一解析结果，分段与 chips 永不分裂）。
+    /// 依据文件名尾部标签段解析显示信息：显示名 <see cref="CurrentImageDisplayName"/>（剥离标签段，
+    /// 单图/瀑布流统一口径）与完整名 <see cref="CurrentFileFullName"/>（tooltip 用）；同时重建右栏
+    /// 当前标签 chips（同一解析结果，显示名与 chips 永不分裂）。
+    /// 原三段高亮属性（FileNamePrefix/TagSegment/Suffix）已随底部文件名栏移除删除（cr/P1-3）。
     /// </summary>
     private void UpdateFileNameSegments(string path)
     {
@@ -2765,18 +2753,12 @@ public partial class MainViewModel : ObservableObject
         if (_tagFilename.TryParse(fileName, out var baseName, out var extension, out var tags)
             && tags.Count > 0)
         {
-            FileNamePrefix = baseName + "[";
-            FileNameTagSegment = string.Join(" ", tags);
-            FileNameSuffix = "]" + extension;
             // 显示名 = 剥离标签段（2026-09-19 统一口径：与瀑布流卡片一致；完整名进 tooltip）。
             CurrentImageDisplayName = baseName + extension;
         }
         else
         {
-            // 无标签：完整文件名作为前缀，标签段与后缀为空。
-            FileNamePrefix = fileName;
-            FileNameTagSegment = string.Empty;
-            FileNameSuffix = string.Empty;
+            // 无标签：完整文件名即显示名。
             CurrentImageDisplayName = fileName;
             tags = [];
         }
@@ -2802,9 +2784,6 @@ public partial class MainViewModel : ObservableObject
 
     private void ClearFileNameSegments()
     {
-        FileNamePrefix = string.Empty;
-        FileNameTagSegment = string.Empty;
-        FileNameSuffix = string.Empty;
         CurrentImageDisplayName = string.Empty;
         CurrentFileFullName = string.Empty;
         CurrentImageFileSizeText = string.Empty;
