@@ -27,7 +27,9 @@ public interface ITagFilenameService
     string Compose(string baseName, string extension, IReadOnlyList<string> tags);
 
     /// <summary>
-    /// 校验标签名合法性：拒绝空、含任何空白字符（char.IsWhiteSpace 全集，含全角空格与 nbsp）、含方括号。
+    /// 校验标签名合法性：拒绝空、含任何空白字符（char.IsWhiteSpace 全集，含全角空格与 nbsp）、含方括号、
+    /// 含文件系统非法字符（<c>Path.GetInvalidFileNameChars()</c> 全集：\ / : * ? " &lt; &gt; | 及控制字符——
+    /// 打标即改名，前置拒绝防 File.Move 整批"重命名失败"；cr/P2-16）。
     /// </summary>
     /// <returns>合法返回 true。</returns>
     bool ValidateTagName(string? name);

@@ -78,6 +78,13 @@ public class TagFilenameServiceTests
         // 方括号（破坏尾部标签段结构）
         Assert.False(_service.ValidateTagName("a[b"));
         Assert.False(_service.ValidateTagName("b]c"));
+
+        // 文件系统非法字符（cr/P2-16：Path.GetInvalidFileNameChars 全集——打标即改名，前置拒绝防 File.Move 整批失败；
+        // 含 \ 还可能拼出跨目录路径分量）
+        Assert.False(_service.ValidateTagName(@"a\b"));
+        Assert.False(_service.ValidateTagName("a/b"));
+        Assert.False(_service.ValidateTagName("a:b"));
+        Assert.False(_service.ValidateTagName("a*b"));
     }
 
     [Fact]

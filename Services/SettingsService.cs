@@ -152,8 +152,9 @@ public sealed class SettingsService : ISettingsService
 
     /// <summary>
     /// 校验标签组配置（保存前置）：组名非空；标签名拒绝空名、任何空白字符
-    /// （char.IsWhiteSpace 全集，含全角空格与 nbsp）及方括号；组内与跨组标签重名均拒绝
-    /// （文件名标签是平铺字符串，重名无法区分；Windows 文件名不区分大小写，比较忽略大小写）。
+    /// （char.IsWhiteSpace 全集，含全角空格与 nbsp）、方括号及文件系统非法字符
+    /// （与 <see cref="TagFilenameService.ValidateTagName"/> 共用单一口径，cr/P2-16）；
+    /// 组内与跨组标签重名均拒绝（文件名标签是平铺字符串，重名无法区分；Windows 文件名不区分大小写，比较忽略大小写）。
     /// </summary>
     public static void ValidateTagGroups(AppSettings settings)
     {
@@ -193,6 +194,15 @@ public sealed class SettingsService : ISettingsService
                 if (tag.Name.Contains('[') || tag.Name.Contains(']'))
                 {
                     errors.Add($"标签名不允许包含方括号（组：{groupName}，标签：{tag.Name}）。");
+                    continue;
+                }
+
+                // 文件系统非法字符（cr/P2-16）：复用 TagFilenameService 单一口径——打标即改名，
+                // 含 \ / : * ? 等字符的目标文件名会让 File.Move 抛 IOException 整批"重命名失败"
+                // （用户难定位的前置校验缺口）；含 \ 还可能拼出跨目录路径分量（文件被移出图库目录）。
+                if (TagFilenameService.ContainsInvalidFileNameChar(tag.Name))
+                {
+                    errors.Add($"标签名不允许包含文件系统非法字符（组：{groupName}，标签：{tag.Name}）。");
                     continue;
                 }
 

@@ -238,6 +238,16 @@ public class SettingsServiceTests
             Assert.Contains("方括号", ex.Message);
         }
 
+        // 文件系统非法字符（cr/P2-16：与 TagFilenameService.ValidateTagName 共用单一口径；
+        // 含 \ 的标签可拼出跨目录路径分量，新建即拒）。
+        foreach (var name in new[] { @"a\b", "a/b", "a:b", "a*b" })
+        {
+            ex = Assert.Throws<InvalidOperationException>(
+                () => SettingsService.ValidateTagGroups(WithGroups(
+                    new TagGroup { Id = "g1", Name = "主题", Tags = [new TagDefinition { Id = "t1", Name = name }] })));
+            Assert.Contains("文件系统非法字符", ex.Message);
+        }
+
         // 组名空白。
         ex = Assert.Throws<InvalidOperationException>(
             () => SettingsService.ValidateTagGroups(WithGroups(
