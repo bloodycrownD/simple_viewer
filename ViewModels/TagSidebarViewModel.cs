@@ -103,6 +103,16 @@ public partial class TagSidebarViewModel : ObservableObject
     /// </summary>
     private readonly HashSet<string> _collapsedGroupIds = [];
 
+    /// <summary>
+    /// 会话内已见未分组标签记忆（2026-09-19 走查修复）：未分组行原仅由计数快照生成，
+    /// 计数归零即从标签库消失——用户从详情页移除某标签的最后一处引用后，该标签在侧栏
+    /// 无迹可寻、无法再筛选或重新打标。改为「曾见即留」：本会话内出现过的未分组标签
+    /// 计数归零后仍保留行（计数 0）；显式删除/重命名经 <see cref="ForgetUngroupedTag"/>
+    /// 摘除。不落盘——未分组的事实源始终是文件名，重启后无引用即不存在
+    /// （与「索引为可丢弃缓存」的架构口径一致）。
+    /// </summary>
+    private readonly HashSet<string> _knownUngroupedTags = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>展示的组序列（配置组顺序 + 未分组虚拟组末位）。</summary>
     public ObservableCollection<TagGroupViewModel> Groups { get; } = [];
 
@@ -169,21 +179,30 @@ public partial class TagSidebarViewModel : ObservableObject
         // 未分组虚拟组：索引计数中不属于任何配置组的标签（可筛选、不可配置互斥属性）。
         var ungrouped = new List<TagChipViewModel>();
         var ungroupedTotal = 0;
-        foreach (var pair in tagCounts.OrderBy(p => p.Key, StringComparer.CurrentCulture))
-        {
-            if (configuredNames.Contains(pair.Key))
-            {
-                continue;
-            }
 
-                                ungroupedTotal += pair.Value;
-                                ungrouped.Add(new TagChipViewModel(
-                                    pair.Key,
-                                    pair.Value,
-                                    activeFilters.Contains(pair.Key),
-                                    showRadioDot: false,
-                                    ownerGroup: null,
-                                    CreateUngroupedChipEditCommands(pair.Key)));
+        // 「曾见即留」：计数快照中的未分组标签并入会话记忆；行集合 = 记忆全集
+        //（计数为 0 的保留行显示 0），显式删除/重命名经 ForgetUngroupedTag 摘除。
+        foreach (var pair in tagCounts)
+        {
+            if (!configuredNames.Contains(pair.Key))
+            {
+                _knownUngroupedTags.Add(pair.Key);
+            }
+        }
+
+        foreach (var name in _knownUngroupedTags.OrderBy(static n => n, StringComparer.CurrentCulture))
+        {
+            var count = tagCounts.TryGetValue(name, out var value) && !configuredNames.Contains(name)
+                ? value
+                : 0;
+            ungroupedTotal += count;
+            ungrouped.Add(new TagChipViewModel(
+                name,
+                count,
+                activeFilters.Contains(name),
+                showRadioDot: false,
+                ownerGroup: null,
+                CreateUngroupedChipEditCommands(name)));
         }
 
         if (ungrouped.Count > 0)
@@ -205,6 +224,12 @@ public partial class TagSidebarViewModel : ObservableObject
         IsEmpty = Groups.Count == 0;
         return tagHuesChanged;
     }
+
+    /// <summary>
+    /// 从「曾见即留」记忆中摘除未分组标签（显式删除/重命名标签成功后由宿主调用，
+    /// 使其按旧语义从标签库消失，避免已删除标签以 0 计数行残留）。
+    /// </summary>
+    public void ForgetUngroupedTag(string tagName) => _knownUngroupedTags.Remove(tagName);
 
     /// <summary>
     /// 展开/折叠切换（组头整行按钮的点击入口，TagSidebarControl.OnGroupHeaderClicked 转发）：

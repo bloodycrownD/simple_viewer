@@ -19,13 +19,11 @@ using SimpleViewer.ViewModels;
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// 单图查看视图（D14：自 MainWindow Row1 抽出的 UserControl，含完整文件名与标签段高亮）。
+/// 单图查看视图（D14：自 MainWindow Row1 抽出的 UserControl；2026-09-19 统一口径：
+/// 文件名显示剥离标签段的显示名，完整名挂 tooltip，标签由右栏 chips 承载）。
 /// </summary>
 public sealed partial class SingleImageView : UserControl
 {
-    /// <summary>标签段高亮用的主题资源键（强调色文字画刷）。</summary>
-    private const string TagHighlightBrushKey = "AccentTextFillColorPrimaryBrush";
-
     /// <summary>滚轮每格缩放倍率（前滚放大；1.15^±1 每格）。</summary>
     private const double ZoomStepFactor = 1.15;
 
@@ -93,7 +91,9 @@ public sealed partial class SingleImageView : UserControl
     {
         if (e.PropertyName is nameof(MainViewModel.FileNamePrefix)
             or nameof(MainViewModel.FileNameTagSegment)
-            or nameof(MainViewModel.FileNameSuffix))
+            or nameof(MainViewModel.FileNameSuffix)
+            or nameof(MainViewModel.CurrentImageDisplayName)
+            or nameof(MainViewModel.CurrentFileFullName))
         {
             RebuildFileNameInlines();
         }
@@ -209,9 +209,9 @@ public sealed partial class SingleImageView : UserControl
     }
 
     /// <summary>
-    /// 按 VM 三段属性重建文件名 Inlines：标签段以强调色 + 半粗字重高亮。
-    /// 同时组装两处显示（2026-09-19 右栏）：底部完整文件名栏（FileNameText）与右栏信息区
-    /// 文件名（InfoFileNameText，等宽小号、可换行）——同一数据源，永不分裂。
+    /// 按 VM 属性重建文件名显示（2026-09-19 统一口径）：两处显示（底部文件名栏 FileNameText
+    /// 与右栏信息区 InfoFileNameText）一律显示剥离标签段的显示名（与瀑布流卡片一致），
+    /// 标签信息由右栏 chips 与卡片角标承载；完整文件名挂 tooltip（CurrentFileFullName）。
     /// </summary>
     private void RebuildFileNameInlines()
     {
@@ -219,43 +219,23 @@ public sealed partial class SingleImageView : UserControl
         RebuildInlinesInto(InfoFileNameText, trim: false);
     }
 
-    /// <summary>向目标 TextBlock 重建三段 Inlines（trim = 裁剪省略号单行；false = 自动换行多行）。</summary>
+    /// <summary>向目标 TextBlock 重建显示名单段（trim = 裁剪省略号单行；false = 自动换行多行）。</summary>
     private void RebuildInlinesInto(TextBlock target, bool trim)
     {
         target.Inlines.Clear();
         target.TextTrimming = trim ? TextTrimming.CharacterEllipsis : TextTrimming.None;
         target.TextWrapping = trim ? TextWrapping.NoWrap : TextWrapping.Wrap;
 
-        if (!string.IsNullOrEmpty(ViewModel.FileNamePrefix))
-        {
-            target.Inlines.Add(new Run { Text = ViewModel.FileNamePrefix });
-        }
+        // 完整文件名（含标签段）挂 tooltip：悬停可见，不占展示位。
+        // WinUI 3 附加属性（FrameworkElement 无 WPF 式 ToolTip 属性）。
+        ToolTipService.SetToolTip(
+            target,
+            ViewModel.CurrentFileFullName.Length > 0 ? ViewModel.CurrentFileFullName : null);
 
-        if (!string.IsNullOrEmpty(ViewModel.FileNameTagSegment))
+        if (!string.IsNullOrEmpty(ViewModel.CurrentImageDisplayName))
         {
-            target.Inlines.Add(new Run
-            {
-                Text = ViewModel.FileNameTagSegment,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = ResolveTagHighlightBrush(),
-            });
+            target.Inlines.Add(new Run { Text = ViewModel.CurrentImageDisplayName });
         }
-
-        if (!string.IsNullOrEmpty(ViewModel.FileNameSuffix))
-        {
-            target.Inlines.Add(new Run { Text = ViewModel.FileNameSuffix });
-        }
-    }
-
-    private static Brush? ResolveTagHighlightBrush()
-    {
-        if (Application.Current?.Resources.TryGetValue(TagHighlightBrushKey, out var value) == true
-            && value is Brush brush)
-        {
-            return brush;
-        }
-
-        return null;
     }
 
     // ==================== 右栏标签管理（2026-09-19 交互重构） ====================

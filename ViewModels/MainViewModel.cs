@@ -280,6 +280,19 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _fileNameSuffix = string.Empty;
 
+    /// <summary>
+    /// 当前图显示名（剥离方括号标签段的 base 名 + 扩展名；解析失败回退完整文件名）。
+    /// 2026-09-19 统一口径：单图模式（底部文件名栏/右栏信息区/状态行）与瀑布流卡片
+    /// 一律显示剥离名，标签信息由右栏 chips 与卡片角标承载；完整文件名见
+    /// <see cref="CurrentFileFullName"/>（tooltip 用）。
+    /// </summary>
+    [ObservableProperty]
+    private string _currentImageDisplayName = string.Empty;
+
+    /// <summary>当前图完整文件名（含方括号标签段；tooltip 用，不直接展示）。</summary>
+    [ObservableProperty]
+    private string _currentFileFullName = string.Empty;
+
     /// <summary>当前图文件大小文本（人类可读 KB/MB；单图详情右栏信息行，2026-09-19）。</summary>
     [ObservableProperty]
     private string _currentImageFileSizeText = string.Empty;
@@ -1702,6 +1715,13 @@ public partial class MainViewModel : ObservableObject
             return renameResult; // 整体拒绝。
         }
 
+        if (group is null)
+        {
+            // 未分组标签重命名：旧名从「曾见即留」记忆摘除（新名经计数自然出现），
+            // 避免 0 计数旧行残留（见 TagSidebarViewModel._knownUngroupedTags 注释）。
+            TagSidebar.ForgetUngroupedTag(request.TagName);
+        }
+
         if (group is not null && tag is not null)
         {
             var saveError = SaveSettingsAndRebuildSidebar(settings);
@@ -1736,6 +1756,13 @@ public partial class MainViewModel : ObservableObject
 
         // 筛选集清理：已删除的标签不再可筛选（在筛选集中则重查）。
         var filterChanged = _activeFilterTags.Remove(request.TagName);
+
+        if (group is null)
+        {
+            // 未分组标签显式删除：从「曾见即留」记忆摘除，使其从标签库消失
+            //（避免已删除标签以 0 计数行残留；见 TagSidebarViewModel._knownUngroupedTags 注释）。
+            TagSidebar.ForgetUngroupedTag(request.TagName);
+        }
 
         if (group is not null && tag is not null)
         {
@@ -2424,7 +2451,7 @@ public partial class MainViewModel : ObservableObject
                 // 已被更新的导航或尺寸重载取代。
                 return;
             }
-            catch (Exception ex) when (attempt == 0
+            catch (Exception) when (attempt == 0
                 && _currentIndex >= 0
                 && _currentIndex < _imageFiles.Count
                 && (!string.Equals(_imageFiles[_currentIndex], path, StringComparison.OrdinalIgnoreCase)
@@ -2491,11 +2518,16 @@ public partial class MainViewModel : ObservableObject
         // displayPath：状态行与文件名分段的取值路径。同图改名后 loaded.Path 停留旧路径
         //（复用已解码结果不重建 LoadedImage），显示信息须按新路径计算（2026-09-19 管线修复）。
         var path = displayPath ?? loaded.Path;
-        var fileName = Path.GetFileName(path);
+
+        // 先算文件名分段（2026-09-19 统一口径）：状态行“名称”用剥离标签段的显示名，
+        // 与瀑布流卡片一致；完整名只在 tooltip（CurrentFileFullName）。
+        UpdateFileNameSegments(path);
+        var displayName = CurrentImageDisplayName.Length > 0 ? CurrentImageDisplayName : Path.GetFileName(path);
+
         var sizeText = FormatFileSize(loaded.FileSizeBytes);
         var dimensions = $"{loaded.PixelWidth}x{loaded.PixelHeight}";
         var indexInfo = $"{_currentIndex + 1}/{_imageFiles.Count}";
-        StatusText = $"名称：{fileName} | 大小：{sizeText} | 尺寸：{dimensions} | 序号：{indexInfo}";
+        StatusText = $"名称：{displayName} | 大小：{sizeText} | 尺寸：{dimensions} | 序号：{indexInfo}";
         // 单图详情右栏的结构化信息行（2026-09-19）：独立字段（非拼接串），OneWay 绑定各自刷新；
         // 值为纯文本（行标签「文件大小/像素尺寸/序号」由视图承担）。
         CurrentImageFileSizeText = sizeText;
@@ -2503,13 +2535,13 @@ public partial class MainViewModel : ObservableObject
         CurrentImageIndexText = _imageFiles.Count > 0
             ? $"{_currentIndex + 1} / {_imageFiles.Count}"
             : string.Empty;
-        UpdateFileNameSegments(path);
     }
 
     /// <summary>
-    /// 依据文件名尾部标签段计算三段式显示信息（prefix + 标签段 + suffix），
-    /// 供单图视图完整显示文件名并高亮方括号标签段（Step 7 口径）；
-    /// 同时重建单图详情右栏的当前标签 chips（同一解析结果，分段与 chips 永不分裂）。
+    /// 依据文件名尾部标签段解析显示信息：三段式属性（prefix + 标签段 + suffix，2026-09-19 起仅作
+    /// 解析结果保留）、显示名 <see cref="CurrentImageDisplayName"/>（剥离标签段，单图/瀑布流统一口径）
+    /// 与完整名 <see cref="CurrentFileFullName"/>（tooltip 用）；同时重建右栏当前标签 chips
+    /// （同一解析结果，分段与 chips 永不分裂）。
     /// </summary>
     private void UpdateFileNameSegments(string path)
     {
@@ -2520,6 +2552,8 @@ public partial class MainViewModel : ObservableObject
             FileNamePrefix = baseName + "[";
             FileNameTagSegment = string.Join(" ", tags);
             FileNameSuffix = "]" + extension;
+            // 显示名 = 剥离标签段（2026-09-19 统一口径：与瀑布流卡片一致；完整名进 tooltip）。
+            CurrentImageDisplayName = baseName + extension;
         }
         else
         {
@@ -2527,9 +2561,11 @@ public partial class MainViewModel : ObservableObject
             FileNamePrefix = fileName;
             FileNameTagSegment = string.Empty;
             FileNameSuffix = string.Empty;
+            CurrentImageDisplayName = fileName;
             tags = [];
         }
 
+        CurrentFileFullName = fileName;
         RebuildCurrentImageTags(tags);
     }
 
@@ -2553,6 +2589,8 @@ public partial class MainViewModel : ObservableObject
         FileNamePrefix = string.Empty;
         FileNameTagSegment = string.Empty;
         FileNameSuffix = string.Empty;
+        CurrentImageDisplayName = string.Empty;
+        CurrentFileFullName = string.Empty;
         CurrentImageFileSizeText = string.Empty;
         CurrentImageDimensionsText = string.Empty;
         CurrentImageIndexText = string.Empty;
