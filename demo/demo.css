@@ -154,6 +154,12 @@ select {
 }
 .tag-row:hover { background: var(--row-hover); }
 .tag-row.filter-on { background: var(--row-active); }
+/* 拖拽打标目标行的落下高亮（dragover 期间，对齐 WinUI DropOverlay 方向） */
+.tag-row.drop-on {
+  background: var(--accent-soft);
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
 .row-indent { position: relative; width: 18px; align-self: stretch; flex: none; }
 .tree-line { position: absolute; left: 9px; top: 0; bottom: 0; width: 1px; background: var(--row-line); }
 .tag-row .radio-dot {
@@ -167,20 +173,7 @@ select {
 }
 .tag-row.filter-on .tag-name { color: var(--text); }
 
-/* 单图查看页标签胶囊（.chip 自侧栏树形化后仅用于查看器浮层；固定深色浮底） */
-.chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  border: 1px solid #555; background: rgba(255, 255, 255, .06); color: #ddd;
-  border-radius: 999px; padding: 3px 10px; font-size: 12px;
-  cursor: pointer; user-select: none;
-}
-.chip:hover { background: rgba(255, 255, 255, .14); }
-.chip .radio-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  border: 1.5px solid hsl(var(--hue) 45% 55%); flex: none;
-}
-.chip.on { background: hsl(var(--hue) 60% 50% / .9); color: #fff; border-color: transparent; }
-.chip.on .radio-dot { background: #fff; border-color: #fff; }
+/* 单图查看页标签胶囊样式已由详情右栏的 .tag-chip / .catalog-pop 取代（2026-09-19 交互重构） */
 
 /* ---- 瀑布流 ---- */
 #waterfallWrap { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; padding: 14px; }
@@ -253,14 +246,68 @@ select {
 .viewer-actions { display: flex; gap: 8px; }
 .viewer-actions .ghost-btn { color: #eee; border-color: #555; }
 .viewer-actions .ghost-btn:hover { background: rgba(255,255,255,.08); }
-.viewer-body { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 0 24px; }
-#viewerImg { max-width: 100%; max-height: 100%; border-radius: 6px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
-.viewer-tags {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 14px 20px 18px; max-height: 140px; overflow-y: auto;
+.viewer-body {
+  flex: 1; display: flex; gap: 16px; min-height: 0; padding: 0 24px 16px;
+  align-items: stretch;
 }
-.viewer-tags .group-label {
-  font-size: 11px; color: #999; margin-right: -2px;
+.viewer-stage { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; }
+#viewerImg { max-width: 100%; max-height: 100%; border-radius: 6px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+
+/* 详情右栏（对齐 WinUI 单图右栏方向）：信息结构化行 + 标签管理 */
+.viewer-side {
+  width: 260px; flex: none; display: flex; flex-direction: column; gap: 12px;
+  background: rgba(255, 255, 255, .04); border: 1px solid #444; border-radius: 10px;
+  padding: 14px; color: #ddd; overflow-y: auto;
+}
+.side-head { font-size: 14px; font-weight: 600; color: #eee; }
+.side-info { display: flex; flex-direction: column; gap: 6px; }
+.info-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
+.info-row span { color: #999; flex: none; width: 52px; }
+.info-row b { font-weight: 400; word-break: break-all; }
+.side-tags-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; font-weight: 600; color: #eee;
+}
+.side-tags-head .ghost-btn { color: #ddd; border-color: #555; }
+.side-tags { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.side-tags-empty { font-size: 12px; color: #999; line-height: 1.7; }
+/* 当前图标签 chip（组 hue 淡底 + ✕ 移除） */
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid hsl(var(--hue) 45% 55% / .6);
+  background: hsl(var(--hue) 50% 50% / .12);
+  color: #eee; border-radius: 999px; padding: 3px 9px; font-size: 12px;
+}
+.tag-chip button {
+  border: none; background: none; color: inherit; cursor: pointer;
+  font-size: 11px; opacity: .7; padding: 0;
+}
+.tag-chip button:hover { opacity: 1; }
+
+/* 标签目录选择器（＋ 弹出层：两级行列表，已选行禁点） */
+.catalog-pop {
+  position: absolute; right: 24px; bottom: 24px; width: 300px; max-height: 60vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 12px; z-index: 60; color: var(--text);
+}
+.catalog-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.catalog-list { display: block; }
+.cat-group {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; margin: 8px 0 4px;
+}
+.cat-tag {
+  display: flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 8px; border-radius: 5px; cursor: pointer;
+  font-size: 13px; color: var(--text-2); user-select: none;
+}
+.cat-tag:hover { background: var(--row-hover); }
+.cat-tag.on { color: var(--text); background: var(--row-active); cursor: default; }
+.cat-tag .ct-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-tag .ct-applied { font-size: 11px; color: var(--text-2); flex: none; }
+.cat-tag .radio-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  border: 1.5px solid hsl(var(--hue) 45% 55%); flex: none;
 }
 
 /* ============ 对话框 ============ */

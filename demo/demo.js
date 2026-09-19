@@ -181,7 +181,7 @@ function toggleCollapsed(gid) {
 }
 function tagRowHtml(g, t) {
   const on = state.filters.has(t.id) ? "filter-on" : "";
-  return `<div class="tag-row ${on}" data-tag="${t.id}" title="点击：${state.selection.size ? "批量打标" : "筛选"} · Shift+点击：移除标签">
+  return `<div class="tag-row ${on}" data-tag="${t.id}" title="点击：按该标签筛选（多标签任一命中，再点取消）&#10;拖拽图片到此行：为图片打该标签">
     <span class="row-indent"><i class="tree-line"></i></span>
     ${g.exclusive ? '<span class="radio-dot"></span>' : ""}
     <span class="tag-name">${esc(t.name)}</span>
@@ -199,6 +199,7 @@ function buildCard(im) {
   const card = document.createElement("div");
   card.className = "card" + (state.selection.has(im.id) ? " selected" : "");
   card.dataset.id = im.id;
+  card.draggable = true;
   const hue = hueOf(im.id);
   const th = Math.round(360 * im.h / im.w);
   card.innerHTML = `
@@ -221,6 +222,12 @@ function buildCard(im) {
   };
   card.addEventListener("click", e => onCardClick(im.id, e));
   card.addEventListener("dblclick", () => openViewer(im.id));
+  // 拖拽打标（2026-09-19 交互重构）：选中集内的卡 = 整集，否则仅该卡（不改选中集）
+  card.addEventListener("dragstart", e => {
+    const ids = state.selection.has(im.id) ? [...state.selection] : [im.id];
+    e.dataTransfer.setData("text/sv-cards", JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = "copy";
+  });
   return card;
 }
 function badgesHtml(im) {
@@ -310,8 +317,8 @@ function renderStatus() {
   const hit = filteredImages().length;
   $("#statusLeft").textContent = `已选 ${state.selection.size} 张 · 命中 ${hit} / ${state.discovered} 张`;
   $("#statusHint").textContent = state.selection.size
-    ? "点击左侧标签 = 批量打标 · Shift+点击标签 = 移除标签 · Esc 取消选择"
-    : "单击选择 · Shift 连选 · Ctrl+A 全选 · 双击看大图 · Esc 取消选择";
+    ? "拖拽图片到左侧标签行 = 打标（整集） · Esc 取消选择"
+    : "单击选择 · Shift 连选 · Ctrl+A 全选 · 双击看大图 · 拖到标签行 = 打标 · Esc 取消选择";
 }
 
 function refreshAll() { renderSidebar(); renderWaterfallAll(); renderFilterBar(); renderStatus(); saveState(); }
@@ -341,19 +348,16 @@ function syncSelectionClass() {
   for (const [id, el] of cardEls) el.classList.toggle("selected", state.selection.has(id));
 }
 
-/* ---- 标签点击：打标 / 移除 / 筛选 ---- */
-function onChipClick(tagId, e) {
-  const info = tagIdInfo(tagId); if (!info) return;
-  const { group, tag } = info;
-  if (state.selection.size && e.shiftKey) { removeTagFromSelection(tag); return; }
-  if (state.selection.size) { applyTagToSelection(group, tag); return; }
+/* ---- 标签点击：一律筛选（2026-09-19 交互重构：打标走拖拽/详情右栏） ---- */
+function onChipClick(tagId) {
   state.filters.has(tagId) ? state.filters.delete(tagId) : state.filters.add(tagId);
   refreshAll();
 }
 
-function applyTagToSelection(group, tag) {
+/* ---- 拖拽打标（drop 目标在侧栏标签行，事件委托见 groupList） ---- */
+function applyTagToIds(ids, group, tag) {
   let changed = 0;
-  for (const id of state.selection) {
+  for (const id of ids) {
     const im = state.images.find(x => x.id === id); if (!im) continue;
     const before = im.tags.join(",");
     if (group.exclusive) {
@@ -366,18 +370,6 @@ function applyTagToSelection(group, tag) {
     if (im.tags.join(",") !== before) { changed++; updateCard(im); }
   }
   showToast(`已为 ${changed} 张图片${group.exclusive ? "设置" : "添加"}「${tag.name}」${group.exclusive ? "（互斥组：同组旧标签已替换）" : ""}`);
-  refreshLight();
-}
-function removeTagFromSelection(tag) {
-  let changed = 0;
-  for (const id of state.selection) {
-    const im = state.images.find(x => x.id === id); if (!im) continue;
-    if (im.tags.includes(tag.id)) {
-      im.tags = im.tags.filter(t => t !== tag.id);
-      changed++; updateCard(im);
-    }
-  }
-  showToast(`已从 ${changed} 张图片移除「${tag.name}」`);
   refreshLight();
 }
 
@@ -403,7 +395,29 @@ $("#groupList").addEventListener("click", async e => {
     return;
   }
   const row = e.target.closest(".tag-row");
-  if (row) onChipClick(row.dataset.tag, e);
+  if (row) onChipClick(row.dataset.tag);
+});
+
+/* 拖拽卡片 → 标签行：dragover 高亮（drop-on），drop 按拖拽 payload（整集/单卡）打标 */
+$("#groupList").addEventListener("dragover", e => {
+  const row = e.target.closest(".tag-row"); if (!row) return;
+  if (!e.dataTransfer.types.includes("text/sv-cards")) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+  row.classList.add("drop-on");
+});
+$("#groupList").addEventListener("dragleave", e => {
+  const row = e.target.closest(".tag-row");
+  if (row) row.classList.remove("drop-on");
+});
+$("#groupList").addEventListener("drop", e => {
+  const row = e.target.closest(".tag-row"); if (!row) return;
+  e.preventDefault();
+  row.classList.remove("drop-on");
+  const raw = e.dataTransfer.getData("text/sv-cards");
+  if (!raw) return;
+  const info = tagIdInfo(row.dataset.tag); if (!info) return;
+  applyTagToIds(JSON.parse(raw), info.group, info.tag);
 });
 
 /* ---- 标签/组管理动作 ---- */
@@ -492,14 +506,19 @@ $("#addGroupBtn").addEventListener("click", async () => {
 });
 
 /* =========================================================
- * 单图查看
+ * 单图查看（2026-09-19 交互重构：详情右栏 = 信息 + 标签管理）
  * ========================================================= */
 let viewerIdx = -1;
+function fmtSize(bytes) {
+  const kb = bytes / 1024;
+  return kb > 1024 ? (kb / 1024).toFixed(2) + " MB" : kb.toFixed(2) + " KB";
+}
 function openViewer(id) {
   const list = filteredImages();
   viewerIdx = list.findIndex(im => im.id === id);
   if (viewerIdx < 0) return;
   $("#viewerOverlay").classList.remove("hidden");
+  catalogEl.classList.add("hidden");
   renderViewer();
 }
 function renderViewer() {
@@ -513,27 +532,71 @@ function renderViewer() {
     : esc(full);
   $("#viewerPath").textContent = `D:\\Pics\\${im.folder}\\${full}`;
   $("#viewerImg").src = `https://picsum.photos/seed/${im.id}/1400/${Math.round(1400 * im.h / im.w)}`;
-  const box = $("#viewerTags");
-  box.innerHTML = state.groups.map(g => `
-    <span class="group-label">${esc(g.name)}</span>
-    ${g.tags.map(t => `<span class="chip ${im.tags.includes(t.id) ? "on" : ""}" style="--hue:${g.hue}" data-vg="${g.id}" data-vt="${t.id}">
-      ${g.exclusive ? '<span class="radio-dot"></span>' : ""}${esc(t.name)}</span>`).join("")}
-    <span style="flex-basis:100%;height:0"></span>`).join("");
+  // 详情右栏：结构化信息行（文件名与顶部一致；大小为演示模拟值，一次性生成）
+  im.size ??= Math.round(3e5 + Math.random() * 8e6);
+  $("#sideName").textContent = full;
+  $("#sideSize").textContent = fmtSize(im.size);
+  $("#sideDims").textContent = `${im.w} × ${im.h}`;
+  $("#sideIndex").textContent = `${viewerIdx + 1} / ${list.length}`;
+  renderSideTags(im);
 }
-$("#viewerTags").addEventListener("click", e => {
-  const chip = e.target.closest("[data-vt]"); if (!chip) return;
-  const list = filteredImages(); const im = list[viewerIdx]; if (!im) return;
-  const g = state.groups.find(x => x.id === chip.dataset.vg);
-  const t = g?.tags.find(x => x.id === chip.dataset.vt); if (!t) return;
-  if (im.tags.includes(t.id)) {
-    im.tags = im.tags.filter(x => x !== t.id);
-  } else {
-    if (g.exclusive) im.tags = im.tags.filter(x => !g.tags.some(gt => gt.id === x));
-    im.tags.push(t.id);
+/* 右栏标签 chips：当前图标签集合（✕ 移除）＋ 空态引导 */
+function renderSideTags(im) {
+  const chips = [];
+  for (const id of im.tags) {
+    const info = tagIdInfo(id); if (!info) continue;
+    chips.push(`<span class="tag-chip" style="--hue:${info.group.hue}">
+      ${esc(info.tag.name)}<button data-vremove="${id}" title="移除该标签">✕</button></span>`);
   }
-  updateCard(im);
-  renderViewer();
-  refreshLight();
+  $("#sideTags").innerHTML = chips.length
+    ? chips.join("")
+    : `<span class="side-tags-empty">无标签——点击「＋」从标签目录添加</span>`;
+}
+/* chip ✕ 移除：当前图移除该标签（对齐 WinUI 单图 toggle 管线的移除方向） */
+$("#sideTags").addEventListener("click", e => {
+  const btn = e.target.closest("[data-vremove]");
+  if (!btn) return;
+  const list = filteredImages(); const im = list[viewerIdx]; if (!im) return;
+  im.tags = im.tags.filter(x => x !== btn.dataset.vremove);
+  updateCard(im); renderViewer(); refreshLight();
+});
+
+/* ＋ 标签目录选择器（两级行列表：组行不可点，标签行可点；已选禁点） */
+const catalogEl = $("#tagCatalog");
+function renderCatalog() {
+  const list = filteredImages(); const im = list[viewerIdx];
+  $("#catalogList").innerHTML = state.groups.map(g => `
+    <div class="cat-group">${esc(g.name)}
+      <span class="group-badge ${g.exclusive ? "excl" : "multi"}">${g.exclusive ? "互斥" : "兼容"}</span>
+    </div>
+    ${g.tags.map(t => {
+      const on = im && im.tags.includes(t.id);
+      return `<div class="cat-tag ${on ? "on" : ""}" data-cg="${g.id}" data-ct="${t.id}" style="--hue:${g.hue}"
+        title="${on ? "已含该标签" : "点击为当前图片打该标签"}">
+        ${g.exclusive ? '<span class="radio-dot"></span>' : ""}<span class="ct-name">${esc(t.name)}</span>${on ? '<span class="ct-applied">✓ 已有</span>' : ""}
+      </div>`;
+    }).join("")}`).join("");
+}
+$("#addTagBtn").addEventListener("click", e => {
+  e.stopPropagation();
+  if (catalogEl.classList.contains("hidden")) renderCatalog();
+  catalogEl.classList.toggle("hidden");
+});
+document.addEventListener("click", e => {
+  if (!catalogEl.classList.contains("hidden") && !e.target.closest("#tagCatalog") && !e.target.closest("#addTagBtn")) {
+    catalogEl.classList.add("hidden");
+  }
+});
+$("#catalogList").addEventListener("click", e => {
+  const row = e.target.closest(".cat-tag");
+  if (!row || row.classList.contains("on")) return;
+  const list = filteredImages(); const im = list[viewerIdx]; if (!im) return;
+  const g = state.groups.find(x => x.id === row.dataset.cg);
+  const t = g?.tags.find(x => x.id === row.dataset.ct); if (!t) return;
+  if (g.exclusive) im.tags = im.tags.filter(x => !g.tags.some(gt => gt.id === x));
+  im.tags.push(t.id);
+  catalogEl.classList.add("hidden");
+  updateCard(im); renderViewer(); refreshLight();
 });
 function viewerStep(d) {
   const list = filteredImages();
@@ -543,7 +606,10 @@ function viewerStep(d) {
 $("#viewerPrev").addEventListener("click", () => viewerStep(-1));
 $("#viewerNext").addEventListener("click", () => viewerStep(1));
 $("#viewerClose").addEventListener("click", closeViewer);
-function closeViewer() { $("#viewerOverlay").classList.add("hidden"); }
+function closeViewer() {
+  $("#viewerOverlay").classList.add("hidden");
+  catalogEl.classList.add("hidden");
+}
 $("#viewerDelete").addEventListener("click", () => {
   const list = filteredImages(); const im = list[viewerIdx]; if (!im) return;
   state.images = state.images.filter(x => x.id !== im.id);
