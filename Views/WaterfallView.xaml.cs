@@ -16,8 +16,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using SimpleViewer.ViewModels;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 
 namespace SimpleViewer.Views;
 
@@ -135,8 +137,15 @@ public sealed partial class WaterfallView : UserControl
     /// <summary>
     /// 卡片拖拽启动（2026-09-19 拖拽打标）：Tag 槽位回查卡片 VM → MainViewModel.BeginCardDrag 取路径集
     /// （选中集内 = 整集，否则仅该卡；不改选中集）→ DataPackage 写自定义格式标记（值为计数文本）+
-    /// AllowedOperations=Copy。注：WinUI 3 的 DragStartingEventArgs 无 UWP 的 DragUIOverride/AcceptedOperation
-    /// 成员（仅 AllowedOperations/Data/DragUI/Cancel），故不设自定义拖拽标题——系统默认渲染被拖卡片快照。
+    /// AllowedOperations=Copy。
+    /// 拖拽跟随视觉（2026-09-19 拖拽视觉）：WinAppSDK 1.6 的 DragStartingEventArgs.DragUI 实际提供
+    /// SetContentFromSoftwareBitmap/SetContentFromBitmapImage/SetContentFromDataPackage
+    /// （另有 GetDeferral/GetPosition 可用；此前“仅 AllowedOperations/Data/DragUI/Cancel、无法定制”
+    /// 的结论有误，特此纠正——DragUIOverride/AcceptedOperation 确实不在 DragStartingEventArgs 上，
+    /// 那两者属于目标侧 DragEventArgs）。据此定制跟随视觉：优先用加载路径预生成的 ~120px 短边小位图
+    /// （常规体验：小缩略图随鼠标），无小位图回退整张缩略图 BitmapImage（bucket 360+ 偏大但仍优于
+    /// 整卡快照），两者皆无才落系统默认（被拖元素整体快照）。同步禁用 GetDeferral 异步生成——
+    /// 拖拽启动须即时，异步等待会拖慢入场。多选计数 caption 由目标侧 TagSidebarControl.DragOver 设置。
     /// 拖拽与 Tapped/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响。
     /// </summary>
     private void OnCardDragStarting(object sender, DragStartingEventArgs e)
@@ -156,6 +165,20 @@ public sealed partial class WaterfallView : UserControl
 
         e.Data.SetData(CardDragFormat, paths.Count.ToString());
         e.AllowedOperations = DataPackageOperation.Copy;
+
+        // 拖拽跟随视觉（优先级：预生成小位图 > 缩略图 BitmapImage > 系统默认整卡快照）。
+        if (cardVm.DragVisual is { PixelWidth: > 0, PixelHeight: > 0 } visual)
+        {
+            // anchorPoint 语义 = 小图视觉上与鼠标指针对齐的点，取中心使指针居中于缩略图。
+            e.DragUI.SetContentFromSoftwareBitmap(
+                visual,
+                new Point(visual.PixelWidth / 2.0, visual.PixelHeight / 2.0));
+        }
+        else if (cardVm.Thumbnail is BitmapImage fallback && fallback.PixelWidth > 0)
+        {
+            // 回退：直接用缩略图源（DragUI 渲染位图不缩放，bucket 360+ 显示偏大，但仍优于整卡快照）。
+            e.DragUI.SetContentFromBitmapImage(fallback);
+        }
     }
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)

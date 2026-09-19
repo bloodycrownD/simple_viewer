@@ -1,6 +1,8 @@
-﻿// 职责：瀑布流卡片项视图模型——显示名（剥离标签段）/标签角标/缩略图槽位/选中态与卡片交互。
+﻿// 职责：瀑布流卡片项视图模型——显示名（剥离标签段）/标签角标/缩略图槽位/选中态与卡片交互；
+//       缩略图加载成功后顺带预生成拖拽跟随小图（~120px 短边 SoftwareBitmap，失败静默降级）。
 // 不变量：缩略图按需加载（ElementPrepared 触发、ElementClearing 取消；禁止一次性为全部项加载）；
 //         JPEG 字节经 MemoryStream → BitmapImage 在 UI 线程桥接（ThumbnailResult.ImageBytes 契约）；
+//         拖拽小图生成置于 UiApplyGate 闸门段之后（不阻塞缩略图 UI 应用）；
 //         解码/读盘失败保持浅色占位不抛出；打标重命名后就地 UpdateFrom 更新（不重建、不重排，D15）。
 // 调用链：WaterfallViewModel（创建/更新）→ WaterfallView DataTemplate（x:Bind）→ BeginLoadThumbnail → ThumbnailService。
 
@@ -9,10 +11,12 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using SimpleViewer.Helpers;
 using SimpleViewer.Models;
 using SimpleViewer.Services;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
+using Windows.Graphics.Imaging;
 
 namespace SimpleViewer.ViewModels;
 
@@ -60,6 +64,19 @@ public partial class GalleryItemViewModel : ObservableObject
     /// <summary>选中态（选中集状态在 MainViewModel，本属性由其驱动）。</summary>
     [ObservableProperty]
     private bool _isSelected;
+
+    /// <summary>拖拽跟随小图的短边目标像素（2026-09-19 拖拽视觉：~120px 小缩略图随鼠标，替代整卡快照）。</summary>
+    private const int DragVisualShortSide = 120;
+
+    /// <summary>
+    /// 拖拽跟随小图（LoadThumbnailAsync 成功后由缩略图 JPEG 字节降采样预生成，短边约 120px）。
+    /// null = 未生成/加载未完成/生成失败——WaterfallView.OnCardDragStarting 走回退链
+    /// （Thumbnail BitmapImage → 系统默认整卡快照）。仅 UI 线程读写（加载续体与 DragStarting 均在 UI 线程）。
+    /// </summary>
+    private SoftwareBitmap? _dragVisual;
+
+    /// <summary>拖拽跟随小图的只读访问（WaterfallView.OnCardDragStarting 消费；null = 走回退链）。</summary>
+    internal SoftwareBitmap? DragVisual => _dragVisual;
 
     /// <summary>未映射到配置组的标签角标色相（灰蓝 200，视觉对齐 demo 未分组语义）。</summary>
     private const int UngroupedBadgeHue = 200;
@@ -239,6 +256,12 @@ public partial class GalleryItemViewModel : ObservableObject
             {
                 UiApplyGate.Release();
             }
+
+            // 拖拽小图预生成（2026-09-19 拖拽视觉）：置于缩略图 UI 应用段（闸门）之后——不占 UiApplyGate、
+            // 不阻塞其它缩略图的串行应用；await 期间 UI 线程让出，真正的像素解码在 WIC 线程池。
+            // 失败/取消由工具方法内部静默降级（返回 null，DragStarting 走回退链），主链路不受影响。
+            _dragVisual = await ImageSourceHelper.TryCreateDragVisualAsync(
+                result.ImageBytes, DragVisualShortSide, cancellationToken);
         }
         catch (OperationCanceledException)
         {
