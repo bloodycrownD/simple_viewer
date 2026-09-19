@@ -1,6 +1,7 @@
-// Responsibility: Settings page code-behind — folder picker, key capture, save/cancel actions.
-// Invariants: Key capture only while IsRecordingKey; Save validates before closing host dialog.
-// Call chain: MainWindow ContentDialog → SettingsPage → SettingsViewModel → SettingsService.
+// 职责：设置页交互代码——文件夹选择器、按键捕获、保存/取消动作。
+// 不变量：仅在 IsRecordingKey 期间捕获按键；保存（TrySave）校验失败时阻止关闭宿主对话框
+//         （含 ApplyTag 缺标签参数/引用不存在标签的中文提示）。
+// 调用链：MainWindow ContentDialog → SettingsPage → SettingsViewModel → SettingsService。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,19 +33,19 @@ public sealed partial class SettingsPage : UserControl
             return;
         }
 
-        var control = IsModifierDown(VirtualKey.Control, e);
-        var shift = IsModifierDown(VirtualKey.Shift, e);
-        var menu = IsModifierDown(VirtualKey.Menu, e);
+        var control = IsModifierDown(VirtualKey.Control);
+        var shift = IsModifierDown(VirtualKey.Shift);
+        var menu = IsModifierDown(VirtualKey.Menu);
 
         ViewModel.RecordKey(e.Key.ToString(), control, shift, menu);
         e.Handled = true;
     }
 
-    private static bool IsModifierDown(VirtualKey modifier, KeyRoutedEventArgs e)
+    private static bool IsModifierDown(VirtualKey modifier)
     {
+        // 只判 Down：Locked 位对修饰键无意义，中文 IME 切中英文会置位（曾致快捷键录制误判 Shift）。
         var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(modifier);
-        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
-            || state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Locked);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     private async void OnPickFolderClick(object sender, RoutedEventArgs e)

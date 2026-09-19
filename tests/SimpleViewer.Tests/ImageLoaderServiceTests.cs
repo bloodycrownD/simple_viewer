@@ -43,4 +43,45 @@ public class ImageLoaderServiceTests
         Assert.Equal(first.PixelWidth, second.PixelWidth);
         Assert.Equal(first.PixelHeight, second.PixelHeight);
     }
+
+    [Fact]
+    public async Task MigrateCache_NewPathHitsWithoutRedecode()
+    {
+        // 同图改名（打标重命名）缓存迁移：旧键条目迁到新键，新路径命中共享同一份解码像素，
+        // 不重走磁盘与 WIC 解码；旧路径条目移除（容量不白占）。
+        using var temp = new TempDirectory();
+        var sourcePath = Path.Combine(temp.Path, "sample.png");
+        File.Copy(TestImagePath, sourcePath);
+
+        var service = new ImageLoaderService();
+        var first = await service.LoadAsync(sourcePath, decodeSize: 64);
+
+        var renamedPath = Path.Combine(temp.Path, "sample[tag].png");
+        File.Move(sourcePath, renamedPath); // 模拟打标改名落盘
+        service.MigrateCache(sourcePath, renamedPath);
+
+        var migrated = await service.LoadAsync(renamedPath, decodeSize: 64);
+
+        // 命中迁移条目：解码像素数组共享引用（未重解码），元数据挂到新路径。
+        Assert.Same(first.DecodedPixelData, migrated.DecodedPixelData);
+        Assert.Equal(renamedPath, migrated.Path);
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sv-tests-" + Guid.NewGuid().ToString("N"));
+
+        public TempDirectory()
+        {
+            Directory.CreateDirectory(Path);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+    }
 }

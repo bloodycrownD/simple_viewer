@@ -1,12 +1,190 @@
-<Application
+﻿<Application
     x:Class="SimpleViewer.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- 职责：全局视觉样式（视觉对齐 demo）——Ghost 按钮（透明底 hover 浅底）、
+              标签树行按钮（组行/标签行：透明底 + hover 浅叠加 + 激活行浅灰高亮分层叠加）。
+              约束：模板仅 Border/Grid/ContentPresenter + VisualStateManager，不使用字体图标
+              （FontIcon/SymbolIcon/Glyph 一律不用），不含 U+00AB/U+00BB 与 PUA 字形（XamlCompiler 规避）。 -->
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- ghost 按钮（demo .ghost-btn）：透明底 + hover 主题浅底；文字按钮通用 -->
+            <Style x:Key="GhostButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Padding" Value="10,5" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border
+                                x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="Transparent" />
+                                                <Setter Target="Content.Opacity" Value="0.4" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- ghost 图标位小按钮（demo .icon-btn）：透明底 hover 浅底，次要色符号字符（＋⇄✎✕） -->
+            <Style
+                x:Key="GhostIconButtonStyle"
+                BasedOn="{StaticResource GhostButtonStyle}"
+                TargetType="Button">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Padding" Value="5,2" />
+                <Setter Property="CornerRadius" Value="4" />
+            </Style>
+
+            <!-- 标签组组头按钮（目录树父行）：整行透明底承载展开/折叠，hover/pressed 主题浅叠加；
+                 内容 Stretch 占满整行扩大点击区、行高约 36px（树行观感）；内嵌管理按钮（＋⇄✎✕）为独立
+                 Button——WinUI 嵌套 Button 点击各自直达不冒泡，点管理按钮不触发展开切换 -->
+            <Style x:Key="GroupHeaderButtonStyle" TargetType="Button">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="6,0" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border
+                                x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="Root.Background" Value="Transparent" />
+                                                <Setter Target="Content.Opacity" Value="0.4" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- 标签树行按钮（目录树子行，demo .tag-row）：底色 = 激活高亮（x:Bind 数据绑定提供，
+                 普通行透明）；hover/pressed 经独立叠加层（HoverOverlay）加深——分层叠加保证激活行悬停时
+                 高亮不丢失；DropOverlay 为拖拽打标目标的落下高亮层（默认透明零边框，code-behind 在
+                 DragOver/DragLeave/Drop 切换颜色与边框，TagSidebarControl 视觉树按名回查）；
+                 内容 Stretch 占满整行、行高约 34px，计数右对齐依赖整行拉伸 -->
+            <Style x:Key="TagTreeRowButtonStyle" TargetType="Button">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="MinHeight" Value="34" />
+                <Setter Property="Padding" Value="6,0,6,0" />
+                <Setter Property="CornerRadius" Value="5" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="HoverOverlay.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="HoverOverlay.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="Content.Opacity" Value="0.4" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border
+                                    x:Name="ActiveBackground"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="{TemplateBinding CornerRadius}" />
+                                <Border
+                                    x:Name="HoverOverlay"
+                                    Background="Transparent"
+                                    CornerRadius="{TemplateBinding CornerRadius}" />
+                                <Border
+                                    x:Name="DropOverlay"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="{TemplateBinding CornerRadius}" />
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    Margin="{TemplateBinding Padding}"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

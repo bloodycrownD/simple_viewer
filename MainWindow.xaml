@@ -1,89 +1,359 @@
-<Window
+﻿<Window
     x:Class="SimpleViewer.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SimpleViewer.ViewModels"
+    xmlns:views="using:SimpleViewer.Views">
+    <!-- 职责：主窗口壳（D14 双模式；2026-09-19 遮盖式布局重排）——画布层（最底、整窗恒定几何，
+         承载单图 SingleImageView）+ chrome 遮盖层（工具栏 / 批量打标进度回执区 D13 InfoBar + ProgressBar /
+         左栏 + 图库区）。遮盖语义：收展侧栏/右栏只改变遮盖范围、画布几何不变——
+         图片位置不动、也不触发重解码（修“收展图片位移 + 首次闪”两问题；口径见 docs\apm\RULE.md 铁律②）。
+         图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。
+         底部状态栏已整体移除（2026-09-19 用户实测反馈）：单图信息由右栏结构化行承载，
+         操作回执统一走 InfoBar（成功静默、失败弹出）。 -->
 
     <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown" SizeChanged="OnRootGridSizeChanged">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <CommandBar
-            Grid.Row="0"
-            DefaultLabelPosition="Right"
-            IsOpen="False">
-            <AppBarButton
-                Command="{x:Bind ViewModel.OpenFilePickerCommand}"
-                Icon="OpenFile"
-                Label="Open" />
-            <AppBarButton
-                Command="{x:Bind ViewModel.PrevCommand}"
-                Icon="Back"
-                Label="Prev" />
-            <AppBarButton
-                Command="{x:Bind ViewModel.NextCommand}"
-                Icon="Forward"
-                Label="Next" />
-            <AppBarSeparator />
-            <AppBarButton
-                Command="{x:Bind ViewModel.RotateLeftCommand}"
-                Icon="Rotate"
-                Label="Rotate L" />
-            <AppBarButton
-                Command="{x:Bind ViewModel.RotateRightCommand}"
-                Icon="Rotate"
-                Label="Rotate R" />
-            <AppBarSeparator />
-            <AppBarButton
-                Command="{x:Bind ViewModel.DeleteCommand}"
-                Icon="Delete"
-                Label="Delete" />
-            <AppBarButton
-                Command="{x:Bind ViewModel.OpenSettingsCommand}"
-                Icon="Setting"
-                Label="Settings" />
-            <AppBarButton
-                Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
-                Icon="View"
-                Label="Fullscreen" />
-        </CommandBar>
-
-        <Grid Grid.Row="1" Padding="8">
-            <Image
-                x:Name="ViewerImage"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                RenderTransformOrigin="0.5,0.5"
-                Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
-                Stretch="Uniform"
-                Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
-                <Image.RenderTransform>
-                    <RotateTransform Angle="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
-                </Image.RenderTransform>
-            </Image>
-
-            <TextBlock
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                FontSize="16"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Open an image to begin"
-                Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
+        <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大保持画布层置底——
+             放大溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。 -->
+        <Grid x:Name="CanvasLayer" Canvas.ZIndex="0">
+            <ContentControl
+                x:Name="SingleImageHost"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Visibility="{x:Bind ViewModel.SingleVisibility, Mode=OneWay}" />
         </Grid>
 
+        <!-- chrome 遮盖层（恒 ZIndex=1）：本层与其内 MainAreaGrid/ContentAreaGrid 均为无 Background 的
+             Grid（不吞指针）——未遮区域指针穿透到画布，单图手势正常（命中测试约束，勿补 Background）。 -->
+        <Grid x:Name="ChromeLayer" Canvas.ZIndex="1">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 工具栏（2026-09-19 左对齐重做：原 CommandBar 主命令默认右对齐，左上留出大块空白
+             观感怪——换成左对齐横向文本按钮行，命令绑定照搬；分隔线用 1px 竖 Rectangle。
+             图标一律 BMP 文本字符（不用 FontIcon/SymbolIcon 的 PUA 字形，RULE）。窄窗口横向可滚。 -->
         <Border
-            Grid.Row="2"
-            Padding="12,8"
-            Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <TextBlock
-                FontSize="12"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                IsTextSelectionEnabled="True"
-                Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                TextTrimming="CharacterEllipsis"
-                TextWrapping="NoWrap" />
+            x:Name="ToolBarRow"
+            Grid.Row="0"
+            Padding="8,4"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1">
+            <ScrollViewer
+                HorizontalScrollBarVisibility="Hidden"
+                HorizontalScrollMode="Auto"
+                VerticalScrollBarVisibility="Disabled"
+                VerticalScrollMode="Disabled">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button
+                        Command="{x:Bind ViewModel.OpenFilePickerCommand}"
+                        Content="打开"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.OpenLibraryCommand}"
+                        Content="打开图库"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.BackToGalleryCommand}"
+                        Content="返回图库"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Rectangle
+                        Width="1"
+                        Height="16"
+                        Margin="6,0"
+                        VerticalAlignment="Center"
+                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <Button
+                        Command="{x:Bind ViewModel.PrevCommand}"
+                        Content="上一张"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.NextCommand}"
+                        Content="下一张"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Rectangle
+                        Width="1"
+                        Height="16"
+                        Margin="6,0"
+                        VerticalAlignment="Center"
+                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <Button
+                        Command="{x:Bind ViewModel.RotateLeftCommand}"
+                        Content="左旋"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.RotateRightCommand}"
+                        Content="右旋"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Rectangle
+                        Width="1"
+                        Height="16"
+                        Margin="6,0"
+                        VerticalAlignment="Center"
+                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <Button
+                        Command="{x:Bind ViewModel.DeleteCommand}"
+                        Content="删除"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.OpenSettingsCommand}"
+                        Content="设置"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <!-- 主题三态循环（深色默认/浅色/跟随系统），demo 深色优先的观感由此保证；
+                         Content 由 ApplyTheme 按 当前态 写（如"主题：深色"） -->
+                    <Button
+                        x:Name="ThemeButton"
+                        Click="OnThemeButtonClick"
+                        Content="主题"
+                        Style="{StaticResource GhostButtonStyle}" />
+                    <Button
+                        Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
+                        Content="全屏"
+                        Style="{StaticResource GhostButtonStyle}" />
+                </StackPanel>
+            </ScrollViewer>
         </Border>
+
+        <Grid x:Name="MainAreaGrid" Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左栏展开态：标签栏（Step 9 TagSidebarControl，code-behind 宿主注入，随折叠开关显隐） -->
+            <Border
+                Grid.Column="0"
+                Width="280"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,1,0"
+                Visibility="{x:Bind ViewModel.SidebarExpandedVisibility, Mode=OneWay}">
+                <!-- 注：WinUI 3 无 DockPanel（布局一律 Grid）；图标用文本字符，
+                     且不用 U+00AB/U+00BB 与 FontIcon/SymbolIcon 的 PUA 字形（U+E7xx）——
+                     这些码点会使 WinAppSDK 1.6.240923002 的 XamlCompiler 沉默崩溃（退出码 1 无输出），CJK 字符安全 -->
+                <ContentControl
+                    x:Name="TagSidebarHost"
+                    HorizontalContentAlignment="Stretch"
+                    VerticalContentAlignment="Stretch" />
+            </Border>
+
+            <!-- 左栏折叠态：窄条仅保留展开按钮（▶ 指向展开方向；BMP 文本字符） -->
+            <Border
+                Grid.Column="0"
+                Width="36"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,1,0"
+                Visibility="{x:Bind ViewModel.SidebarCollapsedVisibility, Mode=OneWay}">
+                <Button
+                    Margin="0,8,0,0"
+                    Padding="6,6"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Command="{x:Bind ViewModel.ToggleSidebarCommand}"
+                    Content="▶"
+                    FontSize="13"
+                    Style="{StaticResource GhostIconButtonStyle}"
+                    ToolTipService.ToolTip="展开标签栏" />
+            </Border>
+
+            <!-- 内容区（遮盖式布局后仅承载图库视图；单图已移至画布层 CanvasLayer）。
+                 放大置底（2026-09-19 用户拍板）：画布层恒置底，放大图片溢出被
+                 左栏/工具栏等 chrome 遮盖属预期，不再整体提层。 -->
+            <Grid x:Name="ContentAreaGrid" Grid.Column="1">
+                <Grid Visibility="{x:Bind ViewModel.GalleryVisibility, Mode=OneWay}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 图库状态行：扫描进度/共 N 张/已选 N 张（筛选命中数在筛选条显示）。
+                         「清除选择」按钮已移除（2026-09-19 用户权衡：Esc/点击空白即清空，
+                         常显禁用按钮属冗余视觉噪音；对照 29e3949 引入侧回退）。 -->
+                    <Border
+                        Grid.Row="0"
+                        Padding="16,6"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="0,0,0,1">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.GalleryStatusText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
+                    </Border>
+
+                    <!-- 筛选条（Step 11，视觉对齐 demo #filterBar）：强调色 12% 透明底一行；
+                         OR 徽章 = 虚线描边胶囊；筛选 chip = 「组名：标签名」胶囊（组 hue 描边 + 淡底）+ ✕ 单删；
+                         右侧命中统计 + 一键清空；任一筛选激活时显示 -->
+                    <Border
+                        Grid.Row="1"
+                        Padding="16,8"
+                        Background="{x:Bind views:TagSidebarConverters.FilterBarBackground()}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="0,0,0,1"
+                        Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 左侧：OR 虚线徽章 + chip 列表（横向滚动） -->
+                            <ScrollViewer
+                                Grid.Column="0"
+                                HorizontalScrollBarVisibility="Hidden"
+                                HorizontalScrollMode="Auto"
+                                VerticalScrollBarVisibility="Disabled"
+                                VerticalScrollMode="Disabled">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <!-- OR 徽章：Border 不支持虚线描边，用 Rectangle StrokeDashArray 实现 -->
+                                    <Grid
+                                        Padding="10,2"
+                                        VerticalAlignment="Center"
+                                        Visibility="{x:Bind ViewModel.OrBadgeVisibility, Mode=OneWay}">
+                                        <Rectangle
+                                            RadiusX="11"
+                                            RadiusY="11"
+                                            Stretch="Fill"
+                                            Stroke="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            StrokeDashArray="4 2"
+                                            StrokeThickness="1" />
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="任一命中（OR）" />
+                                    </Grid>
+                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.FilterChips, Mode=OneWay}">
+                                        <ItemsRepeater.Layout>
+                                            <StackLayout Orientation="Horizontal" Spacing="6" />
+                                        </ItemsRepeater.Layout>
+                                        <ItemsRepeater.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:FilterChipViewModel">
+                                                <Border
+                                                    Padding="10,2"
+                                                    VerticalAlignment="Center"
+                                                    Background="{x:Bind views:TagSidebarConverters.FilterChipBackground(GroupName)}"
+                                                    BorderBrush="{x:Bind views:TagSidebarConverters.FilterChipBorderBrush(GroupName)}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="999">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="12"
+                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(GroupName)}"
+                                                            Text="{x:Bind views:TagSidebarConverters.FilterChipText(GroupName, TagName)}" />
+                                                        <Button
+                                                            Padding="3,0"
+                                                            Command="{x:Bind RemoveFilterCommand}"
+                                                            Content="✕"
+                                                            FontSize="12"
+                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(GroupName)}"
+                                                            Style="{StaticResource GhostIconButtonStyle}"
+                                                            ToolTipService.ToolTip="取消该筛选" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsRepeater.ItemTemplate>
+                                    </ItemsRepeater>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- 右侧：命中统计（demo .filter-right；「清空筛选」按钮已移除——
+                                 untagged-filter-entry 拍板：取消筛选路径 = 二次点击标签 / chip ✕ /
+                                 无标签按钮二次点击） -->
+                            <StackPanel
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind ViewModel.FilterStatsText, Mode=OneWay}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 瀑布流本体（code-behind 构造注入，沿用 SingleImageHost 宿主惯例） -->
+                    <ContentControl
+                        x:Name="WaterfallHost"
+                        Grid.Row="2"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" />
+
+                    <!-- 首次启动空态引导（未打开图库且未在扫描） -->
+                    <StackPanel
+                        Grid.Row="0"
+                        Grid.RowSpan="3"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="8"
+                        Visibility="{x:Bind ViewModel.GalleryHintVisibility, Mode=OneWay}">
+                        <TextBlock
+                            FontSize="14"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.ScanStatusText, Mode=OneWay}"
+                            TextAlignment="Center"
+                            Visibility="{x:Bind ViewModel.ScanStatusVisibility, Mode=OneWay}" />
+                        <TextBlock
+                            FontSize="16"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="点击工具栏「打开图库」选择图片根目录开始"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- 批量打标进度/回执区（D13：主窗口内嵌 InfoBar，非 ContentDialog）：
+             批量进行中显示 ProgressBar 分批推进；成功一律静默不弹（2026-09-19 拍板——就地反馈已充分，
+             仅失败/警告弹终态回执，失败明细可滚动展开）；用户关闭经 TwoWay 写回 VM（下次操作重新打开）。
+             位置注意（XamlCompiler bug 规避）：本块须位于 MainAreaGrid 之后——状态栏移除后若 MainAreaGrid
+             成为 ChromeLayer 最后一个子元素，WinAppSDK 1.6.240923002 的 XamlCompiler Pass1 会沉默崩溃
+             （退出码 1 无输出，MSB3073）；Grid 布局按 Grid.Row 定位，子元素顺序不影响布局，仅 z 序叠加
+             （InfoBar 在 Row1、MainAreaGrid 在 Row2，互不重叠，无视觉差异）。 -->
+        <InfoBar
+            x:Name="MainInfoBar"
+            Grid.Row="1"
+            Margin="12,4"
+            IsClosable="True"
+            IsOpen="{x:Bind ViewModel.IsTagFeedbackOpen, Mode=TwoWay}"
+            Message="{x:Bind ViewModel.TagFeedbackMessage, Mode=OneWay}"
+            Severity="{x:Bind ViewModel.TagFeedbackSeverity, Mode=OneWay}"
+            Title="{x:Bind ViewModel.TagFeedbackTitle, Mode=OneWay}">
+            <StackPanel Spacing="4">
+                <ProgressBar
+                    Height="4"
+                    Maximum="1"
+                    Value="{x:Bind ViewModel.TagOperationProgress, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.TagOperationProgressVisibility, Mode=OneWay}" />
+                <ScrollViewer
+                    MaxHeight="96"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto"
+                    Visibility="{x:Bind ViewModel.TagFeedbackDetailsVisibility, Mode=OneWay}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.TagFeedbackDetails, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind}"
+                                    TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </InfoBar>
+        </Grid>
     </Grid>
 </Window>

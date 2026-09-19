@@ -138,6 +138,79 @@ public sealed class ImageLoaderService : IImageLoaderService
         _prefetchInFlight.Clear();
     }
 
+    /// <inheritdoc />
+    public void MigrateCache(string oldPath, string newPath)
+    {
+        if (string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath))
+        {
+            return;
+        }
+
+        // 同图改名迁移（打标重命名，字节未变）：锁内完成，与 LoadAsync/TryGetCached/AddToCache 串行——
+        // 防 prefetch 并发读旧键或插入新键的竞态。旧键条目移除（路径已失效，留着只会白占 LRU 容量）；
+        // 迁移后的新条目复制出新 LoadedImage（Path 挂新路径，命中返回的元数据口径与请求路径一致；
+        // 解码像素数组共享引用——LoadedImage 不可变，安全）。
+        // GIF 不入缓存（LoadAsync 只对非 GIF AddToCache），此处天然无操作。
+        // 迁移后仍在途的旧路径 prefetch 若完成落缓存，会重新插入旧键条目——LRU 自然逐出，无害。
+        lock (_cacheLock)
+        {
+            var staleKeys = new List<CacheKey>();
+            foreach (var key in _cacheMap.Keys)
+            {
+                if (string.Equals(key.Path, oldPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    staleKeys.Add(key);
+                }
+            }
+
+            foreach (var oldKey in staleKeys)
+            {
+                var node = _cacheMap[oldKey];
+                var source = node.Value.Image;
+                var newKey = new CacheKey(newPath, oldKey.DecodeSize, oldKey.RotationBucket);
+
+                // 新键若已被并发填充则替换（磁盘已改名，旧内容必过期）。
+                if (_cacheMap.TryGetValue(newKey, out var existingNode))
+                {
+                    _cacheOrder.Remove(existingNode);
+                    _cacheMap.Remove(newKey);
+                }
+
+                _cacheOrder.Remove(node);
+                _cacheMap.Remove(oldKey);
+
+                var migrated = new LoadedImage
+                {
+                    Path = newPath,
+                    FileSizeBytes = source.FileSizeBytes,
+                    IsGif = source.IsGif,
+                    PixelWidth = source.PixelWidth,
+                    PixelHeight = source.PixelHeight,
+                    DecodedPixelData = source.DecodedPixelData,
+                    DecodedWidth = source.DecodedWidth,
+                    DecodedHeight = source.DecodedHeight,
+                    ImageSource = source.ImageSource,
+                };
+
+                var newNode = _cacheOrder.AddFirst(new CachedImage(newKey, migrated));
+                _cacheMap[newKey] = newNode;
+            }
+
+            // 迁移为"先删后插"不增条目，但与并发插入合流后仍可能超容：统一收尾逐出。
+            while (_cacheOrder.Count > CacheCapacity)
+            {
+                var last = _cacheOrder.Last;
+                if (last is null)
+                {
+                    break;
+                }
+
+                _cacheMap.Remove(last.Value.Key);
+                _cacheOrder.RemoveLast();
+            }
+        }
+    }
+
     private async Task PrefetchOneAsync(string path, int? decodeSize, int rotationBucket, int token)
     {
         try
@@ -168,6 +241,10 @@ public sealed class ImageLoaderService : IImageLoaderService
         {
             return transform;
         }
+
+        // 缩小插值用 Fant（2026-09-19 修复"线条毛刺"）：WIC 默认 Linear 双线性，
+        // 大倍率缩小时高频细节欠采样产生锯齿/摩尔纹；Fant 专为高质量 minification 设计。
+        transform.InterpolationMode = BitmapInterpolationMode.Fant;
 
         if (sourceWidth >= sourceHeight)
         {
