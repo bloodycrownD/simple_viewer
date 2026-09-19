@@ -53,9 +53,12 @@
                                 <Grid.RowDefinitions>
                                     <!-- 文字区行高锚点（cr/P2-9 跨文件常量）：48 与 MasonryLayout.TextAreaHeight
                                          一致——卡片高度由布局按 卡宽/宽高比+TextAreaHeight 预推算，模板行高
-                                         与常量不一致时文字会被裁/留白，改值时两处同步。 -->
-                                    <RowDefinition Height="48" />
+                                         与常量不一致时文字会被裁/留白，改值时两处同步。
+                                         行序语义：Row0=* 缩略图（上）、Row1=48 文字（下）——行序与下方
+                                         Grid.Row 分配必须配套，颠倒行序会把缩略图钉死在 48 高的细条里
+                                         （2026-09-19 用户实机发现的回归，勿再犯）。 -->
                                     <RowDefinition Height="*" />
+                                    <RowDefinition Height="48" />
                                 </Grid.RowDefinitions>
 
                                 <!-- 缩略图占位（浅色块）→ 异步渐入：OpacityTransition 驱动 0→1 过渡 -->
