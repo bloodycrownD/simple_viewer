@@ -34,12 +34,11 @@ if (Get-Process -Name viewer -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 500
 }
 
-# 双 csproj 同目录踩踏（RULE）：还原必须定向主工程，防 Core assets 覆盖 UI 工程。
-# 双 csproj 同目录共享 obj\project.assets.json，任何形式的还原（含传递还原 Core）都会最后落盘
-# 自己的视角——校验必须同时含 '/win-x64'（RID 图）与 'Microsoft.WindowsAppSDK'（主工程包签名，
-# Core 视角无此项）；异常用 msbuild 定向 + RestoreForce 补还原（勿用 dotnet restore 裸形态：
-# 会连带还原 Core 再度踩踏，2026-09-19 实锤）。
-Write-Host "[release] 定向还原..." -ForegroundColor Cyan
+# 双 csproj 同目录踩踏（RULE）：两工程共享 obj\project.assets.json，msbuild 对主工程的还原会
+# **并行**传递还原 Core——两个还原竞写同一文件、后写完者胜（"间歇踩踏"的真根因，2026-09-19 定论）。
+# 确定性修法：显式串行——Core 先还原（此后其传递再还原为 no-op 不落盘），主工程压轴还原。
+# -nr:false 防 MSBuild 节点复用携带陈旧"已还原"状态跳过落盘。校验双条件见 Test-AssetsOk。
+Write-Host "[release] 定向还原（Core → 主工程 串行）..." -ForegroundColor Cyan
 $gprops = Join-Path $root "obj\SimpleViewer.csproj.nuget.g.props"
 $assetsPath = Join-Path $root "obj\project.assets.json"
 function Test-AssetsOk {
@@ -47,12 +46,14 @@ function Test-AssetsOk {
         (Select-String -Path $assetsPath -Pattern '/win-x64' -SimpleMatch -Quiet) -and
         (Select-String -Path $assetsPath -Pattern 'Microsoft.WindowsAppSDK' -SimpleMatch -Quiet)
 }
-dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
+$coreProject = Join-Path $root "SimpleViewer.Core.csproj"
+dotnet msbuild $coreProject -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
+dotnet msbuild $project -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
 if ($LASTEXITCODE -ne 0 -or -not (Test-AssetsOk)) {
     Write-Host "[release] 还原产物异常（缺 RID 目标或主工程包签名），清缓存强制重还原..." -ForegroundColor Yellow
-    # 增量误判会使 msbuild restore 跳过落盘（Core 视角 assets 滞留）——删缓存文件逼其全量重算
     Remove-Item $assetsPath, $gprops -Force -ErrorAction SilentlyContinue
-    dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
+    dotnet msbuild $coreProject -t:Restore -p:Platform=x64 -p:RestoreForce=true -nr:false -nologo -v:q
+    dotnet msbuild $project -t:Restore -p:Platform=x64 -p:RestoreForce=true -nr:false -nologo -v:q
     if ($LASTEXITCODE -ne 0 -or -not (Test-AssetsOk)) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
 }
 
