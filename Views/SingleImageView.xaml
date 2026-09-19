@@ -1,65 +1,265 @@
 ﻿<UserControl
     x:Class="SimpleViewer.Views.SingleImageView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:SimpleViewer.Views">
     <!-- 职责：单图查看视图（自 MainWindow Row1 抽出，D14）——图片显示/旋转、空态提示、
-              完整文件名一行（等宽字体，方括号标签段高亮；Inlines 由 code-behind 依据 VM 三段属性组装）。
-              绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。 -->
+              完整文件名一行（等宽字体，方括号标签段高亮；Inlines 由 code-behind 依据 VM 三段属性组装）、
+              单图详情右栏（2026-09-19 交互重构：图片信息结构化行 + 当前图标签 chips 管理）。
+              布局：Col0 图片区（原两行结构不变）+ Col1 右栏（280 展开 / 36 折叠条互斥 Visibility，
+              仿 MainWindow 左栏先例；VM.IsInfoPanelCollapsed + ToggleInfoPanelCommand）。
+              右栏放本视图内部而非 MainWindow：单图/图库互斥由宿主 SingleVisibility 整体切换，
+              图库模式右栏天然不可见（不动 MainWindow 全局布局）；ImageHost.SizeChanged 是解码尺寸源，
+              右栏收展自动触发重解码（显示区变化），无需额外接线。
+              绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。
+              约束：不用 DockPanel；✕/＋ 为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）。 -->
 
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
-        <Grid
-            x:Name="ImageHost"
-            Grid.Row="0"
-            Padding="8"
-            PointerMoved="OnImagePointerMoved"
-            PointerPressed="OnImagePointerPressed"
-            PointerReleased="OnImagePointerReleased"
-            PointerWheelChanged="OnImagePointerWheelChanged">
-            <Image
-                x:Name="ViewerImage"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                DoubleTapped="OnImageDoubleTapped"
-                RenderTransformOrigin="0.5,0.5"
-                Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
-                Stretch="Uniform"
-                Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
-                <Image.RenderTransform>
-                    <!-- CompositeTransform：旋转（VM 绑定）+ 缩放/平移（code-behind 滚轮缩放）；
-                         应用顺序 Scale→Rotate→Translate，平移在最外层故拖拽按屏幕 delta 累加即可。 -->
-                    <CompositeTransform x:Name="ViewerTransform" Rotation="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
-                </Image.RenderTransform>
-            </Image>
+        <!-- Col0：图片区（原两行结构：ImageHost + 完整文件名栏） -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-            <TextBlock
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                FontSize="16"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="打开一张图片开始"
-                Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
+            <Grid
+                x:Name="ImageHost"
+                Grid.Row="0"
+                Padding="8"
+                PointerMoved="OnImagePointerMoved"
+                PointerPressed="OnImagePointerPressed"
+                PointerReleased="OnImagePointerReleased"
+                PointerWheelChanged="OnImagePointerWheelChanged">
+                <Image
+                    x:Name="ViewerImage"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    DoubleTapped="OnImageDoubleTapped"
+                    RenderTransformOrigin="0.5,0.5"
+                    Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
+                    Stretch="Uniform"
+                    Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
+                    <Image.RenderTransform>
+                        <!-- CompositeTransform：旋转（VM 绑定）+ 缩放/平移（code-behind 滚轮缩放）；
+                             应用顺序 Scale→Rotate→Translate，平移在最外层故拖拽按屏幕 delta 累加即可。 -->
+                        <CompositeTransform x:Name="ViewerTransform" Rotation="{x:Bind ViewModel.RotationAngle, Mode=OneWay}" />
+                    </Image.RenderTransform>
+                </Image>
+
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    FontSize="16"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="打开一张图片开始"
+                    Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
+            </Grid>
+
+            <!-- 完整文件名：前缀 + 高亮标签段 + 后缀（等宽字体 14px，对齐 demo #viewerFileName；Inlines 由 code-behind 组装） -->
+            <Border
+                Grid.Row="1"
+                Padding="20,8"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0">
+                <TextBlock
+                    x:Name="FileNameText"
+                    FontFamily="Cascadia Mono,Consolas"
+                    FontSize="14"
+                    IsTextSelectionEnabled="True"
+                    TextAlignment="Center"
+                    TextTrimming="CharacterEllipsis"
+                    Visibility="{x:Bind ViewModel.FileNameVisibility, Mode=OneWay}" />
+            </Border>
         </Grid>
 
-        <!-- 完整文件名：前缀 + 高亮标签段 + 后缀（等宽字体 14px，对齐 demo #viewerFileName；Inlines 由 code-behind 组装） -->
+        <!-- Col1：右栏展开态（280；标题行 + 信息区 + 标签管理） -->
         <Border
-            Grid.Row="1"
-            Padding="20,8"
+            Grid.Column="1"
+            Width="280"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="0,1,0,0">
-            <TextBlock
-                x:Name="FileNameText"
-                FontFamily="Cascadia Mono,Consolas"
-                FontSize="14"
-                IsTextSelectionEnabled="True"
-                TextAlignment="Center"
-                TextTrimming="CharacterEllipsis"
-                Visibility="{x:Bind ViewModel.FileNameVisibility, Mode=OneWay}" />
+            BorderThickness="1,0,0,0"
+            Visibility="{x:Bind ViewModel.InfoPanelExpandedVisibility, Mode=OneWay}">
+            <Grid Margin="14,12,14,12" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 标题行：图片信息 + 收起（对照左栏「标签库 + 收起」先例） -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        Text="图片信息" />
+                    <Button
+                        Grid.Column="1"
+                        Command="{x:Bind ViewModel.ToggleInfoPanelCommand}"
+                        Content="收起"
+                        Style="{StaticResource GhostButtonStyle}"
+                        ToolTipService.ToolTip="收起信息栏" />
+                </Grid>
+
+                <!-- 信息区：文件名（三段高亮，Inlines 由 code-behind 组装）+ 结构化行 -->
+                <StackPanel Grid.Row="1" Spacing="6">
+                    <TextBlock
+                        x:Name="InfoFileNameText"
+                        FontFamily="Cascadia Mono,Consolas"
+                        FontSize="12"
+                        IsTextSelectionEnabled="True"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind ViewModel.FileNameVisibility, Mode=OneWay}" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="文件大小" />
+                        <TextBlock
+                            Grid.Column="1"
+                            FontSize="12"
+                            Text="{x:Bind ViewModel.CurrentImageFileSizeText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="像素尺寸" />
+                        <TextBlock
+                            Grid.Column="1"
+                            FontSize="12"
+                            Text="{x:Bind ViewModel.CurrentImageDimensionsText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="序号" />
+                        <TextBlock
+                            Grid.Column="1"
+                            FontSize="12"
+                            Text="{x:Bind ViewModel.CurrentImageIndexText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </StackPanel>
+
+                <!-- 标签区：标题「标签」+ ＋ 打开目录选择器；chips 流（✕ 移除）+ 空态文案 -->
+                <Grid Grid.Row="2" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            Text="标签" />
+                        <Button
+                            Grid.Column="1"
+                            Command="{x:Bind ViewModel.OpenTagCatalogCommand}"
+                            Content="＋"
+                            Style="{StaticResource GhostIconButtonStyle}"
+                            ToolTipService.ToolTip="添加标签（打开标签目录）" />
+                    </Grid>
+                    <ScrollViewer
+                        Grid.Row="1"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto"
+                        ZoomMode="Disabled">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.CurrentImageTags, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <views:WrapPanel ItemSpacing="6" LineSpacing="6" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <!-- 当前图标签 chip：胶囊 + ✕ 移除（Click 事件经 Tag 槽位回查标签名；
+                                         颜色用安全清单 ThemeResource，随 RootGrid 主题正确解析） -->
+                                    <Border
+                                        Padding="9,3"
+                                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="999">
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="12"
+                                                Text="{x:Bind}" />
+                                            <Button
+                                                Click="OnRemoveTagClicked"
+                                                Content="✕"
+                                                FontSize="11"
+                                                Padding="3,0"
+                                                Style="{StaticResource GhostIconButtonStyle}"
+                                                Tag="{x:Bind}"
+                                                ToolTipService.ToolTip="移除该标签" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock
+                        Grid.Row="1"
+                        Margin="0,4"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="无标签——点击右上「＋」从标签目录添加"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind views:TagSidebarConverters.NotBoolToVisibility(ViewModel.HasCurrentImageTags), Mode=OneWay}" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Col1：右栏折叠态（36 窄条，仅展开按钮；对照左栏折叠条先例） -->
+        <Border
+            Grid.Column="1"
+            Width="36"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1,0,0,0"
+            Visibility="{x:Bind ViewModel.InfoPanelCollapsedVisibility, Mode=OneWay}">
+            <Button
+                Margin="0,8,0,0"
+                Padding="5,5"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Command="{x:Bind ViewModel.ToggleInfoPanelCommand}"
+                Content="展开"
+                Style="{StaticResource GhostButtonStyle}"
+                ToolTipService.ToolTip="展开信息栏" />
         </Border>
     </Grid>
 </UserControl>

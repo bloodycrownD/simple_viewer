@@ -150,6 +150,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>宿主提供的单图文件选择器（WinRT）；由 <see cref="MainWindow"/> 注入。</summary>
     public Func<Task<string?>>? PickImageFileAsync { get; set; }
 
+    /// <summary>宿主提供的标签目录选择器（单图详情右栏「＋」；含快捷键屏蔽，由 MainWindow 注入）。</summary>
+    public Func<Task>? ShowTagCatalogAsync { get; set; }
+
     /// <summary>宿主提供的图库根目录选择器（FolderPicker）；由 <see cref="MainWindow"/> 注入。</summary>
     public Func<Task<string?>>? PickLibraryFolderAsync { get; set; }
 
@@ -268,6 +271,26 @@ public partial class MainViewModel : ObservableObject
     /// <summary>当前文件名的标签后后缀段（“]”+ 扩展名；无标签为空串）。</summary>
     [ObservableProperty]
     private string _fileNameSuffix = string.Empty;
+
+    /// <summary>当前图文件大小文本（人类可读 KB/MB；单图详情右栏信息行，2026-09-19）。</summary>
+    [ObservableProperty]
+    private string _currentImageFileSizeText = string.Empty;
+
+    /// <summary>当前图像素尺寸文本（“宽 × 高”；单图详情右栏信息行）。</summary>
+    [ObservableProperty]
+    private string _currentImageDimensionsText = string.Empty;
+
+    /// <summary>当前图序号文本（“N / 总数”；单图详情右栏信息行）。</summary>
+    [ObservableProperty]
+    private string _currentImageIndexText = string.Empty;
+
+    /// <summary>
+    /// 当前图标签集合（单图详情右栏 chips；2026-09-19 交互重构）：在 UpdateFileNameSegments /
+    /// RefreshCurrentAfterRenameAsync / LoadCurrentAsync 的文件名分段计算点同步重建——
+    /// 打标走“同图改名”链路（CurrentImageRenamed → RefreshCurrentAfterRenameAsync →
+    /// UpdateStatusText → UpdateFileNameSegments），chips 刷新与文件名分段天然同步，不闪不重载。
+    /// </summary>
+    public ObservableCollection<string> CurrentImageTags { get; } = [];
 
     public bool CanNavigateImages => _imageFiles.Count > 0;
 
@@ -659,6 +682,17 @@ public partial class MainViewModel : ObservableObject
     private void ToggleSidebar()
     {
         IsSidebarCollapsed = !IsSidebarCollapsed;
+    }
+
+    /// <summary>单图详情右栏是否处于折叠态（默认展开；仿左栏 IsSidebarCollapsed 先例）。</summary>
+    [ObservableProperty]
+    private bool _isInfoPanelCollapsed;
+
+    /// <summary>折叠/展开单图详情右栏（仅单图模式可见，随 SingleImageView 宿主显隐）。</summary>
+    [RelayCommand]
+    private void ToggleInfoPanel()
+    {
+        IsInfoPanelCollapsed = !IsInfoPanelCollapsed;
     }
 
     /// <summary>
@@ -1091,6 +1125,65 @@ public partial class MainViewModel : ObservableObject
             _isTagOperationRunning = false;
         }
     }
+
+    // ==================== 单图详情右栏（2026-09-19 交互重构：信息行 + 标签管理） ====================
+
+    /// <summary>
+    /// 移除当前图的一个标签（右栏 chip 的 ✕）：按标签名解析所属配置组（未命中 = 未分组兜底组，
+    /// 兼容叠加语义）后走单图 toggle 管线——当前图必含该标签（chips 即当前标签集），toggle 即移除。
+    /// </summary>
+    /// <param name="tagName">标签名。</param>
+    public async Task RemoveCurrentImageTagAsync(string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName))
+        {
+            return;
+        }
+
+        await ToggleTagOnCurrentImageAsync(FindGroupByTagName(tagName), tagName);
+    }
+
+    /// <summary>
+    /// 打开标签目录选择器（右栏「＋」按钮）：宿主回调（MainWindow 注入 ShowTagCatalogAsync，
+    /// ContentDialog + 快捷键屏蔽）展示两级行列表，点选标签走单图打标管线后关闭。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasImage))]
+    private async Task OpenTagCatalogAsync()
+    {
+        if (ShowTagCatalogAsync is not null)
+        {
+            await ShowTagCatalogAsync();
+        }
+    }
+
+    /// <summary>
+    /// 按标签名解析所属配置组（配置 TagGroups 查名字；跨组重名已被校验拒绝，名字唯一）。
+    /// 未命中（历史遗留的未分组标签）返回未分组兜底组（兼容叠加语义，与拖拽/侧栏同口径）。
+    /// </summary>
+    private TagGroup FindGroupByTagName(string tagName)
+        => (_settingsService?.Load().TagGroups ?? []).FirstOrDefault(
+               g => g.Tags.Any(t => string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
+            ?? new TagGroup
+            {
+                Name = TagSidebarViewModel.UngroupedGroupName,
+                Exclusive = false,
+            };
+
+    /// <summary>
+    /// 标签目录快照（TagCatalogDialog 构造时一次性取用）：配置组序列 + 当前图标签集
+    /// （判已选态）。快照口径——对话框生命周期内配置不变（编辑入口都在侧栏，对话框打开期间互斥）。
+    /// </summary>
+    public (IReadOnlyList<TagGroup> Groups, IReadOnlyCollection<string> CurrentTags) GetTagCatalogSnapshot()
+        => (
+            _settingsService?.Load().TagGroups ?? [],
+            [.. CurrentImageTags]);
+
+    /// <summary>
+    /// 对当前图应用目录选中的标签（TagCatalogDialog 行点击转发）：走单图 toggle 管线的“添加”方向
+    /// （已含标签的行在目录中禁点，此处 toggle 必然是添加；互斥组语义由 TagSemantics 处理）。
+    /// </summary>
+    public async Task ApplyCatalogTagAsync(TagGroup group, string tagName)
+        => await ToggleTagOnCurrentImageAsync(group, tagName);
 
     /// <summary>
     /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算状态行与文件名分段
@@ -2129,6 +2222,12 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(SidebarCollapsedVisibility));
     }
 
+    partial void OnIsInfoPanelCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(InfoPanelExpandedVisibility));
+        OnPropertyChanged(nameof(InfoPanelCollapsedVisibility));
+    }
+
     public Visibility ImageVisibility => HasImage ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility EmptyStateVisibility => HasImage ? Visibility.Collapsed : Visibility.Visible;
@@ -2158,6 +2257,14 @@ public partial class MainViewModel : ObservableObject
     /// <summary>左栏折叠窄条可见性。</summary>
     public Visibility SidebarCollapsedVisibility =>
         IsSidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>单图详情右栏展开态可见性（仿左栏先例；仅单图模式整体可见，随宿主显隐）。</summary>
+    public Visibility InfoPanelExpandedVisibility =>
+        IsInfoPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>单图详情右栏折叠窄条可见性。</summary>
+    public Visibility InfoPanelCollapsedVisibility =>
+        IsInfoPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>图库状态行文本：扫描/共 N 张 + 已选 N 张（筛选命中数在筛选条显示，Step 11 起）。</summary>
     public string GalleryStatusText
@@ -2328,12 +2435,20 @@ public partial class MainViewModel : ObservableObject
         var dimensions = $"{loaded.PixelWidth}x{loaded.PixelHeight}";
         var indexInfo = $"{_currentIndex + 1}/{_imageFiles.Count}";
         StatusText = $"名称：{fileName} | 大小：{sizeText} | 尺寸：{dimensions} | 序号：{indexInfo}";
+        // 单图详情右栏的结构化信息行（2026-09-19）：独立字段（非拼接串），OneWay 绑定各自刷新；
+        // 值为纯文本（行标签「文件大小/像素尺寸/序号」由视图承担）。
+        CurrentImageFileSizeText = sizeText;
+        CurrentImageDimensionsText = $"{loaded.PixelWidth} × {loaded.PixelHeight}";
+        CurrentImageIndexText = _imageFiles.Count > 0
+            ? $"{_currentIndex + 1} / {_imageFiles.Count}"
+            : string.Empty;
         UpdateFileNameSegments(path);
     }
 
     /// <summary>
     /// 依据文件名尾部标签段计算三段式显示信息（prefix + 标签段 + suffix），
-    /// 供单图视图完整显示文件名并高亮方括号标签段（Step 7 口径）。
+    /// 供单图视图完整显示文件名并高亮方括号标签段（Step 7 口径）；
+    /// 同时重建单图详情右栏的当前标签 chips（同一解析结果，分段与 chips 永不分裂）。
     /// </summary>
     private void UpdateFileNameSegments(string path)
     {
@@ -2351,14 +2466,36 @@ public partial class MainViewModel : ObservableObject
             FileNamePrefix = fileName;
             FileNameTagSegment = string.Empty;
             FileNameSuffix = string.Empty;
+            tags = [];
         }
+
+        RebuildCurrentImageTags(tags);
     }
+
+    /// <summary>重建当前图标签 chips 集合（全量替换；文件名解析口径，保序）。</summary>
+    private void RebuildCurrentImageTags(IReadOnlyList<string> tags)
+    {
+        CurrentImageTags.Clear();
+        foreach (var tag in tags)
+        {
+            CurrentImageTags.Add(tag);
+        }
+
+        OnPropertyChanged(nameof(HasCurrentImageTags));
+    }
+
+    /// <summary>当前图是否有标签（右栏空态文案可见性）。</summary>
+    public bool HasCurrentImageTags => CurrentImageTags.Count > 0;
 
     private void ClearFileNameSegments()
     {
         FileNamePrefix = string.Empty;
         FileNameTagSegment = string.Empty;
         FileNameSuffix = string.Empty;
+        CurrentImageFileSizeText = string.Empty;
+        CurrentImageDimensionsText = string.Empty;
+        CurrentImageIndexText = string.Empty;
+        RebuildCurrentImageTags([]);
     }
 
     private static string FormatFileSize(long bytes)

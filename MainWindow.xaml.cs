@@ -1,5 +1,6 @@
-// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10）、对话框宿主、
-//       视图模型宿主回调注入、双模式壳装配与批量打标进度/回执区（D13 InfoBar，XAML 内嵌）。
+// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10）、对话框宿主
+//       （设置/标签编辑/标签目录选择器——均含 _shortcutsEnabled 屏蔽）、视图模型宿主回调注入、
+//       双模式壳装配与打标进度/回执区（D13 InfoBar，XAML 内嵌）。
 // 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
 //         Ctrl+A 仅在快捷键表未占用时接管（用户自定义绑定优先）；
 //         ExitApp 分派点先经 Esc 三态路由拦截（单图+有图库→返回图库；瀑布流+选中集→清空选中；其余→原退出行为）。
@@ -45,6 +46,7 @@ public sealed partial class MainWindow : Window
         ViewModel.PickLibraryFolderAsync = PickLibraryFolderAsync;
         ViewModel.ConfirmDeleteAsync = ConfirmDeleteAsync;
         ViewModel.OpenSettingsAsync = ShowSettingsDialogAsync;
+        ViewModel.ShowTagCatalogAsync = ShowTagCatalogDialogAsync;
         ViewModel.FullscreenChanged += OnFullscreenChanged;
         ViewModel.ExitRequested += OnExitRequested;
 
@@ -400,6 +402,35 @@ public sealed partial class MainWindow : Window
                 }
             };
 
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 标签目录选择器宿主（2026-09-19 交互重构，对照 ShowTagEditorAsync 模板）：
+    /// 单图详情右栏「＋」打开；对话框期间快捷键整体屏蔽（_shortcutsEnabled）；
+    /// 点选标签即关闭（TagApplied → Hide，打标异步进行不打断关闭），无主按钮（选择即动作）。
+    /// </summary>
+    private async Task ShowTagCatalogDialogAsync()
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            var catalog = new TagCatalogDialog(ViewModel);
+            var dialog = new ContentDialog
+            {
+                Title = "为当前图片添加标签",
+                Content = catalog,
+                XamlRoot = Content.XamlRoot,
+                CloseButtonText = "关闭",
+                DefaultButton = ContentDialogButton.Close,
+            };
+
+            catalog.TagApplied += dialog.Hide;
             await dialog.ShowAsync();
         }
         finally

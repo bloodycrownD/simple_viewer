@@ -431,6 +431,13 @@ public static class TagSidebarConverters
     public static Visibility BoolToVisibility(bool value)
         => value ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>bool 取反 → 可见（右栏标签区空态文案等）。</summary>
+    public static Visibility NotBoolToVisibility(bool value)
+        => value ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>目录选择器标签行的已选后缀文本（已含 = “✓ 已有”，未含 = 空串；U+2713 BMP 安全码点）。</summary>
+    public static string AppliedSuffix(bool isApplied) => isApplied ? "✓ 已有" : string.Empty;
+
     /// <summary>组展开 → 标签行列表可见（目录树态：折叠时子行整体收起）。</summary>
     public static Visibility IsExpandedToVisibility(bool isExpanded)
         => isExpanded ? Visibility.Visible : Visibility.Collapsed;

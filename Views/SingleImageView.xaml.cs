@@ -1,6 +1,9 @@
-// 职责：单图视图 code-behind——文件名 Inlines 组装（标签段高亮）+ 滚轮缩放/拖拽平移交互。
+// 职责：单图视图 code-behind——文件名 Inlines 组装（标签段高亮；底部文件名栏 + 右栏信息区两处同步）、
+//       滚轮缩放/拖拽平移交互、右栏标签管理转发（chip ✕ 移除 → MainViewModel 单图 toggle 管线）。
 // 不变量：ViewModel 构造注入（先赋值后 InitializeComponent，沿用 SettingsPage 惯例）；
 //         仅响应三段属性变更重建 Inlines，其余绑定走 XAML x:Bind；
+//         右栏（280 展开/36 折叠）在 UserControl 内部——图库模式随宿主 SingleVisibility 整体隐藏，
+//         右栏收展改变 ImageHost 显示区自动触发重解码（尺寸源即 ImageHost.SizeChanged）；
 //         缩放/平移是纯视图交互态（不入 VM）：切图（ImageSource 变化）与双击复位；
 //         CompositeTransform 应用顺序 Scale→Rotate→Translate——平移在最外层，
 //         拖拽按屏幕 delta 直接累加；光标锚点缩放需按旋转角变换指针向量。
@@ -205,19 +208,32 @@ public sealed partial class SingleImageView : UserControl
         ViewerTransform.TranslateY = 0;
     }
 
-    /// <summary>按 VM 三段属性重建文件名 Inlines：标签段以强调色 + 半粗字重高亮。</summary>
+    /// <summary>
+    /// 按 VM 三段属性重建文件名 Inlines：标签段以强调色 + 半粗字重高亮。
+    /// 同时组装两处显示（2026-09-19 右栏）：底部完整文件名栏（FileNameText）与右栏信息区
+    /// 文件名（InfoFileNameText，等宽小号、可换行）——同一数据源，永不分裂。
+    /// </summary>
     private void RebuildFileNameInlines()
     {
-        FileNameText.Inlines.Clear();
+        RebuildInlinesInto(FileNameText, trim: true);
+        RebuildInlinesInto(InfoFileNameText, trim: false);
+    }
+
+    /// <summary>向目标 TextBlock 重建三段 Inlines（trim = 裁剪省略号单行；false = 自动换行多行）。</summary>
+    private void RebuildInlinesInto(TextBlock target, bool trim)
+    {
+        target.Inlines.Clear();
+        target.TextTrimming = trim ? TextTrimming.CharacterEllipsis : TextTrimming.None;
+        target.TextWrapping = trim ? TextWrapping.NoWrap : TextWrapping.Wrap;
 
         if (!string.IsNullOrEmpty(ViewModel.FileNamePrefix))
         {
-            FileNameText.Inlines.Add(new Run { Text = ViewModel.FileNamePrefix });
+            target.Inlines.Add(new Run { Text = ViewModel.FileNamePrefix });
         }
 
         if (!string.IsNullOrEmpty(ViewModel.FileNameTagSegment))
         {
-            FileNameText.Inlines.Add(new Run
+            target.Inlines.Add(new Run
             {
                 Text = ViewModel.FileNameTagSegment,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
@@ -227,7 +243,7 @@ public sealed partial class SingleImageView : UserControl
 
         if (!string.IsNullOrEmpty(ViewModel.FileNameSuffix))
         {
-            FileNameText.Inlines.Add(new Run { Text = ViewModel.FileNameSuffix });
+            target.Inlines.Add(new Run { Text = ViewModel.FileNameSuffix });
         }
     }
 
@@ -240,5 +256,20 @@ public sealed partial class SingleImageView : UserControl
         }
 
         return null;
+    }
+
+    // ==================== 右栏标签管理（2026-09-19 交互重构） ====================
+
+    /// <summary>
+    /// 右栏标签 chip 的 ✕ 点击：Tag 槽位回查标签名（DataTemplate 内 x:String 自身）→
+    /// MainViewModel.RemoveCurrentImageTagAsync（按名解析所属组 + 单图 toggle 管线移除）。
+    /// Click 直达事件不冒泡，不触发卡片/行级处理器。
+    /// </summary>
+    private void OnRemoveTagClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tagName })
+        {
+            _ = ViewModel.RemoveCurrentImageTagAsync(tagName);
+        }
     }
 }
