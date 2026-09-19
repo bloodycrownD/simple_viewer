@@ -14,4 +14,7 @@ dist/
 
 # IDE
 .idea/
-test-library/  
+test-library/
+
+# 发布产物（scripts/release.ps1 输出与本地解包验证目录）
+release/

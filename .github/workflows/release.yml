@@ -1,0 +1,59 @@
+# Release 工作流：推送 v* 标签即自动构建并创建 GitHub Draft Release
+# 用法：git tag v1.0.0 && git push origin v1.0.0
+# 产物：SimpleViewer-v<标签>-win-x64.zip（自包含，解压即用）
+# 说明：创建的是 Draft Release——到 GitHub Releases 页确认无误后手动点 Publish 发布。
+#       CI 全新环境仍踩双 csproj 同目录还原踩踏（RULE 实锤），故用定向 restore + --no-restore；
+#       XamlCompiler 间歇沉默崩溃以重试兜底。
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 定向还原（双 csproj 踩踏规避）
+        run: dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 -nologo -v:q
+
+      - name: 测试（Core 层 100 项）
+        run: dotnet test tests/SimpleViewer.Tests/SimpleViewer.Tests.csproj --no-restore -nologo -v q
+
+      - name: 发布（Release / win-x64 / 自包含，XamlCompiler 失败重试一次）
+        shell: pwsh
+        run: |
+          $pub = @("SimpleViewer.csproj","-c","Release","-r","win-x64","--self-contained","true",
+            "-p:Platform=x64","-p:WindowsAppSDKSelfContained=true","-o","release/publish","--no-restore","--nologo","-v:q")
+          $ok = $false
+          foreach ($i in 1..2) {
+            dotnet publish @pub
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "release/publish/viewer.exe")) { $ok = $true; break }
+            if ($i -lt 2) { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) { exit 1 }
+
+      - name: 打包 zip
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path release/publish/* -DestinationPath "release/SimpleViewer-$tag-win-x64.zip"
+
+      - name: 创建 Draft Release 并上传
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release/SimpleViewer-*-win-x64.zip
