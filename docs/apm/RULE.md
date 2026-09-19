@@ -5,7 +5,8 @@
 - 一律用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1`，不用裸 `dotnet build`。
 - WinAppSDK 1.6 的 XamlCompiler 有间歇沉默崩溃（MSB3073、退出码 1 无输出，疑似 Defender 冷启动竞态）：脚本已内置 `-m:1 -nr:false` + 分级重试；仍失败时手动执行一次 XamlCompiler.exe 预热再重跑；根治需用户给 NuGet 缓存目录加 Defender 排除（用户未决策）。
 - 冷重建（删 obj）后偶发"CS0234 引用级联失败"（还原增量误判）：`dotnet restore --force` 后再 build，一般第二次成功；成功产物有效，紧随其后的增量 build 失败可忽略。
-- **重建前必须 `taskkill /IM viewer.exe /F`**——运行中的 viewer 锁 DLL 导致复制失败。
+- **双 csproj 同目录同 TFM 的还原踩踏（2026-09-19 实锤）**：`SimpleViewer.csproj` 与 `SimpleViewer.Core.csproj` 共享 `obj\project.assets.json`，`dotnet restore`（含 build.ps1 前置还原）有时只还原 Core，UI 工程 assets 被覆盖缺 WinAppSDK/CommunityToolkit → 全量 CS0234/CS0246。解法：`dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64` 后 build.ps1 即恢复；遇"突然全量引用错误"先跑这条，别怀疑代码。
+- **重建前必须 `taskkill /IM viewer.exe /F`**——运行中的 viewer 锁 DLL 导致复制失败（注意 cmd 下用 `&` 分隔，`;` 会让杀进程静默失败）。
 
 ## XAML 硬约束（违反 = 崩溃或运行期炸）
 
@@ -38,6 +39,8 @@
 
 - 交互类 bug（选择/修饰键/菜单）必须实机走查：UIA 元素树断言（`get_app_state` 找文本/计数）比视觉模型可靠；**主题/颜色断言用屏幕像素采样**（CopyFromScreen），视觉模型对深浅主题误判过两次。
 - 合成 Shift/Ctrl+点击用 `scripts\shift-click-test.ps1`（SendInput）：① x64 INPUT 结构体必须按联合体 40 字节对齐（32 字节版 SendInput 静默失败且不报错）；② 注入前必须激活目标窗口（键盘事件只进前台窗口线程，后台注入的修饰键目标进程永远看不到）；③ PowerShell 须 `SetProcessDPIAware`，否则 SetCursorPos 坐标被 DPI 虚拟化重映射。
+- **本机 SendInput 鼠标"移动"事件被丢弃（2026-09-19 实锤）**：注入返回成功（ret=1）但光标不动（SetCursorPos 正常、点击/键盘注入可达）——**拖拽手势无法自动化注入**，拖拽类交互只能用户实机验证；`scripts\drag-tag-test.ps1` 是当时的注入脚本（含 40 字节断言与相对移动），留作环境复测用。
+- UIA bounds 与截图光栅同坐标系（窗口物理尺寸）；`GetDpiForWindow`=144（150%）只影响应用内渲染密度，UIA 坐标即屏幕点，勿再乘缩放。
 - 临时改用户 `%LocalAppData%\SimpleViewer\settings.json` 做测试时：先备份、测完原样还原（app 只在改设置时写盘，退出不覆盖）。
 
 ## 杂项
