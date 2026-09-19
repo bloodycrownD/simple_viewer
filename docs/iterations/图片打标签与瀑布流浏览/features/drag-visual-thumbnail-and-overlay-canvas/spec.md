@@ -22,6 +22,7 @@ agile_trace: true
 | 532c637 | 遮盖式布局：RootGrid → CanvasLayer(ZIndex=0，承载 SingleImageHost 整窗) + ChromeLayer(ZIndex=1，原四行结构)；SingleImageView 根 Grid 单 cell 叠加（ImageHost 铺满 Z=0、右栏/文件名栏改右/底浮层 Z=1 且不透明背景）；放大置顶收敛两级单点（ImageHost 提 Z=2 反盖浮层、CanvasLayer 提 100 盖全部 chrome） |
 | a127599 | GIF 换源等 ImageOpened（`WaitForGifSourceOpenedAsync`，PixelWidth>0 防快照竞态；WinUI3 下 ImageOpened=RoutedEventHandler、ImageFailed=ExceptionRoutedEventHandler 分别声明） |
 | 6512655 | RULE 铁律②口径更新：解码尺寸=整窗画布区；补"chrome 遮盖层收展不得改变画布几何"约束 |
+| b1063b0 | 遮挡回归修复：右栏浮层（画布层 Z=0）顶部被 ChromeLayer 工具栏横行（Z=1）遮盖、收起按钮真实鼠标点不到（首版走查用 UIA AXPress 无视觉命中测试，假阳性）。MainWindow 依工具栏/InfoBar/状态栏 SizeChanged 写 VM.TopChromeHeight/BottomChromeHeight，SingleImageView.ApplyChromeInsets 据此设右栏展开/折叠条/文件名栏的避让 Margin（文件名栏硬编码 34 一并动态化） |
 
 ## 详细改动说明
 

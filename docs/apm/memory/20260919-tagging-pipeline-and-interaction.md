@@ -62,3 +62,9 @@ user:
 
 assistant:
 实现+验证+留痕收口（5 提交）：10745d6 拖拽视觉——ImageSourceHelper.TryCreateDragVisualAsync（WIC+Fant 短边 120px SoftwareBitmap，IgnoreExifOrientation 防二次旋转）在 UiApplyGate 闸门段后预生成，OnCardDragStarting 三级回退（小位图 SetContentFromSoftwareBitmap 居中锚点 > Thumbnail BitmapImage > 系统整卡快照），纠正"DragUI 不可定制"错误旧注释；b0e05fd 多选计数——MainViewModel.DragPayloadCount + 标签行 DragOver N>1 时 Caption「打标 N 张」；532c637 遮盖式布局——RootGrid 改 CanvasLayer(Z0 整窗承载 SingleImageView) + ChromeLayer(Z1 原四行)，SingleImageView 单 cell 叠加（ImageHost 铺满、右栏/文件名栏改右/底浮层不透明背景），放大置顶收敛两级单点，Grid 链无 Background 不吞指针；a127599 GIF 同图换源等 ImageOpened（2s 超时/失败/取消放行）再提交；6512655 RULE 铁律②改口径（解码=整窗画布区）。验证：71/71 绿（主代理复核重跑）、build 过（restore 踩踏当日升级必现，按 RULE 定向还原+--no-restore 绕过，RULE 第 8 条已补强）；主代理实机 UIA 走查：单图模式收展左栏/右栏四态 image bounds 恒 [427,323,959,720] 不变（核心验收达成）、FolderPicker 开图库瀑布流 10 卡正常、双击回单图正常。滚轮放大置顶与拖拽视觉留用户实机（computer-use 滚轮注入被前台校验拒绝，与 SendInput 移动丢弃同族限制）。留痕 features/drag-visual-thumbnail-and-overlay-canvas prd+spec。
+
+user:
+你测试过吗？右侧栏无法收起，因为被顶部工具栏遮盖了。
+
+assistant:
+实锤走查假阳性：我用 UIA AXPress 验证收展（a11y 直调按钮动作、不做视觉命中测试），绕过了遮挡；真实鼠标点到的是工具栏。根因：右栏浮层（含 ▶ 收起按钮/◀ 折叠条）在画布层（Z0）内顶到窗口顶，而 ChromeLayer（Z1）的工具栏行横跨整宽，把右栏标题行/折叠条的可点区盖住（▶ 相对窗口 y=63-99 vs 工具栏到 y=93）；左栏不受影响（本就在 chrome 层内）。修复（b1063b0，主代理直接实现）：MainWindow 给工具栏/InfoBar/状态栏三行命名并挂 SizeChanged → 写 VM.TopChromeHeight（工具栏+InfoBar 实际高+8 margin）/BottomChromeHeight；SingleImageView.ApplyChromeInsets 依此设右栏展开/折叠条顶底 Margin 与文件名栏底 Margin（替代硬编码 34）。验证：build 过、71/71 绿；raw 鼠标路径走查（left_click 元素 target + strategy=event，真实命中测试）右栏 ▶ 收起→◀ 展开双向通过，▶ 从 y=63 移到 y=132（工具栏下方），image bounds 全程恒定。教训入 RULE（实机 UI 测试节）：AXPress 假阳性——可点性/遮挡/ZIndex 验证必须 raw 鼠标路径或 bounds 重叠核对；滚轮注入亦被拒（放大仍留用户实机）。
