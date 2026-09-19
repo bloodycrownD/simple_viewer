@@ -1049,7 +1049,8 @@ public partial class MainViewModel : ObservableObject
     /// 对拖拽卡片集打标（侧栏标签行 Drop 转发）：消费 <see cref="BeginCardDrag"/> 暂存的路径集，
     /// 走统一批量管线（互斥语义/InfoBar 回执/就地同步/缓存迁移）。空 payload（外部拖入等）忽略。
     /// </summary>
-    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：按兼容组叠加语义）。</param>
+    /// <param name="ownerGroup">标签所属配置组（chip.OwnerGroup 恒非空——侧栏仅展示配置组行，
+    /// 2026-09-19 用户拍板移除「未分组」虚拟组后无组行可拖）。</param>
     /// <param name="tagName">标签名。</param>
     public async Task ApplyTagToDraggedCardsAsync(TagGroup? ownerGroup, string tagName)
     {
@@ -1060,14 +1061,14 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 未分组/无组上下文兜底（与原侧栏点击打标同口径）：兼容组（非互斥）叠加。
-        var group = ownerGroup ?? new TagGroup
+        // 2026-09-19 口径：原「未分组虚拟组」兜底（ownerGroup ?? 合成兼容组）随虚拟组移除成死分支已删；
+        // 理论上 ownerGroup 必非空，防御性 null（调用方异常构造的 chip）直接忽略本次拖放。
+        if (ownerGroup is null)
         {
-            Name = TagSidebarViewModel.UngroupedGroupName,
-            Exclusive = false,
-        };
+            return;
+        }
 
-        await ApplyTagToPathsAsync(payload, group, tagName);
+        await ApplyTagToPathsAsync(payload, ownerGroup, tagName);
     }
 
     /// <summary>
@@ -1212,8 +1213,11 @@ public partial class MainViewModel : ObservableObject
     // ==================== 单图详情右栏（2026-09-19 交互重构：信息行 + 标签管理） ====================
 
     /// <summary>
-    /// 移除当前图的一个标签（右栏 chip 的 ✕）：按标签名解析所属配置组（未命中 = 未分组兜底组，
-    /// 兼容叠加语义）后走单图 toggle 管线——当前图必含该标签（chips 即当前标签集），toggle 即移除。
+    /// 移除当前图的一个标签（右栏 chip 的 ✕）：按标签名解析所属配置组（未命中 = 兜底组）后走单图
+    /// toggle 管线——当前图必含该标签（chips 即当前标签集），toggle 即移除。
+    /// 2026-09-19 用户拍板：右栏 chips 保留显示全部标签（含无组）且 ✕ 可移除——这是清理文件名中
+    /// 无组脏数据的<b>唯一 UI 出口</b>（有意偏差 demo，demo 也跳过无组）；remove 分支按名操作文件、
+    /// 不消费组语义，故兜底组仅作 toggle 管线的非空参数（见 <see cref="FindGroupByTagName"/>）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
     public async Task RemoveCurrentImageTagAsync(string tagName)
@@ -1241,14 +1245,16 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 按标签名解析所属配置组（配置 TagGroups 查名字；跨组重名已被校验拒绝，名字唯一）。
-    /// 未命中（历史遗留的未分组标签）返回未分组兜底组（兼容叠加语义，与拖拽/侧栏同口径）。
+    /// 未命中（文件名中的无组脏标签）返回兜底兼容组——<b>必须保留</b>（2026-09-19 用户拍板）：
+    /// 右栏 chips ✕ 传入的 toggle 管线需要非空 group；remove 分支按名操作文件、不消费组语义，
+    /// 故兜底组名纯占位。无组标签的归组途径 = 在配置组内新建同名标签（按名匹配自然「收编」）。
     /// </summary>
     private TagGroup FindGroupByTagName(string tagName)
         => (_settingsService?.Load().TagGroups ?? []).FirstOrDefault(
                g => g.Tags.Any(t => string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
             ?? new TagGroup
             {
-                Name = TagSidebarViewModel.UngroupedGroupName,
+                Name = "未分组",
                 Exclusive = false,
             };
 
@@ -1612,8 +1618,10 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 重建筛选条 chip 集合（Step 11）：激活标签 → 「组名：标签名」chip + 单删命令；
-    /// 组名取配置组（跨组重名已被校验拒绝），不在任何配置组的标签归「未分组」；
     /// 呈现顺序按组名 + 标签名稳定排序（筛选集为 HashSet，需确定序）。仅在 UI 线程调用。
+    /// 2026-09-19 口径：_activeFilterTags 不落盘且激活入口仅剩侧栏配置组行（未分组筛选入口
+    /// 已随虚拟组移除），标签必属配置组、组名恒可解析；查不到组（配置被外部修改的防御）时
+    /// 组名段为空串，chip 显示「：标签名」（理论不可达）。
     /// </summary>
     private void RebuildFilterChips(List<TagGroup> configGroups)
     {
@@ -1624,8 +1632,7 @@ public partial class MainViewModel : ObservableObject
             var groupName = configGroups
                 .FirstOrDefault(g => g.Tags.Any(t =>
                     string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
-                ?.Name
-                ?? TagSidebarViewModel.UngroupedGroupName;
+                ?.Name ?? string.Empty;
             var capturedName = tagName;
             FilterChips.Add(new FilterChipViewModel(
                 groupName,
@@ -1763,13 +1770,8 @@ public partial class MainViewModel : ObservableObject
             return renameResult; // 整体拒绝。
         }
 
-        if (group is null)
-        {
-            // 未分组标签重命名：旧名从「曾见即留」记忆摘除（新名经计数自然出现），
-            // 避免 0 计数旧行残留（见 TagSidebarViewModel._knownUngroupedTags 注释）。
-            TagSidebar.ForgetUngroupedTag(request.TagName);
-        }
-
+        // 原「未分组标签重命名 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
+        // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
         if (group is not null && tag is not null)
         {
             var saveError = SaveSettingsAndRebuildSidebar(settings);
@@ -1805,13 +1807,8 @@ public partial class MainViewModel : ObservableObject
         // 筛选集清理：已删除的标签不再可筛选（在筛选集中则重查）。
         var filterChanged = _activeFilterTags.Remove(request.TagName);
 
-        if (group is null)
-        {
-            // 未分组标签显式删除：从「曾见即留」记忆摘除，使其从标签库消失
-            //（避免已删除标签以 0 计数行残留；见 TagSidebarViewModel._knownUngroupedTags 注释）。
-            TagSidebar.ForgetUngroupedTag(request.TagName);
-        }
-
+        // 原「未分组标签显式删除 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
+        // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
         if (group is not null && tag is not null)
         {
             group.Tags.Remove(tag);
@@ -2784,7 +2781,7 @@ public sealed class FilterChipViewModel
         RemoveFilterCommand = removeFilterCommand;
     }
 
-    /// <summary>标签所属组显示名（不属于任何配置组时为「未分组」）。</summary>
+    /// <summary>标签所属组显示名（激活筛选标签必属配置组；配置被外部修改的防御场景为空串）。</summary>
     public string GroupName { get; }
 
     /// <summary>标签名。</summary>

@@ -13,12 +13,13 @@
               （展开状态会话内记忆，见 TagSidebarViewModel）；激活标签行（筛选命中）= 整行圆角浅灰叠加高亮。
               行内无常显管理按钮（干净的单行只读观感）——悬停浮现经 RowCommands 容器 Opacity 0↔1
               （不用 Visibility：按钮保持在 UIA 树中可命中，键盘/自动化路径不失效，见项目 RULE）。
-              未分组虚拟组固定末位（隐藏管理按钮、同享展开折叠）、底部「新建标签组」。
+              底部「新建标签组」；仅展示配置组（2026-09-19 用户拍板：聚合类 UI 完全忽略无组标签，
+              原固定末位「未分组」虚拟组已移除——无组脏数据清理走单图右栏 chips ✕ / 配置组同名收编）。
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
               （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
               交互不变量：标签行主点击经 OnChipClicked 转发 = 切换筛选（2026-09-19 交互重构：点击一律筛选、
               不再读取修饰键；打标走拖拽卡片到标签行 / 单图详情右栏 / 快捷键；Click 直达事件不冒泡，
-              内嵌 ✎✕ 按钮不误触）；未分组 ✎✕ 入口、Esc 三态等已验证行为保持。 -->
+              内嵌 ✎✕ 按钮不误触）；Esc 三态等已验证行为保持。 -->
 
     <Grid Margin="10,12,10,10" RowSpacing="8">
         <Grid.RowDefinitions>
@@ -47,7 +48,7 @@
                 ToolTipService.ToolTip="收起标签栏（向左收拢）" />
         </Grid>
 
-        <!-- 组列表（配置组 + 未分组虚拟组末位） -->
+        <!-- 组列表（仅配置组；2026-09-19 口径：无组标签不在侧栏聚合展示） -->
         <ScrollViewer
             Grid.Row="1"
             HorizontalScrollBarVisibility="Disabled"
@@ -62,8 +63,9 @@
                         <StackPanel Spacing="0">
                             <!-- 组行（父节点）：整行 Button 承担展开/折叠（Tag 槽位回查组 VM，Click 直达）；
                                  布局 = chevron → 组名 → 徽章 → 弹性空位 → 右对齐纯数字计数 → 悬停浮现 ＋⇄✎✕；
-                                 管理按钮（未分组隐藏）嵌于 RowCommands 容器（Opacity 0，行悬停浮现 1，
-                                 占位不变避免布局跳动；嵌套独立 Button 点击不冒泡，不触发展开切换） -->
+                                 管理按钮嵌于 RowCommands 容器（Opacity 0，行悬停浮现 1，
+                                 占位不变避免布局跳动；嵌套独立 Button 点击不冒泡，不触发展开切换；
+                                 组行均属配置组，按钮恒可见——原未分组隐藏分支已随虚拟组移除） -->
                             <Button
                                 Click="OnGroupHeaderClicked"
                                 PointerEntered="OnRowPointerEntered"
@@ -122,26 +124,22 @@
                                             Command="{x:Bind Commands.AddTag}"
                                             Content="＋"
                                             Style="{StaticResource GhostIconButtonStyle}"
-                                            ToolTipService.ToolTip="新建标签"
-                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                            ToolTipService.ToolTip="新建标签" />
                                         <Button
                                             Command="{x:Bind Commands.ToggleExclusive}"
                                             Content="⇄"
                                             Style="{StaticResource GhostIconButtonStyle}"
-                                            ToolTipService.ToolTip="切换互斥/兼容"
-                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                            ToolTipService.ToolTip="切换互斥/兼容" />
                                         <Button
                                             Command="{x:Bind Commands.RenameGroup}"
                                             Content="✎"
                                             Style="{StaticResource GhostIconButtonStyle}"
-                                            ToolTipService.ToolTip="重命名组"
-                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                            ToolTipService.ToolTip="重命名组" />
                                         <Button
                                             Command="{x:Bind Commands.DeleteGroup}"
                                             Content="✕"
                                             Style="{StaticResource GhostIconButtonStyle}"
-                                            ToolTipService.ToolTip="删除组"
-                                            Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
+                                            ToolTipService.ToolTip="删除组" />
                                     </StackPanel>
                                 </Grid>
                             </Button>
@@ -213,7 +211,8 @@
                                                     FontSize="11"
                                                     Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
                                                     Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
-                                                <!-- 悬停浮现的管理按钮（Opacity 0↔1；未分组标签无命令整组收起） -->
+                                                <!-- 悬停浮现的管理按钮（Opacity 0↔1；chip 均属配置组，
+                                                     命令恒非空——原未分组无命令收起分支已随虚拟组移除） -->
                                                 <StackPanel
                                                     x:Name="RowCommands"
                                                     Grid.Column="4"
@@ -223,14 +222,12 @@
                                                         Command="{x:Bind Commands.Rename}"
                                                         Content="✎"
                                                         Style="{StaticResource GhostIconButtonStyle}"
-                                                        ToolTipService.ToolTip="重命名标签"
-                                                        Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Rename)}" />
+                                                        ToolTipService.ToolTip="重命名标签" />
                                                     <Button
                                                         Command="{x:Bind Commands.Delete}"
                                                         Content="✕"
                                                         Style="{StaticResource GhostIconButtonStyle}"
-                                                        ToolTipService.ToolTip="删除标签"
-                                                        Visibility="{x:Bind views:TagSidebarConverters.CommandToVisibility(Commands.Delete)}" />
+                                                        ToolTipService.ToolTip="删除标签" />
                                                 </StackPanel>
                                             </Grid>
                                         </Button>

@@ -1,8 +1,11 @@
-﻿// 职责：左侧标签栏视图模型（spec Step 9/10）——配置组 + 固定末位「未分组」虚拟组的展示模型、
-//       chip 交互转发（点击 = 切换筛选；2026-09-19 交互重构：打标移交拖拽/详情页右栏/快捷键）、编辑请求上抛。
+﻿// 职责：左侧标签栏视图模型（spec Step 9/10）——配置组的展示模型、chip 交互转发
+//       （点击 = 切换筛选；2026-09-19 交互重构：打标移交拖拽/详情页右栏/快捷键）、编辑请求上抛。
 // 不变量：组/chip 为不可变快照对象——任何变化（计数刷新/筛选切换/配置编辑）经 Rebuild 全量重建
 //         （侧栏规模为几十个 chip，重建开销可忽略，换取免 INPC 的简单性）；
-//         「未分组」为索引 TagCounts 中不属于任何配置组的标签聚合（不可配置互斥属性、兼容组语义、可筛选）；
+//         聚合类 UI 完全忽略无组标签（2026-09-19 用户拍板推翻 4679a12 引入的「未分组」虚拟组
+//         与「曾见即留」记忆）：侧栏只遍历配置组——文件名中不属于任何配置组的标签不显示、
+//         不可筛选；无组脏数据的清理出口 = 单图右栏 chips 的 ✕（RemoveCurrentImageTagAsync），
+//         或在配置组内新建同名标签自然「收编」（按名匹配配置，无需额外代码）；
 //         chip 点击经 HandleChipTappedAsync 转发（MainViewModel 切筛选并处理单图→图库回切）；
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
 //         落盘/索引/配置持久化统一在 MainViewModel.ExecuteTagEditAsync。
@@ -80,12 +83,6 @@ public sealed class TagEditInput
 /// </summary>
 public partial class TagSidebarViewModel : ObservableObject
 {
-    /// <summary>未分组虚拟组的固定 Id（不存在于配置 TagGroups 中）。</summary>
-    public const string UngroupedGroupId = "__ungrouped__";
-
-    /// <summary>未分组虚拟组的显示名（固定末位）。</summary>
-    public const string UngroupedGroupName = "未分组";
-
     private readonly MainViewModel _owner;
 
     public TagSidebarViewModel(MainViewModel owner)
@@ -103,17 +100,7 @@ public partial class TagSidebarViewModel : ObservableObject
     /// </summary>
     private readonly HashSet<string> _collapsedGroupIds = [];
 
-    /// <summary>
-    /// 会话内已见未分组标签记忆（2026-09-19 走查修复）：未分组行原仅由计数快照生成，
-    /// 计数归零即从标签库消失——用户从详情页移除某标签的最后一处引用后，该标签在侧栏
-    /// 无迹可寻、无法再筛选或重新打标。改为「曾见即留」：本会话内出现过的未分组标签
-    /// 计数归零后仍保留行（计数 0）；显式删除/重命名经 <see cref="ForgetUngroupedTag"/>
-    /// 摘除。不落盘——未分组的事实源始终是文件名，重启后无引用即不存在
-    /// （与「索引为可丢弃缓存」的架构口径一致）。
-    /// </summary>
-    private readonly HashSet<string> _knownUngroupedTags = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>展示的组序列（配置组顺序 + 未分组虚拟组末位）。</summary>
+    /// <summary>展示的组序列（仅配置组，按配置顺序；2026-09-19 口径：不再追加「未分组」虚拟组）。</summary>
     public ObservableCollection<TagGroupViewModel> Groups { get; } = [];
 
     /// <summary>是否无任何组/标签（空态引导）。</summary>
@@ -125,7 +112,8 @@ public partial class TagSidebarViewModel : ObservableObject
     private void AddGroup() => RaiseEdit(new TagEditRequest { Kind = TagEditKind.AddGroup });
 
     /// <summary>
-    /// 全量重建组/chip（UI 线程）：配置组 + 未分组虚拟组（索引计数中不属于任何配置组的标签）。
+    /// 全量重建组/chip（UI 线程）：仅配置组——索引计数中不属于任何配置组的标签被忽略
+    /// （2026-09-19 用户拍板：聚合类 UI 完全忽略无组标签，对齐 demo 只遍历配置组）。
     /// </summary>
     /// <param name="configGroups">配置组（SettingsService.Load().TagGroups）。</param>
     /// <param name="tagCounts">最近一次索引标签计数快照。</param>
@@ -169,53 +157,10 @@ public partial class TagSidebarViewModel : ObservableObject
                 group.Id,
                 group.Name,
                 group.Exclusive,
-                isUngrouped: false,
                 totalCount,
                 chips,
                 CreateGroupCommands(group),
                 isExpanded: !_collapsedGroupIds.Contains(group.Id)));
-        }
-
-        // 未分组虚拟组：索引计数中不属于任何配置组的标签（可筛选、不可配置互斥属性）。
-        var ungrouped = new List<TagChipViewModel>();
-        var ungroupedTotal = 0;
-
-        // 「曾见即留」：计数快照中的未分组标签并入会话记忆；行集合 = 记忆全集
-        //（计数为 0 的保留行显示 0），显式删除/重命名经 ForgetUngroupedTag 摘除。
-        foreach (var pair in tagCounts)
-        {
-            if (!configuredNames.Contains(pair.Key))
-            {
-                _knownUngroupedTags.Add(pair.Key);
-            }
-        }
-
-        foreach (var name in _knownUngroupedTags.OrderBy(static n => n, StringComparer.CurrentCulture))
-        {
-            var count = tagCounts.TryGetValue(name, out var value) && !configuredNames.Contains(name)
-                ? value
-                : 0;
-            ungroupedTotal += count;
-            ungrouped.Add(new TagChipViewModel(
-                name,
-                count,
-                activeFilters.Contains(name),
-                showRadioDot: false,
-                ownerGroup: null,
-                CreateUngroupedChipEditCommands(name)));
-        }
-
-        if (ungrouped.Count > 0)
-        {
-            Groups.Add(new TagGroupViewModel(
-                UngroupedGroupId,
-                UngroupedGroupName,
-                exclusive: false,
-                isUngrouped: true,
-                ungroupedTotal,
-                ungrouped,
-                GroupCommands.NoCommands,
-                isExpanded: !_collapsedGroupIds.Contains(UngroupedGroupId)));
         }
 
         // 清理折叠集合中已删除组的残留项（按现存组 Id 交集，避免集合无界增长）。
@@ -224,12 +169,6 @@ public partial class TagSidebarViewModel : ObservableObject
         IsEmpty = Groups.Count == 0;
         return tagHuesChanged;
     }
-
-    /// <summary>
-    /// 从「曾见即留」记忆中摘除未分组标签（显式删除/重命名标签成功后由宿主调用，
-    /// 使其按旧语义从标签库消失，避免已删除标签以 0 计数行残留）。
-    /// </summary>
-    public void ForgetUngroupedTag(string tagName) => _knownUngroupedTags.Remove(tagName);
 
     /// <summary>
     /// 展开/折叠切换（组头整行按钮的点击入口，TagSidebarControl.OnGroupHeaderClicked 转发）：
@@ -253,30 +192,14 @@ public partial class TagSidebarViewModel : ObservableObject
     public Task HandleChipTappedAsync(TagChipViewModel chip)
         => _owner.HandleTagChipTappedAsync(chip.Name);
 
-    /// <summary>配置组内标签的编辑命令集（重命名/删除）。</summary>
+    /// <summary>配置组内标签的编辑命令集（重命名/删除）——侧栏标签行均属配置组
+    /// （2026-09-19 口径：无组标签不经侧栏展示/编辑，清理走右栏 chips ✕ 或配置组同名收编）。</summary>
     private TagChipCommands CreateChipEditCommands(TagGroup group, string tagName)
         => new(
             Rename: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.RenameTag, group, tagName))),
             Delete: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.DeleteTag, group, tagName))));
-
-    /// <summary>
-    /// 未分组标签的编辑命令（2026-09-17 走查修复：存量标签同样需要重命名/删除入口——
-    /// TagService 按名操作文件，与配置无关；Execute*Async 对 GroupId=null 走"仅动文件、不动配置"分支）。
-    /// </summary>
-    private TagChipCommands CreateUngroupedChipEditCommands(string tagName) => new(
-        Rename: new RelayCommand(() => RaiseEdit(BuildUngroupedTagRequest(TagEditKind.RenameTag, tagName))),
-        Delete: new RelayCommand(() => RaiseEdit(BuildUngroupedTagRequest(TagEditKind.DeleteTag, tagName))));
-
-    private TagEditRequest BuildUngroupedTagRequest(TagEditKind kind, string tagName) => new()
-    {
-        Kind = kind,
-        GroupId = null,
-        GroupName = UngroupedGroupName,
-        TagName = tagName,
-        AffectedCount = _owner.GetTagCount(tagName),
-    };
 
     private GroupCommands CreateGroupCommands(TagGroup group)
         => new(
@@ -347,19 +270,15 @@ public partial class TagSidebarViewModel : ObservableObject
 /// <param name="DeleteGroup">删除组（含影响张数确认）。</param>
 /// <param name="ToggleExclusive">互斥 ⇄ 兼容切换。</param>
 public sealed record GroupCommands(
-    ICommand? AddTag,
-    ICommand? RenameGroup,
-    ICommand? DeleteGroup,
-    ICommand? ToggleExclusive)
-{
-    /// <summary>无命令（未分组虚拟组：不可配置）。</summary>
-    public static GroupCommands NoCommands { get; } = new(null, null, null, null);
-}
+    ICommand AddTag,
+    ICommand RenameGroup,
+    ICommand DeleteGroup,
+    ICommand ToggleExclusive);
 
 /// <summary>标签 chip 命令集（编辑操作；点击主行为经 HandleChipTappedAsync 分流，见 Step 10）。</summary>
-/// <param name="Rename">重命名标签（未分组标签为 null）。</param>
-/// <param name="Delete">删除标签（未分组标签为 null）。</param>
-public sealed record TagChipCommands(ICommand? Rename, ICommand? Delete);
+/// <param name="Rename">重命名标签。</param>
+/// <param name="Delete">删除标签。</param>
+public sealed record TagChipCommands(ICommand Rename, ICommand Delete);
 
 /// <summary>标签组展示模型（不可变快照，经 Rebuild 全量重建）。</summary>
 public sealed class TagGroupViewModel
@@ -368,7 +287,6 @@ public sealed class TagGroupViewModel
         string id,
         string name,
         bool exclusive,
-        bool isUngrouped,
         int totalCount,
         IReadOnlyList<TagChipViewModel> tags,
         GroupCommands commands,
@@ -377,17 +295,13 @@ public sealed class TagGroupViewModel
         Id = id;
         Name = name;
         Exclusive = exclusive;
-        IsUngrouped = isUngrouped;
-        // 组色相由组名哈希（对齐 demo hueOf；未分组固定灰蓝低饱和），纯展示字段不持久化。
-        Hue = isUngrouped ? UngroupedHue : HueOfName(name);
+        // 组色相由组名哈希（对齐 demo hueOf），纯展示字段不持久化。
+        Hue = HueOfName(name);
         TotalCount = totalCount;
         Tags = tags;
         Commands = commands;
         IsExpanded = isExpanded;
     }
-
-    /// <summary>未分组虚拟组的固定色相（灰蓝 220，配低饱和使用）。</summary>
-    public const int UngroupedHue = 220;
 
     /// <summary>组名 → 色相（0-359）：与 demo.js hueOf 相同的多项式 31 哈希（按 UTF-16 码元逐项累加）。</summary>
     public static int HueOfName(string name)
@@ -401,7 +315,7 @@ public sealed class TagGroupViewModel
         return h;
     }
 
-    /// <summary>组 Id（未分组为 <see cref="TagSidebarViewModel.UngroupedGroupId"/>）。</summary>
+    /// <summary>组 Id。</summary>
     public string Id { get; }
 
     /// <summary>组名。</summary>
@@ -409,9 +323,6 @@ public sealed class TagGroupViewModel
 
     /// <summary>是否互斥组（chip 单选圆点样式依据）。</summary>
     public bool Exclusive { get; }
-
-    /// <summary>是否「未分组」虚拟组（隐藏组管理按钮）。</summary>
-    public bool IsUngrouped { get; }
 
     /// <summary>组色相（chip 边框/底色由 x:Bind 转换器转为 HSL 画刷；纯展示，不持久化）。</summary>
     public int Hue { get; }
@@ -429,7 +340,7 @@ public sealed class TagGroupViewModel
     public GroupCommands Commands { get; }
 }
 
-/// <summary>标签 chip 展示模型（不可变快照）。</summary>
+/// <summary>标签 chip 展示模型（不可变快照；恒属一个配置组——2026-09-19 口径下侧栏不再展示无组标签）。</summary>
 public sealed class TagChipViewModel
 {
     public TagChipViewModel(
@@ -437,7 +348,7 @@ public sealed class TagChipViewModel
         int count,
         bool isFilterActive,
         bool showRadioDot,
-        TagGroup? ownerGroup,
+        TagGroup ownerGroup,
         TagChipCommands commands)
     {
         Name = name;
@@ -445,8 +356,8 @@ public sealed class TagChipViewModel
         IsFilterActive = isFilterActive;
         ShowRadioDot = showRadioDot;
         OwnerGroup = ownerGroup;
-        // chip 色相跟随所属组（未分组灰蓝 220），纯展示字段不持久化。
-        Hue = ownerGroup is null ? TagGroupViewModel.UngroupedHue : TagGroupViewModel.HueOfName(ownerGroup.Name);
+        // chip 色相跟随所属组，纯展示字段不持久化。
+        Hue = TagGroupViewModel.HueOfName(ownerGroup.Name);
         Commands = commands;
     }
 
@@ -465,8 +376,8 @@ public sealed class TagChipViewModel
     /// <summary>chip 色相（胶囊边框/底色；纯展示，不持久化）。</summary>
     public int Hue { get; }
 
-    /// <summary>所属配置组（未分组虚拟组为 null——打标按兼容组/非互斥叠加语义）。</summary>
-    public TagGroup? OwnerGroup { get; }
+    /// <summary>所属配置组（拖拽打标消费；非空——无组标签不经侧栏展示）。</summary>
+    public TagGroup OwnerGroup { get; }
 
     /// <summary>chip 命令集。</summary>
     public TagChipCommands Commands { get; }

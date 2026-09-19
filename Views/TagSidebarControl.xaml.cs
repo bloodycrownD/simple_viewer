@@ -12,7 +12,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
-using System.Windows.Input;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 
@@ -215,7 +214,8 @@ public sealed partial class TagSidebarControl : UserControl
 
     /// <summary>
     /// 标签行 Drop：清除高亮 → Tag 槽位回查 chip VM → MainViewModel.ApplyTagToDraggedCardsAsync
-    /// （未分组标签按兼容组兜底；路径集消费后自清，空 payload/外部拖入在 VM 侧忽略）。
+    /// （chip.OwnerGroup 恒非空——2026-09-19 口径下侧栏仅配置组行，无组行可拖；
+    /// 路径集消费后自清，空 payload/外部拖入在 VM 侧忽略）。
     /// </summary>
     private void OnTagRowDrop(object sender, DragEventArgs e)
     {
@@ -377,7 +377,7 @@ public static class TagSidebarConverters
 
     /// <summary>互斥组单选圆点描边：激活 = 白；未激活 = 组 hue 45%（沿用胶囊时代样式）。</summary>
     public static Brush RadioDotStroke(int hue, bool isActive)
-        => isActive ? WhiteBrush : FromHsl(hue, IsUngroupedHue(hue) ? 0.15 : 0.45, 0.55, 0xFF);
+        => isActive ? WhiteBrush : FromHsl(hue, 0.45, 0.55, 0xFF);
 
     /// <summary>互斥组单选圆点填充：激活 = 白实心；未激活 = 透明（仅描边）。</summary>
     public static Brush RadioDotFill(bool isActive)
@@ -419,23 +419,18 @@ public static class TagSidebarConverters
             Windows.UI.Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
     }
 
-    /// <summary>筛选 chip 边框：所属组 hue 55% 透明（未分组灰蓝）。</summary>
+    /// <summary>筛选 chip 边框：所属组 hue 55% 透明（2026-09-19 口径：激活筛选标签必属配置组，
+    /// 原「未分组」灰蓝特判已随筛选入口移除成死分支而删除）。</summary>
     public static Brush FilterChipBorderBrush(string groupName)
-        => FilterHue(groupName) is int hue
-            ? FromHsl(hue, 0.45, 0.55, AlphaBorder)
-            : FromHsl(TagGroupViewModel.UngroupedHue, 0.15, 0.55, AlphaBorder);
+        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.45, 0.55, AlphaBorder);
 
     /// <summary>筛选 chip 底色：所属组 hue 10% 淡底。</summary>
     public static Brush FilterChipBackground(string groupName)
-        => FilterHue(groupName) is int hue
-            ? FromHsl(hue, 0.50, 0.50, AlphaFaint)
-            : FromHsl(TagGroupViewModel.UngroupedHue, 0.10, 0.50, AlphaFaint);
+        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.50, 0.50, AlphaFaint);
 
     /// <summary>筛选 chip 字色：所属组 hue 中亮度（深浅主题均可读）。</summary>
     public static Brush FilterChipForeground(string groupName)
-        => FilterHue(groupName) is int hue
-            ? FromHsl(hue, 0.55, 0.50, 0xFF)
-            : FromHsl(TagGroupViewModel.UngroupedHue, 0.20, 0.65, 0xFF);
+        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.55, 0.50, 0xFF);
 
     /// <summary>bool → 可见。</summary>
     public static Visibility BoolToVisibility(bool value)
@@ -458,22 +453,6 @@ public static class TagSidebarConverters
     /// 字形缺失方块时备选 U+25B6/U+25BC）。
     /// </summary>
     public static string ChevronGlyph(bool isExpanded) => isExpanded ? "\u25BE" : "\u25B8";
-
-    /// <summary>非未分组 → 可见（组管理按钮）。</summary>
-    public static Visibility NotUngroupedToVisibility(bool isUngrouped)
-        => isUngrouped ? Visibility.Collapsed : Visibility.Visible;
-
-    /// <summary>命令存在 → 可见（未分组标签无重命名/删除按钮）。</summary>
-    public static Visibility CommandToVisibility(ICommand? command)
-        => command is null ? Visibility.Collapsed : Visibility.Visible;
-
-    /// <summary>组名 → 组色相（未分组虚拟组返回 null，由调用处走灰蓝低饱和分支）。</summary>
-    private static int? FilterHue(string groupName)
-        => TagSidebarViewModel.UngroupedGroupName.Equals(groupName, StringComparison.Ordinal)
-            ? null
-            : TagGroupViewModel.HueOfName(groupName);
-
-    private static bool IsUngroupedHue(int hue) => hue == TagGroupViewModel.UngroupedHue;
 
     /// <summary>
     /// HSL → SolidColorBrush（hue 0-359；sat/light 0-1；alpha 半透明叠加用）。
