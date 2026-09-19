@@ -329,6 +329,69 @@ public class SettingsServiceTests
         Assert.Null(Record.Exception(() => SettingsService.ValidateBindings(settings)));
     }
 
+    /// <summary>cr/P2-12：含重复绑定的 v1 配置——迁移回写被保存校验拒绝（重复绑定），Load 静默容忍并返回已迁移的内存对象，不抛异常。</summary>
+    [Fact]
+    public void T_ST_10_V1ConfigWithDuplicateBindings_LoadToleratesMigrationWriteBackFailure()
+    {
+        var settingsPath = CreateTempSettingsPath();
+        try
+        {
+            var v1Json = """
+                {
+                  "version": 1,
+                  "shortcuts": [
+                    { "virtualKey": "Right", "modifiers": [], "command": "nextImage" },
+                    { "virtualKey": "Right", "modifiers": [], "command": "prevImage" }
+                  ]
+                }
+                """;
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+            File.WriteAllText(settingsPath, v1Json);
+
+            var settings = new SettingsService(settingsPath).Load();
+
+            // 内存对象：迁移已完成且可用（回写失败被静默吞掉，不上抛）。
+            Assert.Equal(2, settings.Version);
+            Assert.NotNull(settings.TagGroups);
+            Assert.Empty(settings.TagGroups);
+            Assert.Equal(2, settings.Shortcuts.Count);
+        }
+        finally
+        {
+            CleanupTempDirectory(settingsPath);
+        }
+    }
+
+    /// <summary>cr/P2-12："shortcuts": null 的 v1 损坏配置——Validate null 防御 + 迁移补空，Load 不抛且返回可直接消费的对象。</summary>
+    [Fact]
+    public void T_ST_11_V1ConfigWithNullShortcuts_LoadReturnsUsableSettings()
+    {
+        var settingsPath = CreateTempSettingsPath();
+        try
+        {
+            var v1Json = """
+                {
+                  "version": 1,
+                  "shortcuts": null
+                }
+                """;
+            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+            File.WriteAllText(settingsPath, v1Json);
+
+            var settings = new SettingsService(settingsPath).Load();
+
+            Assert.Equal(2, settings.Version);
+            Assert.NotNull(settings.Shortcuts); // 补空：消费方（如 SettingsViewModel 构造器的 foreach）不 NRE
+            Assert.Empty(settings.Shortcuts);
+            Assert.NotNull(settings.TagGroups);
+            Assert.Empty(settings.TagGroups);
+        }
+        finally
+        {
+            CleanupTempDirectory(settingsPath);
+        }
+    }
+
     /// <summary>构造含标签组配置与指定快捷键绑定的设置（标签组含 tag-1/tag-2 两个可选标签）。</summary>
     private static AppSettings WithTagGroups(params ShortcutBinding[] shortcuts)
     {

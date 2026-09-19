@@ -44,11 +44,22 @@ public sealed class SettingsService : ISettingsService
         }
 
         // v1 → v2 迁移：TagGroups 缺失（或显式 null）补空列表，版本升 2 并回写磁盘。
+        // "shortcuts": null 的损坏配置同样补空（null 按空集合口径，返回对象可直接消费）。
         if (settings.Version < 2)
         {
             settings.TagGroups ??= [];
+            settings.Shortcuts ??= [];
             settings.Version = 2;
-            Save(settings);
+            try
+            {
+                Save(settings);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // 回写属尽力而为（cr/P2-12）：IO/权限失败，或既有配置未过保存校验（如重复绑定）时
+                // 静默放过，返回已迁移的内存对象——Load 位于击键热路径，不因回写失败整体失败；
+                // 磁盘留待下次具备写权限/配置被修正后的 Save 落盘。
+            }
         }
 
         return settings;
@@ -103,7 +114,8 @@ public sealed class SettingsService : ISettingsService
     {
         ValidateNoDuplicateBindings(settings);
 
-        foreach (var binding in settings.Shortcuts)
+        // null 防御（cr/P2-12）：与 ValidateNoDuplicateBindings 同口径，null 按空集合。
+        foreach (var binding in settings.Shortcuts ?? new List<ShortcutBinding>())
         {
             if (string.IsNullOrWhiteSpace(binding.VirtualKey))
             {
@@ -163,7 +175,8 @@ public sealed class SettingsService : ISettingsService
             var groupName = string.IsNullOrWhiteSpace(group.Name) ? "(未命名组)" : group.Name;
             var groupTagNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var tag in group.Tags)
+            // null 防御（cr/P2-12）：损坏配置组的 tags 可为 null，按空集合口径。
+            foreach (var tag in group.Tags ?? new List<TagDefinition>())
             {
                 if (string.IsNullOrEmpty(tag.Name))
                 {
@@ -210,7 +223,8 @@ public sealed class SettingsService : ISettingsService
         var errors = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var binding in settings.Shortcuts)
+        // null 防御（cr/P2-12）：损坏配置 "shortcuts": null 反序列化为 null，按空集合口径。
+        foreach (var binding in settings.Shortcuts ?? new List<ShortcutBinding>())
         {
             var key = BuildBindingKey(binding);
             if (!seen.Add(key))
