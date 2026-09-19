@@ -4,7 +4,8 @@
 
 - 一律用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1`，不用裸 `dotnet build`。
 - WinAppSDK 1.6 的 XamlCompiler 有间歇沉默崩溃（MSB3073、退出码 1 无输出，疑似 Defender 冷启动竞态）：脚本已内置 `-m:1 -nr:false` + 分级重试；仍失败时手动执行一次 XamlCompiler.exe 预热再重跑；根治需用户给 NuGet 缓存目录加 Defender 排除（用户未决策）。
-- 冷重建（删 obj）后偶发"CS0234 引用级联失败"（还原增量误判）：`dotnet restore --force` 后再 build，一般第二次成功；成功产物有效，紧随其后的增量 build 失败可忽略。
+- 冷重建（删 obj）后偶发"CS0234 引用级联失败"（还原增量误判）：`dotnet restore --force` 后再 build，一般第二次成功；成功产物有效，紧随其后的增量 build 失败可忽略。另：还原后校验 `obj\SimpleViewer.csproj.nuget.g.props` 是否存在，缺失则 `dotnet restore SimpleViewer.csproj --force` 重试（间歇不生成该文件时表现即全量 CS0234）。
+- **XamlCompiler 确定性崩溃（2026-09-19 二分实锤，与 Defender 竞态无关）**：ChromeLayer 内 MainAreaGrid 作为**最后一个子元素**时 XamlCompiler Pass1 沉默崩溃（MSB3073、退出码 1 无输出，冷热 obj 均复现）——解法：把 MainInfoBar 块移到 MainAreaGrid 之后（Grid 按 Grid.Row 定位，子元素顺序不影响布局）；MainWindow.xaml 相应位置有注释，改此区域时保持该顺序。
 - **双 csproj 同目录同 TFM 的还原踩踏（2026-09-19 实锤，当日已升级为必现）**：`SimpleViewer.csproj` 与 `SimpleViewer.Core.csproj` 共享 `obj\project.assets.json`，`dotnet restore`（含 build.ps1 前置还原）与 **`dotnet build sln` 的隐式 restore** 都会把 assets 覆盖为 Core-only，UI 工程缺 WinAppSDK/CommunityToolkit → 全量 CS0234/CS0246。解法：`dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64` 定向还原后，用与 build.ps1 循环体同款参数 `--no-restore` build（如 `dotnet build SimpleViewer.sln -c Debug -p:Platform=x64 --nologo -v:q -m:1 -nr:false --no-restore`）；遇"突然全量引用错误"先跑定向还原，别怀疑代码。
 - **重建前必须 `taskkill /IM viewer.exe /F`**——运行中的 viewer 锁 DLL 导致复制失败（注意 cmd 下用 `&` 分隔，`;` 会让杀进程静默失败）。
 

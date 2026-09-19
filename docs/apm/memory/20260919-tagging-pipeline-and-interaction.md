@@ -74,3 +74,9 @@ user:
 
 assistant:
 敏捷项 selection-and-zoom-polish（三提交，71/71 绿）："水印"即用户自建标签组（侧栏有"水印"组），toast=打标回执 InfoBar。①29e3949 选择模型 Explorer 心智：无修饰=单选重置（SelectSingleCard，点已选卡保持选中）、Ctrl=toggle 加减选（IsControlKeyDown 只判 Down）、Shift=范围重置（SelectCardRange 先清再选，原为纯加选）；状态行右侧新增「清除选择」按钮（常显灰态、CanExecute=HasSelection 联动）；demo onCardClick 同步。②8874d93 成功回执一律静默（全成功分支不弹且关残留回执，exclusiveHint 删除；单图 BeginTagOperation(showProgress:false) 不再弹"正在处理"一闪）；失败/警告回执与批量进度保留（PRD 验收项，口径修订记于敏捷 PRD）；附带收益=InfoBar 不弹则 TopChromeHeight 不被推高、右栏避让区不抖。③97daba 放大置底：整体拆除 IsCurrentImageZoomed 链（UpdateZoomLayering/_isCurrentImageZoomed+回图库清理/MainWindow 订阅与处理器/两处 XAML 注释改置底口径），推翻同日早前"最高层"拍板；缩放交互态（_zoomOwnerPath/全分辨率升级/切图复位）保留。实机走查（主代理）：目录选择器打标成功与 chip ✕ 移除均无 InfoBar、chip 就地更新；raw 点击卡片 A→"已选 1 张"→点击 B→仍 1 张（单选重置）→点清除选择→0 张按钮禁用；Ctrl/Shift 注入不可达（GetKeyStateForCurrentThread 读不到分批注入的修饰键，与拖拽滚轮同列）——分流代码人工审查与拍板一致，留用户实机。走查顺手恢复 test-library（打标后移除）。留痕 features/selection-and-zoom-polish prd+spec。
+
+user:
+还有几个需要调整的：1. 下侧状态栏是不是多余？感觉被右侧栏替代了，而且 UI 上也有重叠；2. 图片详情页没有好的返回按钮，只能点工具栏"返回图库"，操作习惯上很奇怪；3. 清空选择和清空筛选两行占位置——不需要单独的清除多选按钮，多选后正常点击一张即单选（已实现），移除清除按钮就行。
+
+assistant:
+敏捷项 back-button-and-chrome-simplify（三提交，71/71 绿，主代理实机走查通过）。①0725322 状态栏整体移除：探索实锤单图内容与右栏同源重复（UpdateStatusText 同方法写两处）、图库模式显示残留文案（切模式不清）；4 类独有信息迁 InfoBar（重命名批量回执=全成功静默/有失败弹 Warning 聚合数；删除/移动/加载失败走 ShowInstantTagFeedback 即时提示）；扫描进度本就走图库状态行无丢失；BottomChromeHeight 避让半链整体移除（TopChromeHeight 保留）。②bbd3b5b 单图左上"◀ 返回图库"浮层按钮：画布层 Z1、左侧动态让出左栏宽（280+12/36+12，订阅 IsSidebarCollapsed 跟随）、顶部 TopChromeHeight 避让、无图库禁用灰态；关键点是左侧避让（否则被 chrome 层左栏遮盖，与右栏按钮被遮同构）。③c014350 撤销清除选择按钮（上轮刚加，用户权衡后移除）：ClearCardSelection 本体保留（6 存活调用点）。过程实锤新环境坑入 RULE：XamlCompiler 确定性崩溃——MainAreaGrid 作为 ChromeLayer 末子元素时 Pass1 沉默崩溃（与 Defender 无关，二分实锤），以 MainInfoBar 后置规避（Grid.Row 定位不受顺序影响）；另补 restore 后校验 nuget.g.props 存在。实机走查：CLI 直开返回按钮禁用灰态位置正确、开图库后双击进单图返回按钮启用、raw 点击真实命中回图库（选中保留）、状态行纯文本无按钮。留痕 features/back-button-and-chrome-simplify prd+spec。
