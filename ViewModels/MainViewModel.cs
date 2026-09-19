@@ -19,6 +19,7 @@
 //         无标签模式为「无标签」chip）随侧栏重建同步重建；无标签筛选与标签筛选互斥（点标签自动退出、
 //         激活无标签清空标签集），untagged-filter-entry；
 //         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         重开图库先 Cancel + await 旧扫描任务再清资源（cr/P1-1），旧扫描迟到的 UI 回投经代次校验丢弃；
 //         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
@@ -72,6 +73,13 @@ public partial class MainViewModel : ObservableObject
     // 图库状态：_galleryItems 为扫描全量暂存（后台线程写，UI 消费走 Waterfall 渐进追加）。
     private readonly List<GalleryItem> _galleryItems = [];
     private CancellationTokenSource? _scanCts;
+
+    // 扫描任务句柄与代次（cr/P1-1 重开图库竞态收口）：重开时先 Cancel + await 旧任务（吞异常）
+    // 再 Dispose 令牌/索引服务，杜绝旧续体迟到执行；代次递增使旧扫描经 Progress 异步回投 UI 的
+    // 迟到回调（状态行覆盖 / 旧块追加瀑布流）凭 generation 比对静默丢弃。均仅 UI 线程读写。
+    private Task? _scanTask;
+    private int _scanGeneration;
+
     private ILibraryIndexService? _indexService;
     private string? _libraryRootPath;
 
@@ -596,15 +604,35 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 启动/重启图库递归扫描：取消既有扫描、按根目录重建索引服务、后台消费扫描流。
+    /// 启动/重启图库递归扫描：取消并等待既有扫描彻底收尾、按根目录重建索引服务、后台消费扫描流。
+    /// 竞态收口（cr/P1-1）：重开图库时旧扫描续体曾与新扫描交错——旧 catch 覆盖新状态行、
+    /// finally 对已 Dispose 的索引服务刷新计数抛 ObjectDisposedException（全局未处理异常）、
+    /// _galleryItems 并发 Clear/Add。现先 Cancel + await 旧任务（吞异常）再清理资源，
+    /// 并以 _scanGeneration 代次丢弃仍可能迟到的 UI 回投续体（Progress 回调入队早于任务完成）。
     /// </summary>
     private async Task StartLibraryScanAsync(string root)
     {
         SimpleViewer.Services.DiagnosticTrace.Mark($"scan:start {root}");
-        _scanCts?.Cancel();
+
+        // 旧扫描收尾（cr/P1-1）：Cancel 后等待其 catch/finally 全部执行完毕，才 Dispose 令牌与
+        // 索引服务——旧任务自行收敛终态（"已取消"文案/终态计数刷新），不再污染即将开始的新扫描。
+        if (_scanTask is not null)
+        {
+            _scanCts?.Cancel();
+            try
+            {
+                await _scanTask;
+            }
+            catch
+            {
+                // 旧扫描主体的异常已由其 catch 块收敛；此处仅防御 finally 段刷新的意外逃逸。
+            }
+        }
+
         _scanCts?.Dispose();
         _scanCts = new CancellationTokenSource();
         var token = _scanCts.Token;
+        var generation = ++_scanGeneration;
 
         _libraryRootPath = root;
         HasGallery = true;
@@ -615,11 +643,6 @@ public partial class MainViewModel : ObservableObject
         var indexService = new LibraryIndexService(root, scanService: _scanService);
         _indexService?.Dispose();
         _indexService = indexService;
-
-        // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
-        // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
-        // 事实源是文件名，每次打开图库即清表重灌。
-        await indexService.ClearAllItemsAsync(token);
 
         _galleryItems.Clear();
         ClearCardSelection();
@@ -634,10 +657,45 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(OrBadgeVisibility));
         OnPropertyChanged(nameof(FilterStatsText));
 
-        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）。
-        var progress = new Progress<int>(count => ScanStatusText = $"扫描中 · 已发现 {count} 张");
+        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）；
+        // 回调内代次校验（cr/P1-1）：旧扫描已入队的 Report 在新扫描启动后才回投 UI 时静默丢弃，
+        // 避免旧扫描的状态行覆盖与旧块（可能来自另一目录）追加进新瀑布流。
+        var progress = new Progress<int>(count =>
+        {
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描中 · 已发现 {count} 张";
+            }
+        });
         IProgress<IReadOnlyList<GalleryItem>> chunkProgress =
-            new Progress<IReadOnlyList<GalleryItem>>(_waterfall.AppendChunkFromScan);
+            new Progress<IReadOnlyList<GalleryItem>>(chunk =>
+            {
+                if (generation == _scanGeneration)
+                {
+                    _waterfall.AppendChunkFromScan(chunk);
+                }
+            });
+
+        _scanTask = RunLibraryScanAsync(root, indexService, token, generation, progress, chunkProgress);
+        await _scanTask;
+    }
+
+    /// <summary>
+    /// 扫描主体（cr/P1-1 自 StartLibraryScanAsync 拆出，供 _scanTask 句柄跟踪取消与收尾）：
+    /// 清空索引缓存、后台消费扫描流、终态收敛（状态行/终态计数刷新/IsScanning 复位）。
+    /// </summary>
+    private async Task RunLibraryScanAsync(
+        string root,
+        ILibraryIndexService indexService,
+        CancellationToken token,
+        int generation,
+        IProgress<int> progress,
+        IProgress<IReadOnlyList<GalleryItem>> chunkProgress)
+    {
+        // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
+        // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
+        // 事实源是文件名，每次打开图库即清表重灌。
+        await indexService.ClearAllItemsAsync(token);
 
         // 扫描期间标签计数节流刷新（TagCounts 全表聚合较重，不宜每块刷）。
         var lastTagRefresh = Stopwatch.StartNew();
@@ -694,6 +752,12 @@ public partial class MainViewModel : ObservableObject
                 }
             }, token);
 
+            // 代次校验（cr/P1-1）：扫描期间被重开取代时不再写状态行——新扫描 owns 终态文案。
+            if (generation != _scanGeneration)
+            {
+                return;
+            }
+
             ScanStatusText = $"共 {_galleryItems.Count} 张";
             SimpleViewer.Services.DiagnosticTrace.Mark($"scan:end {_galleryItems.Count}");
             if (_galleryItems.Count == 0)
@@ -703,17 +767,38 @@ public partial class MainViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            ScanStatusText = $"扫描已取消 · 已发现 {_galleryItems.Count} 张";
+            // 代次校验（cr/P1-1）：被新扫描取代引发的取消不写状态行（旧 catch 曾覆盖新扫描文案）。
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描已取消 · 已发现 {_galleryItems.Count} 张";
+            }
         }
         catch (Exception ex)
         {
-            ScanStatusText = $"扫描失败：{ex.Message}";
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描失败：{ex.Message}";
+            }
         }
         finally
         {
             // 结束态（成功/取消/失败）统一做一次终态计数刷新，保证侧栏计数与索引一致。
-            await RefreshTagDataAsync(indexService);
-            IsScanning = false;
+            // 代次校验（cr/P1-1）：已被更新扫描取代时静默跳过——避免旧库数据覆盖新扫描计数。
+            if (generation == _scanGeneration)
+            {
+                try
+                {
+                    await RefreshTagDataAsync(indexService);
+                }
+                catch (Exception ex) when (ex is ObjectDisposedException or Microsoft.Data.Sqlite.SqliteException)
+                {
+                    // 防御（cr/P1-1）：索引服务已释放/库文件异常时不上抛——终态刷新失败仅记诊断日志，
+                    // 不能成为全局未处理异常（自动恢复启动后立即手动重开图库的竞态场景）。
+                    App.WriteDiagnosticLog($"[标签计数终态刷新失败] root={root}", ex);
+                }
+
+                IsScanning = false;
+            }
         }
     }
 
