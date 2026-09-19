@@ -230,9 +230,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedCardCount;
 
-    /// <summary>是否存在卡片选中（「清除选择」按钮的可用性）。</summary>
-    public bool HasSelection => SelectedCardCount > 0;
-
     /// <summary>批量打标 InfoBar 是否打开（D13：主窗口内嵌回执区；用户关闭经 TwoWay 写回）。</summary>
     [ObservableProperty]
     private bool _isTagFeedbackOpen;
@@ -895,7 +892,8 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 清空卡片选中集（Esc 路由 / 筛切换 / 重开图库 / 状态行「清除选择」按钮）。
+    /// 清空卡片选中集（Esc 路由 / 筛选切换 / 重开图库 / 单选与范围重置的前置清空）。
+    /// 图库状态行「清除选择」按钮已移除（2026-09-19 用户权衡：Esc 即清空，按钮冗余）。
     /// </summary>
     public void ClearCardSelection()
     {
@@ -906,16 +904,6 @@ public partial class MainViewModel : ObservableObject
 
         _selectedCards.Clear();
         SelectedCardCount = 0;
-    }
-
-    /// <summary>
-    /// 状态行「清除选择」按钮命令（2026-09-19 Explorer 心智：多选入口收窄后补显式清除）：
-    /// 转发 <see cref="ClearCardSelection"/>；无选中时禁用（常显灰态，非隐藏）。
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(HasSelection))]
-    private void ClearSelection()
-    {
-        ClearCardSelection();
     }
 
     // ==================== 打标入口与标签筛选（2026-09-19 交互重构） ====================
@@ -2427,10 +2415,8 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedCardCountChanged(int value)
     {
+        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）。
         OnPropertyChanged(nameof(GalleryStatusText));
-
-        // 选中数变化联动「清除选择」按钮可用性（无选中时禁用灰态）。
-        ClearSelectionCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsTagOperationInProgressChanged(bool value)

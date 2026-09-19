@@ -171,34 +171,21 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <!-- 图库状态行：扫描进度/共 N 张/已选 N 张（筛选命中数在筛选条显示）；
-                         右侧「清除选择」按钮（2026-09-19 Explorer 心智：多选入口收窄后补显式清除；
-                         无选中时常显禁用灰态，对照筛选条「清空筛选」按钮先例） -->
+                    <!-- 图库状态行：扫描进度/共 N 张/已选 N 张（筛选命中数在筛选条显示）。
+                         「清除选择」按钮已移除（2026-09-19 用户权衡：Esc/点击空白即清空，
+                         常显禁用按钮属冗余视觉噪音；对照 29e3949 引入侧回退）。 -->
                     <Border
                         Grid.Row="0"
                         Padding="16,6"
                         Background="{ThemeResource LayerFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="0,0,0,1">
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Column="0"
-                                FontSize="12"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{x:Bind ViewModel.GalleryStatusText, Mode=OneWay}"
-                                TextTrimming="CharacterEllipsis"
-                                TextWrapping="NoWrap" />
-                            <Button
-                                Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Command="{x:Bind ViewModel.ClearSelectionCommand}"
-                                Content="清除选择"
-                                Style="{StaticResource GhostButtonStyle}" />
-                        </Grid>
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{x:Bind ViewModel.GalleryStatusText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis"
+                            TextWrapping="NoWrap" />
                     </Border>
 
                     <!-- 筛选条（Step 11，视觉对齐 demo #filterBar）：强调色 12% 透明底一行；
