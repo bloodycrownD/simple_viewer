@@ -256,7 +256,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isTagFeedbackOpen;
 
-    /// <summary>回执严重级别（进行中 Informational / 成功 Success / 部分失败 Warning / 全失败 Error）。</summary>
+    /// <summary>回执严重级别（进行中 Informational / 部分失败 Warning / 全失败 Error；2026-09-19 成功静默拍板后不再使用 Success）。</summary>
     [ObservableProperty]
     private InfoBarSeverity _tagFeedbackSeverity = InfoBarSeverity.Informational;
 
@@ -1137,7 +1137,7 @@ public partial class MainViewModel : ObservableObject
         {
             BeginTagOperation(title, showProgress: true, candidates.Count);
             var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove: false, showProgress: true);
-            ShowTagOperationResult(result, sync, exclusiveHint: group.Exclusive);
+            ShowTagOperationResult(result, sync);
             await RefreshTagDataAsync();
         }
         finally
@@ -1222,7 +1222,7 @@ public partial class MainViewModel : ObservableObject
             BeginTagOperation(title, showProgress: false, totalCount: 1);
             var (result, sync) = await RunTagOperationAsync(
                 [candidate], group, tagName, remove, showProgress: false);
-            ShowTagOperationResult(result, sync, exclusiveHint: !remove && group.Exclusive);
+            ShowTagOperationResult(result, sync);
             await RefreshTagDataAsync();
 
             // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
@@ -1370,7 +1370,11 @@ public partial class MainViewModel : ObservableObject
         return (new BatchOperationResult(succeeded, failures), new SyncResult(syncedTotal, failedTotal));
     }
 
-    /// <summary>进入批量操作态：打开 InfoBar、重置进度（D13）。</summary>
+    /// <summary>
+    /// 进入批量操作态（D13）：重置进度；showProgress=true（批量）时打开 InfoBar 显示进度
+    ///（PRD 验收项）；showProgress=false（单图）不弹——“正在处理…”一闪无信息量
+    ///（2026-09-19 成功静默拍板），失败终态由 <see cref="ShowTagOperationResult"/> 弹出。
+    /// </summary>
     private void BeginTagOperation(string title, bool showProgress, int totalCount)
     {
         TagFeedbackSeverity = InfoBarSeverity.Informational;
@@ -1381,36 +1385,37 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));
         IsTagOperationInProgress = showProgress;
         TagOperationProgress = 0;
-        IsTagFeedbackOpen = true;
+        if (showProgress)
+        {
+            IsTagFeedbackOpen = true;
+        }
     }
 
-    /// <summary>终态回执：成功 Success、含失败 Warning（部分）/Error（全部）；失败明细可展开（成功不回滚）。</summary>
-    private void ShowTagOperationResult(BatchOperationResult result, SyncResult sync, bool exclusiveHint)
+    /// <summary>
+    /// 终态回执（2026-09-19 成功静默拍板）：全成功一律不弹——就地反馈已充分
+    ///（卡片角标/右栏 chips/侧栏计数），并顺手关掉可能残留的上次失败回执；
+    /// 互斥替换括注随成功静默消失（chips 就地可见替换结果）；
+    /// 含失败才弹 Warning（部分）/Error（全部），失败明细可展开（成功项不回滚）。
+    /// </summary>
+    private void ShowTagOperationResult(BatchOperationResult result, SyncResult sync)
     {
         IsTagOperationInProgress = false;
         var failedCount = Math.Max(result.Failures.Count, sync.Failed);
         if (failedCount == 0)
         {
-            TagFeedbackSeverity = InfoBarSeverity.Success;
-            TagFeedbackMessage = result.SucceededCount == 1
-                ? "已生效。"
-                : $"成功 {result.SucceededCount} 张。";
-            if (exclusiveHint && result.SucceededCount > 0)
-            {
-                TagFeedbackMessage += "（互斥组：同组旧标签已替换）";
-            }
-
             _tagFeedbackDetails = [];
+            OnPropertyChanged(nameof(HasTagFeedbackDetails));
+            OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));
+            IsTagFeedbackOpen = false;
+            return;
         }
-        else
-        {
-            TagFeedbackSeverity = result.SucceededCount > 0 || sync.Synced > 0
-                ? InfoBarSeverity.Warning
-                : InfoBarSeverity.Error;
-            TagFeedbackMessage =
-                $"成功 {result.SucceededCount} 张，失败 {failedCount} 张（成功项不回滚，失败项可重试）。";
-            _tagFeedbackDetails = BuildFailureDetails(result.Failures);
-        }
+
+        TagFeedbackSeverity = result.SucceededCount > 0 || sync.Synced > 0
+            ? InfoBarSeverity.Warning
+            : InfoBarSeverity.Error;
+        TagFeedbackMessage =
+            $"成功 {result.SucceededCount} 张，失败 {failedCount} 张（成功项不回滚，失败项可重试）。";
+        _tagFeedbackDetails = BuildFailureDetails(result.Failures);
 
         OnPropertyChanged(nameof(HasTagFeedbackDetails));
         OnPropertyChanged(nameof(TagFeedbackDetailsVisibility));

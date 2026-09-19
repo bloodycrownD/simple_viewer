@@ -117,8 +117,8 @@
         </Border>
 
         <!-- 批量打标进度/回执区（D13：主窗口内嵌 InfoBar，非 ContentDialog）：
-             进行中显示 ProgressBar 分批推进；终态回执“成功 N / 失败 M”，失败明细可滚动展开；
-             用户关闭经 TwoWay 写回 VM（下次操作重新打开） -->
+             批量进行中显示 ProgressBar 分批推进；成功一律静默不弹（2026-09-19 拍板——就地反馈已充分，
+             仅失败/警告弹终态回执，失败明细可滚动展开）；用户关闭经 TwoWay 写回 VM（下次操作重新打开） -->
         <InfoBar
             x:Name="MainInfoBar"
             Grid.Row="1"
