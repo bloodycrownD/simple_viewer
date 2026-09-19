@@ -145,11 +145,14 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- 标签区：标题「标签」+ ＋ 打开目录选择器；chips 流（✕ 移除）+ 空态文案 -->
+                <!-- 标签区：标题「标签」+ ＋ 打开目录选择器；chips 流（✕ 移除）+ 空态文案。
+                     2026-09-19 用户走查：chips 不再弹性撑满剩余高度（标签少时的大段空白
+                     被误读为"这地方缺内容"）——改内容自适应 + MaxHeight 380 限高滚动
+                     （标签很多的图在限高内滚动），空白自然落在面板底部。 -->
                 <Grid Grid.Row="2" RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -168,8 +171,10 @@
                             Style="{StaticResource GhostIconButtonStyle}"
                             ToolTipService.ToolTip="添加标签（打开标签目录）" />
                     </Grid>
+                    <!-- 限高滚动：内容自适应高度，超过 380 后内部滚动（不占满剩余面板） -->
                     <ScrollViewer
                         Grid.Row="1"
+                        MaxHeight="380"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto"
                         ZoomMode="Disabled">

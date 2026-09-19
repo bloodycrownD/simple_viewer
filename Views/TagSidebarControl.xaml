@@ -62,10 +62,12 @@
                 ToolTipService.ToolTip="收起标签栏（向左收拢）" />
         </Grid>
 
-        <!-- 组列表（仅配置组；2026-09-19 口径：无组标签不在侧栏聚合展示） -->
+        <!-- 组列表（仅配置组；2026-09-19 口径：无组标签不在侧栏聚合展示）；
+             右 Padding 14 让出覆盖式滚动条宽度——行右计数不再被遮挡（与目录弹窗同修） -->
         <ScrollViewer
             Grid.Row="1"
             HorizontalScrollBarVisibility="Disabled"
+            Padding="0,0,14,0"
             VerticalScrollBarVisibility="Auto"
             ZoomMode="Disabled">
             <ItemsRepeater ItemsSource="{x:Bind ViewModel.Groups, Mode=OneWay}">
@@ -202,7 +204,9 @@
                                                         VerticalAlignment="Stretch"
                                                         Background="{x:Bind views:TagSidebarConverters.TreeLineBrush()}" />
                                                 </Border>
-                                                <!-- 互斥组单选圆点（hue 描边；激活白实心；兼容组整列收起） -->
+                                                <!-- 行首语义标记（radio/checkbox 隐喻，2026-09-19 统一）：
+                                                     互斥组 = 单选圆点、兼容组 = 多选方框（7×7 圆角方），
+                                                     均为组色相描边、激活白实心；同行两者互斥显示，列宽对齐 -->
                                                 <Ellipse
                                                     Grid.Column="1"
                                                     Width="7"
@@ -212,6 +216,16 @@
                                                     Stroke="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsFilterActive)}"
                                                     StrokeThickness="1.5"
                                                     Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ShowRadioDot)}" />
+                                                <Border
+                                                    Grid.Column="1"
+                                                    Width="7"
+                                                    Height="7"
+                                                    VerticalAlignment="Center"
+                                                    Background="{x:Bind views:TagSidebarConverters.RadioDotFill(IsFilterActive)}"
+                                                    BorderBrush="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsFilterActive)}"
+                                                    BorderThickness="1.5"
+                                                    CornerRadius="2"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.NotBoolToVisibility(ShowRadioDot)}" />
                                                 <TextBlock
                                                     Grid.Column="2"
                                                     VerticalAlignment="Center"
