@@ -312,7 +312,7 @@
 
 ## K 节建议（下游执行时闭合）
 
-1. PRD/spec 文档回写（消除文本漂移，对应 Spec deviations 四组）：
+1. PRD/spec 文档回写（消除文本漂移，对应 Spec deviations 四组）——**已闭合（2026-09-19 批 D）**：prd.md 与 spec.md 已按下列口径回写（修订标记统一为"2026-09-19 CR 修订"，spec 各 Step 追加短注不重写原文）：
    - PRD 需求 5 回写"批量移除标签收窄"口径（移除走详情页 ✕ 逐图 / 同名收编）；
    - spec 补记 LastLibraryRoot 启动自动恢复的兼容性说明；
    - 无标签筛选入口随 `features/untagged-filter-entry` 留痕回写主 PRD；
