@@ -176,3 +176,9 @@ user:
 
 assistant:
 用户纠正版本管理（e2a7d9d）：tag 反复重指 v1.0.0 是坏实践——修复应递增版本。执行：①CHANGELOG 补 [1.0.1] 节（滚动条遮挡/行首标记统一/右栏空白收敛/构建竞态收口四项）；②v1.0.0 冻结回 507f04c（拖拽修复后的完整可用态，tag 强推回退）；③v1.0.1 新 tag 于 e2a7d9d；④本地重打 SimpleViewer-v1.0.1-win-x64.zip（42.9MB 一次过，旧 1.0.0 zip 删除）；⑤两个 tag push 各触发一次 workflow——GitHub 会出现 v1.0.0 与 v1.0.1 两个 draft，留用户取舍（发布 1.0.1，1.0.0 draft 可删可留）。教训入流程认知：tag 一旦推过远端就不应移动，后续变更走新版本号。
+
+user:
+失败了
+
+assistant:
+CI 连续失败三轮定位与根除（55569d3）：run#6（v1.0.1/e2a7d9d）挂 publish NETSDK1047、run#7（v1.0.0/507f04c）同因、run#8（串行修复版）挂我新加的 fail-fast 校验——证明**单次 msbuild -t:Restore 内部主工程与传递 Core 是并行节点，竞写同一 obj\project.assets.json 后写完者胜**（"串行两次调用"挡不住内部并行；本地热 obj 时 Core 节点跳写所以看起来好了，CI 冷环境必踩）。根除：主工程还原加 **-p:RestoreRecursive=false**（不碰引用节点、唯一写者压轴），tests→Core→主工程(Recursive=false) 三步序列本地冷启动验证确定性通过；workflow 与 release.ps1 同步。run#9（55569d3/v1.0.1）全绿 1m48s——**首个成功的 CI 发布，v1.0.1 draft release 已生成**（仅 owner 可见，留用户核对 Publish）。v1.0.1 tag 两移（e2a7d9d→721b1d9→55569d3，均未产生过 release 故无副作用）。v1.0.0 tag 停在 507f04c 其 yml 无竞态修复——该 tag 的 draft 永远建不出来，告知用户可删 tag 或只发 1.0.1。经验：is:success 查询参数可绕 WebFetch 列表页缓存确认 run 终态。
