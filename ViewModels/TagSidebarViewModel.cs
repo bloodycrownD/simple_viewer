@@ -1,14 +1,13 @@
 ﻿// 职责：左侧标签栏视图模型（spec Step 9/10）——配置组 + 固定末位「未分组」虚拟组的展示模型、
-//       chip 交互分流（选中集非空/单图模式点击 = 打标，Shift = 移除；否则 = 切换筛选）、编辑请求上抛。
+//       chip 交互转发（点击 = 切换筛选；2026-09-19 交互重构：打标移交拖拽/详情页右栏/快捷键）、编辑请求上抛。
 // 不变量：组/chip 为不可变快照对象——任何变化（计数刷新/筛选切换/配置编辑）经 Rebuild 全量重建
 //         （侧栏规模为几十个 chip，重建开销可忽略，换取免 INPC 的简单性）；
 //         「未分组」为索引 TagCounts 中不属于任何配置组的标签聚合（不可配置互斥属性、兼容组语义、可筛选）；
-//         chip 点击经 HandleChipTappedAsync 分流（Step 10 语义，对齐 demo onChipClick）：
-//         单图模式 → 当前图打标；选中集非空 → 批量打标/Shift 移除；其余 → 切换筛选；
+//         chip 点击经 HandleChipTappedAsync 转发（MainViewModel 切筛选并处理单图→图库回切）；
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
 //         落盘/索引/配置持久化统一在 MainViewModel.ExecuteTagEditAsync。
 // 调用链：MainViewModel.RefreshTagDataAsync → TagSidebarViewModel.Rebuild → TagSidebarControl（绑定）；
-//         chip 点击 → TagSidebarControl.OnChipTapped → HandleChipTappedAsync → MainViewModel.HandleTagChipTappedAsync；
+//         chip 点击 → TagSidebarControl.OnChipClicked → HandleChipTappedAsync → MainViewModel.HandleTagChipTappedAsync；
 //         chip/组命令 → TagEditRequest → MainWindow.ShowTagEditorAsync → TagEditDialog → MainViewModel.ExecuteTagEditAsync。
 
 using System.Collections.ObjectModel;
@@ -223,11 +222,11 @@ public partial class TagSidebarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// chip 点击分流入口（TagSidebarControl.OnChipTapped 转发，携带 Shift 键状态；Step 10）：
-    /// 分流规则在 MainViewModel.HandleTagChipTappedAsync（单图打标/选中集批量/筛选切换）。
+    /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发，2026-09-19 交互重构）：
+    /// 点击一律 = 切换筛选（单图模式下由 MainViewModel 额外切回图库）；打标走拖拽/详情页右栏/快捷键。
     /// </summary>
-    public Task HandleChipTappedAsync(TagChipViewModel chip, bool shift)
-        => _owner.HandleTagChipTappedAsync(chip.OwnerGroup, chip.Name, shift);
+    public Task HandleChipTappedAsync(TagChipViewModel chip)
+        => _owner.HandleTagChipTappedAsync(chip.Name);
 
     /// <summary>配置组内标签的编辑命令集（重命名/删除）。</summary>
     private TagChipCommands CreateChipEditCommands(TagGroup group, string tagName)

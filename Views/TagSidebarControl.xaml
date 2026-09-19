@@ -16,8 +16,9 @@
               未分组虚拟组固定末位（隐藏管理按钮、同享展开折叠）、底部「新建标签组」。
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
               （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
-              交互不变量：标签行主点击经 OnChipClicked 分流（Click 直达事件不冒泡，内嵌 ✎✕ 按钮不误触）；
-              未分组 ✎✕ 入口、Esc 三态等已验证行为保持。 -->
+              交互不变量：标签行主点击经 OnChipClicked 转发 = 切换筛选（2026-09-19 交互重构：点击一律筛选、
+              不再读取修饰键状态；打标走拖拽卡片到标签行 / 单图详情右栏 / 快捷键；Click 直达事件不冒泡，
+              内嵌 ✎✕ 按钮不误触）；未分组 ✎✕ 入口、Esc 三态等已验证行为保持。 -->
 
     <Grid Margin="10,12,10,10" RowSpacing="8">
         <Grid.RowDefinitions>
@@ -164,7 +165,7 @@
                                             PointerExited="OnRowPointerExited"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="点击：打标或筛选 · Shift+点击：从选中集移除标签">
+                                            ToolTipService.ToolTip="点击：按该标签筛选（多标签任一命中，再点取消）">
                                             <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />

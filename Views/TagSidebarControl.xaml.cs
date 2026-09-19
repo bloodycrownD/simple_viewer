@@ -1,11 +1,11 @@
-// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、行点击转发（携带修饰键）、
+// 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、行点击转发、
 //       行悬停浮现管理按钮（RowCommands 容器 Opacity 切换）与 x:Bind 函数转换器。
 // 不变量：无交互逻辑（分流/命令全部在视图模型）；标签行/组行点击经 Tag 槽位回查 VM（ItemsRepeater 不设置
-//         DataContext）并携带当前线程 Shift 键状态（Shift = 移除语义，Step 10）；
+//         DataContext）；点击一律 = 筛选（2026-09-19 交互重构，不再读取修饰键状态）；
 //         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
 // 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
-//         → MainViewModel.HandleTagChipTappedAsync（打标/移除/筛选分流）。
+//         → MainViewModel.HandleTagChipTappedAsync（切换筛选；单图模式额外回切图库）。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -107,18 +107,16 @@ public sealed partial class TagSidebarControl : UserControl
     }
 
     /// <summary>
-    /// 标签行点击转发（模板已从胶囊 chip 改为目录树整行，语义不变）：Tag 槽位回查 chip VM，
-    /// Shift 键实时状态交视图模型分流（Step 10：移除语义）。
+    /// 标签行点击转发（2026-09-19 交互重构：点击一律 = 筛选）：Tag 槽位回查 chip VM 交视图模型转发。
     /// 用 Click 而非 Tapped（2026-09-17 走查修复）：Click 对鼠标/触摸/键盘/自动化调用均触发，
     /// Tapped 仅真实指针手势触发，键盘与辅助功能路径会静默失效。
-    /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
-    /// （点击同步触发，状态可靠）。
+    /// 不再读取修饰键状态——Shift+点击移除入口已取消（移除走单图详情右栏 chip 的 ✕）。
     /// </summary>
     private void OnChipClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: TagChipViewModel chip })
         {
-            _ = ViewModel.HandleChipTappedAsync(chip, IsShiftKeyDown());
+            _ = ViewModel.HandleChipTappedAsync(chip);
         }
     }
 
@@ -133,14 +131,6 @@ public sealed partial class TagSidebarControl : UserControl
         {
             ViewModel.ToggleGroupExpansion(group.Id);
         }
-    }
-
-    private static bool IsShiftKeyDown()
-    {
-        // 只判 Down：Locked 位对 Shift 无意义，中文 IME 切中英文会置位（曾致移除语义误触发）。
-        var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
-            Windows.System.VirtualKey.Shift);
-        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     /// <summary>行内悬停浮现管理按钮容器的固定名（组行 ＋⇄✎✕ 与标签行 ✎✕ 共用，视觉树按名检索）。</summary>

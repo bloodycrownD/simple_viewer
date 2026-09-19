@@ -1,7 +1,9 @@
 // 职责：主查看器状态——单图导航/旋转/显示、双模式（图库/单图）互斥切换、图库扫描驱动、文件名标签分段、
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
-//       批量打标管线与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（OR 语义）与筛选条状态（chip/单删/清空/命中统计，Step 11）、标签栏数据/编辑执行（Step 9）。
+//       打标管线（快捷键 / 拖拽卡片到标签行 / 单图详情右栏；2026-09-19 交互重构后侧栏点击不再打标）
+//       与 InfoBar 进度/回执状态（Step 10，D13）、
+//       标签筛选（OR 语义）与筛选条状态（chip/单删/清空/命中统计，Step 11）、标签栏数据/编辑执行（Step 9）、
+//       单图详情右栏数据（结构化信息行 + 当前图标签 chips）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
 //         单图翻页列表 = 进入单图时的瀑布流呈现集快照（Step 11：筛选态翻页在命中集内环绕循环）；
 //         ScanAsync 为同步磁盘 IO 迭代器，一律 Task.Run 后台消费、UI 线程仅经 Progress 收进度/扫描块（几十万张不假死口径）；
@@ -793,7 +795,7 @@ public partial class MainViewModel : ObservableObject
         SelectedCardCount = 0;
     }
 
-    // ==================== 批量打标（Step 10：选中集打标 / 单图当前图打标 / InfoBar 进度回执 D13） ====================
+    // ==================== 打标入口与标签筛选（2026-09-19 交互重构） ====================
 
     /// <summary>批量操作分批粒度（每批一次 TagService 调用；批间 await 回 UI 线程推进进度与就地同步）。</summary>
     private const int TagBatchSize = 25;
@@ -802,46 +804,24 @@ public partial class MainViewModel : ObservableObject
     private const int MaxFailureDetails = 20;
 
     /// <summary>
-    /// 侧栏标签 chip 点击分流（Step 10 语义，对齐 demo onChipClick）：
-    /// 单图模式且有图 → 当前图打标（toggle：已含该标签则移除）；
-    /// 图库模式且选中集非空 → Shift = 从选中集移除该标签，否则 = 批量打标（互斥组按语义替换）；
-    /// 其余 → 切换筛选（Step 9 既有语义）。
+    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选）：
+    /// 切换该标签的筛选（OR 语义，再点取消）；单图模式下额外切回图库让筛选结果可见
+    /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
+    /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）。
+    /// 原 Shift+点击“从选中集移除”入口随之取消——移除走详情页右栏 chip 的 ✕（原
+    /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
     /// </summary>
-    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：打标按兼容组/非互斥叠加语义）。</param>
     /// <param name="tagName">标签名。</param>
-    /// <param name="shift">是否按住 Shift（移除语义）。</param>
-    public async Task HandleTagChipTappedAsync(TagGroup? ownerGroup, string tagName, bool shift)
+    public async Task HandleTagChipTappedAsync(string tagName)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
             return;
         }
 
-        // 未分组/无组上下文：兼容组（非互斥）叠加（spec Step 9——为”未分组”标签打标无组约束）。
-        var group = ownerGroup ?? new TagGroup
+        if (CurrentMode == ViewerMode.Single && HasGallery)
         {
-            Name = TagSidebarViewModel.UngroupedGroupName,
-            Exclusive = false,
-        };
-
-        if (CurrentMode == ViewerMode.Single && HasImage)
-        {
-            await ToggleTagOnCurrentImageAsync(group, tagName);
-            return;
-        }
-
-        if (SelectedCardCount > 0)
-        {
-            if (shift)
-            {
-                await RemoveTagFromSelectionAsync(tagName);
-            }
-            else
-            {
-                await ApplyTagToSelectionAsync(group, tagName);
-            }
-
-            return;
+            CurrentMode = ViewerMode.Gallery;
         }
 
         await ToggleTagFilterAsync(tagName);
@@ -929,35 +909,6 @@ public partial class MainViewModel : ObservableObject
             BeginTagOperation(title, showProgress: true, candidates.Count);
             var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove: false, showProgress: true);
             ShowTagOperationResult(result, sync, exclusiveHint: group.Exclusive);
-            await RefreshTagDataAsync();
-        }
-        finally
-        {
-            _isTagOperationRunning = false;
-        }
-    }
-
-    /// <summary>从选中集批量移除标签（Shift+点击侧栏标签）。</summary>
-    public async Task RemoveTagFromSelectionAsync(string tagName)
-    {
-        if (_selectedCards.Count == 0)
-        {
-            return;
-        }
-
-        var candidates = _selectedCards.Select(static vm => vm.Item).ToList();
-
-        _isTagOperationRunning = true;
-        try
-        {
-            BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
-            var (result, sync) = await RunTagOperationAsync(
-                candidates,
-                new TagGroup { Name = string.Empty, Exclusive = false },
-                tagName,
-                remove: true,
-                showProgress: true);
-            ShowTagOperationResult(result, sync, exclusiveHint: false);
             await RefreshTagDataAsync();
         }
         finally
