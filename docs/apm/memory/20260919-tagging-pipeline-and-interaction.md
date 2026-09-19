@@ -1,8 +1,8 @@
 ---
-date: 2026-09-19 18:10
-title: 打标管线修复、交互重构与七轮走查（pipeline-fixes + interaction-rework + drag-visual/overlay-canvas）
-keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组保留, 显示名统一, 弹窗主题, 工具栏左对齐, 放大置顶, 收起图标, 收展闪空, 拖拽视觉, 遮盖式布局, 画布层, DragUI, GIF换源空窗
-abstract: 用户连续敏捷：①打标不重载（同图改名链路+缓存迁移+竞态双保险）；②Linux 255 字节标签预算双口径；③交互重构（点击=筛选自动回图库、拖拽打标、详情页右栏）；随后六轮用户走查修复：未分组标签归零保留、显示名统一剥离口径、弹窗主题跟随+目录样式对齐、工具栏左对齐+放大置顶+收展图标化、收展闪空（同图不预清空）、拖拽视觉小缩略图+遮盖式布局（画布全窗底层、侧栏 chrome 遮盖——根治首次收展闪跳与图片位移，顺修 GIF 换源空窗）。分支 feature/tagging-waterfall，71/71 测试绿。待用户实机验证：拖拽小缩略图手感与多选计数 caption、滚轮放大置顶（环境无法注入拖拽/滚轮）。
+date: 2026-09-19 19:05
+title: 打标管线修复、交互重构与八轮走查打磨（pipeline-fixes + interaction-rework + overlay/selection 打磨）
+keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组保留, 显示名统一, 弹窗主题, 工具栏左对齐, 收展闪空, 拖拽视觉, 遮盖式布局, 画布层, DragUI, GIF换源空窗, AXPress假阳性, 单选重置, 成功回执静默, 放大置底
+abstract: 用户连续敏捷：①打标不重载；②255 字节标签预算；③交互重构（点击=筛选、拖拽打标、详情页右栏）；随后八轮走查与打磨：未分组保留、显示名统一、弹窗主题、工具栏左对齐、收展闪空、拖拽小缩略图+遮盖式布局（画布全窗底层根治收展闪跳与位移）、右栏被工具栏遮挡（chrome 行高度联动避让，AXPress 假阳性教训入 RULE）、选择模型 Explorer 心智（默认单选/Ctrl 加减选/Shift 范围重置+清除选择按钮）+打标成功回执静默（仅失败弹）+放大置底（拆置顶链）。分支 feature/tagging-waterfall，71/71 绿。待用户实机：Ctrl/Shift 选择、滚轮放大置底、拖拽手感（修饰键/拖拽/滚轮注入不可达）。
 ---
 
 user:
@@ -68,3 +68,9 @@ user:
 
 assistant:
 实锤走查假阳性：我用 UIA AXPress 验证收展（a11y 直调按钮动作、不做视觉命中测试），绕过了遮挡；真实鼠标点到的是工具栏。根因：右栏浮层（含 ▶ 收起按钮/◀ 折叠条）在画布层（Z0）内顶到窗口顶，而 ChromeLayer（Z1）的工具栏行横跨整宽，把右栏标题行/折叠条的可点区盖住（▶ 相对窗口 y=63-99 vs 工具栏到 y=93）；左栏不受影响（本就在 chrome 层内）。修复（b1063b0，主代理直接实现）：MainWindow 给工具栏/InfoBar/状态栏三行命名并挂 SizeChanged → 写 VM.TopChromeHeight（工具栏+InfoBar 实际高+8 margin）/BottomChromeHeight；SingleImageView.ApplyChromeInsets 依此设右栏展开/折叠条顶底 Margin 与文件名栏底 Margin（替代硬编码 34）。验证：build 过、71/71 绿；raw 鼠标路径走查（left_click 元素 target + strategy=event，真实命中测试）右栏 ▶ 收起→◀ 展开双向通过，▶ 从 y=63 移到 y=132（工具栏下方），image bounds 全程恒定。教训入 RULE（实机 UI 测试节）：AXPress 假阳性——可点性/遮挡/ZIndex 验证必须 raw 鼠标路径或 bounds 重叠核对；滚轮注入亦被拒（放大仍留用户实机）。
+
+user:
+三个新问题：1. 水印添加生效的 toast 移除，有点碍事；2. 滚轮放大图片层级置底吧，之前选置顶的策略不合适；3. 默认多选不合适——应默认单选、Ctrl+点击多选，且需要清除选择的能力（多选太多逐个取消太累）。
+
+assistant:
+敏捷项 selection-and-zoom-polish（三提交，71/71 绿）："水印"即用户自建标签组（侧栏有"水印"组），toast=打标回执 InfoBar。①29e3949 选择模型 Explorer 心智：无修饰=单选重置（SelectSingleCard，点已选卡保持选中）、Ctrl=toggle 加减选（IsControlKeyDown 只判 Down）、Shift=范围重置（SelectCardRange 先清再选，原为纯加选）；状态行右侧新增「清除选择」按钮（常显灰态、CanExecute=HasSelection 联动）；demo onCardClick 同步。②8874d93 成功回执一律静默（全成功分支不弹且关残留回执，exclusiveHint 删除；单图 BeginTagOperation(showProgress:false) 不再弹"正在处理"一闪）；失败/警告回执与批量进度保留（PRD 验收项，口径修订记于敏捷 PRD）；附带收益=InfoBar 不弹则 TopChromeHeight 不被推高、右栏避让区不抖。③97daba 放大置底：整体拆除 IsCurrentImageZoomed 链（UpdateZoomLayering/_isCurrentImageZoomed+回图库清理/MainWindow 订阅与处理器/两处 XAML 注释改置底口径），推翻同日早前"最高层"拍板；缩放交互态（_zoomOwnerPath/全分辨率升级/切图复位）保留。实机走查（主代理）：目录选择器打标成功与 chip ✕ 移除均无 InfoBar、chip 就地更新；raw 点击卡片 A→"已选 1 张"→点击 B→仍 1 张（单选重置）→点清除选择→0 张按钮禁用；Ctrl/Shift 注入不可达（GetKeyStateForCurrentThread 读不到分批注入的修饰键，与拖拽滚轮同列）——分流代码人工审查与拍板一致，留用户实机。走查顺手恢复 test-library（打标后移除）。留痕 features/selection-and-zoom-polish prd+spec。
