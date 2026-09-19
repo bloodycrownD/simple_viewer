@@ -247,28 +247,24 @@ public sealed partial class SingleImageView : UserControl
     /// 按 VM 属性重建文件名显示（2026-09-19 统一口径）：显示处仅右栏信息区 InfoFileNameText
     ///（底部文件名栏 2026-09-19 用户拍板移除，文件名由右栏承载），显示剥离标签段的显示名
     ///（与瀑布流卡片一致）；标签信息由右栏 chips 与卡片角标承载；完整文件名挂 tooltip。
+    /// 布局固定自动换行多行（None/Wrap；原 RebuildInlinesInto 的 trim 参数唯一调用点恒 false，
+    /// 分支不可达，cr/P2-6 折叠内联）。
     /// </summary>
     private void RebuildFileNameInlines()
     {
-        RebuildInlinesInto(InfoFileNameText, trim: false);
-    }
-
-    /// <summary>向目标 TextBlock 重建显示名单段（trim = 裁剪省略号单行；false = 自动换行多行）。</summary>
-    private void RebuildInlinesInto(TextBlock target, bool trim)
-    {
-        target.Inlines.Clear();
-        target.TextTrimming = trim ? TextTrimming.CharacterEllipsis : TextTrimming.None;
-        target.TextWrapping = trim ? TextWrapping.NoWrap : TextWrapping.Wrap;
+        InfoFileNameText.Inlines.Clear();
+        InfoFileNameText.TextTrimming = TextTrimming.None;
+        InfoFileNameText.TextWrapping = TextWrapping.Wrap;
 
         // 完整文件名（含标签段）挂 tooltip：悬停可见，不占展示位。
         // WinUI 3 附加属性（FrameworkElement 无 WPF 式 ToolTip 属性）。
         ToolTipService.SetToolTip(
-            target,
+            InfoFileNameText,
             ViewModel.CurrentFileFullName.Length > 0 ? ViewModel.CurrentFileFullName : null);
 
         if (!string.IsNullOrEmpty(ViewModel.CurrentImageDisplayName))
         {
-            target.Inlines.Add(new Run { Text = ViewModel.CurrentImageDisplayName });
+            InfoFileNameText.Inlines.Add(new Run { Text = ViewModel.CurrentImageDisplayName });
         }
     }
 
