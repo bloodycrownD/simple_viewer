@@ -79,9 +79,12 @@ public class LibraryIndexServiceTests
             MakeItem(MakePath(temp.Path, "img1.png"), "img1", ".png", new[] { "风景" }),
             MakeItem(MakePath(temp.Path, "img2.png"), "img2", ".png", new[] { "人像" }),
             MakeItem(MakePath(temp.Path, "img10.png"), "img10", ".png", new[] { "风景", "已修" }),
-            // LIKE 通配符按字面匹配的对照组：a_b 与 axb 是两个不同标签
+            // LIKE 通配符按字面匹配的对照组：a_b/a%b/a\b 与 axb/ab 是互不相同的标签
             MakeItem(MakePath(temp.Path, "x1.png"), "x1", ".png", new[] { "a_b" }),
             MakeItem(MakePath(temp.Path, "x2.png"), "x2", ".png", new[] { "axb" }),
+            MakeItem(MakePath(temp.Path, "x3.png"), "x3", ".png", new[] { "a%b" }),
+            MakeItem(MakePath(temp.Path, "x4.png"), "x4", ".png", new[] { @"a\b" }),
+            MakeItem(MakePath(temp.Path, "x5.png"), "x5", ".png", new[] { "ab" }),
         });
 
         // 子串不误命中："风"是"风景"的子串，补空格写法下不命中任何行
@@ -97,12 +100,22 @@ public class LibraryIndexServiceTests
 
         // 空标签列表 → 全量
         var all = await service.QueryByTagsAsync(Array.Empty<string>());
-        Assert.Equal(5, all.Count);
+        Assert.Equal(7, all.Count);
 
-        // LIKE 通配符转义："a_b" 只命中字面 a_b，不误命中 axb（无 ESCAPE 时 _ 会匹配任意单字符）
+        // LIKE 通配符转义（cr/P2-15）："a_b" 只命中字面 a_b，不误命中 axb（无 ESCAPE 时 _ 匹配任意单字符）
         var underscore = await service.QueryByTagsAsync(new[] { "a_b" });
         var hit = Assert.Single(underscore);
         Assert.Equal("x1.png", hit.DisplayName);
+
+        // "%" 是任意串通配符：未转义时 "a%b" 会命中 a_b/axb/ab/a%b 全部；转义后仅字面 a%b
+        var percent = await service.QueryByTagsAsync(new[] { "a%b" });
+        var percentHit = Assert.Single(percent);
+        Assert.Equal("x3.png", percentHit.DisplayName);
+
+        // "\" 是 ESCAPE 引导字符：转义后仅字面 a\b，不吞后续字符、不产生语法歧义命中
+        var backslash = await service.QueryByTagsAsync(new[] { @"a\b" });
+        var backslashHit = Assert.Single(backslash);
+        Assert.Equal("x4.png", backslashHit.DisplayName);
     }
 
     [Fact]
