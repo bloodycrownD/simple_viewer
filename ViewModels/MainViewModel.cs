@@ -1569,11 +1569,12 @@ public partial class MainViewModel : ObservableObject
     /// <summary>任一筛选是否激活（标签集非空或无标签模式；筛选条可见性与扫描追加块过滤依据）。</summary>
     public bool HasAnyFilter => _activeFilterTags.Count > 0 || IsUntaggedFilterActive;
 
-    /// <summary>瀑布流追加块的筛选谓词：无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。</summary>
+    /// <summary>
+    /// 瀑布流追加块的筛选谓词（薄包装，状态机下沉 Core——cr/P2-3）：
+    /// 无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。
+    /// </summary>
     public bool MatchesTagFilter(GalleryItem item)
-        => IsUntaggedFilterActive
-            ? item.Tags.Count == 0
-            : item.Tags.Any(tag => _activeFilterTags.Contains(tag));
+        => TagFilterState.Matches(item.Tags, _activeFilterTags, IsUntaggedFilterActive);
 
     /// <summary>当前激活的筛选标签集快照（侧栏 chip 高亮依据）。</summary>
     public IReadOnlyCollection<string> ActiveFilterTags => _activeFilterTags;
@@ -1624,16 +1625,9 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        if (IsUntaggedFilterActive)
-        {
-            IsUntaggedFilterActive = false;
-        }
-        else
-        {
-            // 激活：与标签筛选互斥——先清标签集（此时瀑布流整体替换由 ApplyTagFilterAsync 收口）。
-            _activeFilterTags.Clear();
-            IsUntaggedFilterActive = true;
-        }
+        // 状态机语义下沉 Core（cr/P2-3）：激活 = 清空标签筛选（互斥清集）；再点取消回全量。
+        var (untoggledTags, untagged) = TagFilterState.ToggleUntagged(_activeFilterTags, IsUntaggedFilterActive);
+        WriteFilterState(untoggledTags, untagged);
 
         await ApplyTagFilterAsync();
     }
@@ -1653,30 +1647,27 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 互斥：进入标签筛选即退出无标签模式（无标签激活时标签集恒空，必走替换/添加分支）。
-        IsUntaggedFilterActive = false;
-
-        if (ctrl)
-        {
-            // Ctrl：加/减选（在集中移除、不在则加入——多选 OR 的逐标签 toggle）。
-            if (!_activeFilterTags.Remove(tagName))
-            {
-                _activeFilterTags.Add(tagName);
-            }
-        }
-        else if (_activeFilterTags.Count == 1 && _activeFilterTags.Contains(tagName))
-        {
-            // 无修饰且当前唯一选中就是它：取消筛选回全量（保留"二次点击取消"习惯）。
-            _activeFilterTags.Remove(tagName);
-        }
-        else
-        {
-            // 无修饰其余情况：单选重置（多选集或不同标签都替换为仅该标签）。
-            _activeFilterTags.Clear();
-            _activeFilterTags.Add(tagName);
-        }
+        // 状态机语义下沉 Core（cr/P2-3，零行为变化）：互斥清位 / Ctrl 加减选 /
+        // 唯一选中再点取消 / 无修饰单选重置，语义详见 TagFilterState.Toggle。
+        var (tags, untagged) = TagFilterState.Toggle(_activeFilterTags, IsUntaggedFilterActive, tagName, ctrl);
+        WriteFilterState(tags, untagged);
 
         await ApplyTagFilterAsync();
+    }
+
+    /// <summary>
+    /// 写回筛选状态机结果（cr/P2-3）：集合原位替换——_activeFilterTags 实例引用保持稳定
+    /// （侧栏重建 / chip 高亮持有同一 HashSet）；无标签位经属性 setter 走既有变更通知。
+    /// </summary>
+    private void WriteFilterState(IEnumerable<string> tags, bool untagged)
+    {
+        _activeFilterTags.Clear();
+        foreach (var tag in tags)
+        {
+            _activeFilterTags.Add(tag);
+        }
+
+        IsUntaggedFilterActive = untagged;
     }
 
     /// <summary>
