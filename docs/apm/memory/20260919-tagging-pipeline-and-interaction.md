@@ -110,3 +110,9 @@ user:
 
 assistant:
 合并 b6b3e7c（--no-ff，92 文件 +14925 行）后执行 code-review-loop full：round1 三并行 review-scope（vm/views/services readonly 子代理），round2 review-full 全局维度（D/E/F/H-K）+fix-spec 逐条校验，末轮 trivial 豁免主代理直接增补。产出 cr-fix-spec.md（3854309，fix-spec-ready）：P0=0/P1=8/P2=17。P1 要点：扫描中重开图库竞态（ODE+状态覆盖+List 并发）、扫描中激活筛选渐进追加重复卡片、三段高亮死代码链、PRD 回车进单图未实现、卡片回收不释放缩略图/拖拽小图（5 万张内存无界）、卡片 Tapped 违反 RULE 硬约束（键盘/UIA 不可达）、EXIF 方向未计入宽高比（竖拍卡片比例错——高价值发现）、自然排序双实现无 parity 测试。P2 要点：OpenLibrary 错误处理/死代码清理×6/筛选状态机与 MasonryLayout 下沉 Core 补测/RebuildAsync Task.Run/SettingsService 迁移容错/260 边界>=/索引 Dispose 竞态/LIKE 转义测试/标签名非法字符校验/英文注释中文化。spec_deviations 7 项全闭合（AskUserQuestion 用户拍板：批量移除接受收窄、LastLibraryRoot 保留补记文档；其余有敏捷留痕）。C-orch 正面结论：打标四入口收敛两管线单点落盘、筛选单一事实源、计数单一源。open_questions 9 项待拍板（重命名部分失败口径/缓存键稳定性/thumbcache 容量等）。**fix-spec-ready 已达成待用户确认是否开工执行**（skill 终点是修复说明书，未改实现代码）。
+
+user:
+修复吧。
+
+assistant:
+cr-fix-spec 25 条全部执行完毕（fix/cr-round1 分支 27 提交，四批串行实现子代理：批A 死代码/交互×9、批B 核心正确性×5、批C services 加固×8、批D 下沉重构+K节文档×5），测试 74→100 全绿（新增 parity×8/PresentedPathSet×3/EXIF×1/TagFilterState×7/MasonryPlanner×4/迁移容错×2/ODE×1 及边界断言），合并回 master（f7090dd）。关键实现：P1-1 扫描 _scanTask+代次收口；P1-2 PresentedPathSet 下沉 Core 去重；P1-5 ReleaseVisuals 卡片回收释放；P1-7 TryReadExifOrientation（APP1/TIFF 双字节序）竖拍宽高交换；P1-4 Enter 进单图（无选中取首项）；P1-6 CardButtonStyle 卡片 Button 化；P2-3/P2-10 TagFilterState 与 MasonryPlanner 下沉 Core；K 节 PRD/spec 回写消除 7 项口径漂移。主代理实机抽查：卡片 UIA AXPress 可达（修复前裸 image 不可 Invoke）、Enter 从图库进单图通过。留用户实机：扫描中换目录/筛选、5 万张内存曲线、拖拽/修饰键回归（fix-spec 合并后 QA 六项）。cr-fix-spec 状态已置 executed。
