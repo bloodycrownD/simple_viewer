@@ -13,6 +13,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
 using System.Windows.Input;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 
 namespace SimpleViewer.Views;
@@ -165,6 +166,90 @@ public sealed partial class TagSidebarControl : UserControl
         }
     }
 
+    // ==================== 拖拽卡片到标签行打标（2026-09-19 交互重构） ====================
+
+    /// <summary>标签行模板内 DropOverlay 高亮层的固定名（TagTreeRowButtonStyle 模板；视觉树按名检索）。</summary>
+    private const string DropOverlayName = "DropOverlay";
+
+    /// <summary>
+    /// 标签行 DragOver：拖拽数据含本应用卡片格式（WaterfallView.CardDragFormat）且无打标操作进行中 →
+    /// 接受 Copy 并高亮该行（DropOverlay 层视觉树回查，对齐 RowCommands 同模式）；
+    /// 否则 AcceptedOperation=None（外部拖入/操作进行中一律拒绝，不出现“可放下”光标）。
+    /// DragOver/Drop 属拖拽专用事件（非 Click/Tapped 交互约束范围）。
+    /// </summary>
+    private void OnTagRowDragOver(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement root
+            && e.DataView.Contains(WaterfallView.CardDragFormat)
+            && !Main.IsTagOperationRunning)
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            SetDropOverlay(root, visible: true);
+        }
+        else
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>标签行 DragLeave：清除该行的 Drop 高亮（拖出/取消都会触发）。</summary>
+    private void OnTagRowDragLeave(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement root)
+        {
+            SetDropOverlay(root, visible: false);
+        }
+    }
+
+    /// <summary>
+    /// 标签行 Drop：清除高亮 → Tag 槽位回查 chip VM → MainViewModel.ApplyTagToDraggedCardsAsync
+    /// （未分组标签按兼容组兜底；路径集消费后自清，空 payload/外部拖入在 VM 侧忽略）。
+    /// </summary>
+    private void OnTagRowDrop(object sender, DragEventArgs e)
+    {
+        if (sender is not FrameworkElement root)
+        {
+            return;
+        }
+
+        SetDropOverlay(root, visible: false);
+
+        if (root.Tag is TagChipViewModel chip && e.DataView.Contains(WaterfallView.CardDragFormat))
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            _ = Main.ApplyTagToDraggedCardsAsync(chip.OwnerGroup, chip.Name);
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 按名检索行视觉树中的 DropOverlay 层并切换落下高亮态：强调色淡底 + 描边
+    /// （颜色经 <see cref="TagSidebarConverters"/> 的 IsDarkTheme 明暗双值；清除恢复透明零边框）。
+    /// </summary>
+    private static void SetDropOverlay(FrameworkElement root, bool visible)
+    {
+        foreach (var element in EnumerateDescendants(root))
+        {
+            if (element.Name == DropOverlayName && element is Border overlay)
+            {
+                if (visible)
+                {
+                    overlay.Background = TagSidebarConverters.DropOverlayBackground();
+                    overlay.BorderBrush = TagSidebarConverters.DropOverlayBorderBrush();
+                    overlay.BorderThickness = new Thickness(1.5);
+                }
+                else
+                {
+                    overlay.Background = TagSidebarConverters.TransparentBrushValue;
+                    overlay.BorderThickness = default;
+                }
+            }
+        }
+    }
+
     /// <summary>深度枚举视觉树后代（行模板小，递归开销可忽略）。</summary>
     private static IEnumerable<FrameworkElement> EnumerateDescendants(FrameworkElement root)
     {
@@ -209,6 +294,30 @@ public static class TagSidebarConverters
         new(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
     private static readonly SolidColorBrush TransparentBrush =
         new(Windows.UI.Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+
+    /// <summary>透明画刷（拖拽高亮层清除等视图层复用）。</summary>
+    internal static Brush TransparentBrushValue => TransparentBrush;
+
+    /// <summary>
+    /// 拖拽打标目标的落下高亮底色（2026-09-19 拖拽打标）：系统强调色淡叠加
+    /// （深色 18% / 浅色 14%，明暗双值；强调色本身随系统主题自适应）。
+    /// </summary>
+    internal static Brush DropOverlayBackground()
+    {
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            (byte)(IsDarkTheme ? 0x2E : 0x24),
+            accent.R,
+            accent.G,
+            accent.B));
+    }
+
+    /// <summary>拖拽打标目标的落下高亮描边：系统强调色 70% 不透明。</summary>
+    internal static Brush DropOverlayBorderBrush()
+    {
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(0xB3, accent.R, accent.G, accent.B));
+    }
 
     /// <summary>互斥/兼容徽章文本（兼容组 = 非互斥组：组内标签可共存叠加）。</summary>
     public static string ExclusiveBadge(bool exclusive) => exclusive ? "互斥" : "兼容";

@@ -126,7 +126,9 @@
 
             <!-- 标签树行按钮（目录树子行，demo .tag-row）：底色 = 激活高亮（x:Bind 数据绑定提供，
                  普通行透明）；hover/pressed 经独立叠加层（HoverOverlay）加深——分层叠加保证激活行悬停时
-                 高亮不丢失；内容 Stretch 占满整行、行高约 34px，计数右对齐依赖整行拉伸 -->
+                 高亮不丢失；DropOverlay 为拖拽打标目标的落下高亮层（默认透明零边框，code-behind 在
+                 DragOver/DragLeave/Drop 切换颜色与边框，TagSidebarControl 视觉树按名回查）；
+                 内容 Stretch 占满整行、行高约 34px，计数右对齐依赖整行拉伸 -->
             <Style x:Key="TagTreeRowButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -167,6 +169,11 @@
                                 <Border
                                     x:Name="HoverOverlay"
                                     Background="Transparent"
+                                    CornerRadius="{TemplateBinding CornerRadius}" />
+                                <Border
+                                    x:Name="DropOverlay"
+                                    Background="Transparent"
+                                    BorderThickness="0"
                                     CornerRadius="{TemplateBinding CornerRadius}" />
                                 <ContentPresenter
                                     x:Name="Content"

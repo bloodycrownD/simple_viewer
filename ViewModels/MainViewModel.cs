@@ -889,7 +889,8 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    /// <summary>选中集批量打标（互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。</summary>
+    /// <summary>选中集批量打标（快捷键路径；互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。
+    /// 2026-09-19 交互重构后侧栏点击不再进此方法；拖拽路径走 ApplyTagToDraggedCardsAsync，共用 ApplyTagToPathsAsync。</summary>
     public async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
     {
         if (_selectedCards.Count == 0)
@@ -897,8 +898,88 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 选中集快照（防迭代中集合变化；Item 引用在批量过程中保持有效）。
-        var candidates = _selectedCards.Select(static vm => vm.Item).ToList();
+        await ApplyTagToPathsAsync(
+            _selectedCards.Select(static vm => vm.Item.Path).ToList(),
+            group,
+            tagName);
+    }
+
+    // ==================== 拖拽卡片到标签行打标（2026-09-19 交互重构） ====================
+
+    /// <summary>拖拽 payload 暂存（BeginCardDrag 写入，Drop 消费后清空；进程内路径集）。</summary>
+    private IReadOnlyList<string>? _dragPayload;
+
+    /// <summary>批量打标/移除防重入标志的只读视图（侧栏拖拽目标 DragOver 判定可接受态用）。</summary>
+    public bool IsTagOperationRunning => _isTagOperationRunning;
+
+    /// <summary>
+    /// 开始卡片拖拽（WaterfallView.DragStarting 转发）：确定本次拖拽的路径集——
+    /// 卡片在选中集内 = 整集（对齐“拖选中集内任一卡 = 整集打标”决策），否则仅该卡。
+    /// 此时不改选中集（拖拽是打标手势不是选卡手势）；路径集暂存 VM 侧供 Drop 消费
+    /// （DataPackage 只携带格式标记与计数文本，不重复序列化路径——同进程内以 VM 状态为准）。
+    /// </summary>
+    /// <param name="cardVm">被拖拽的卡片 VM（Tag 槽位回查所得）。</param>
+    /// <returns>本次拖拽生效的路径集（空集表示无可打标项，调用方应取消拖拽）。</returns>
+    public IReadOnlyList<string> BeginCardDrag(GalleryItemViewModel cardVm)
+    {
+        _dragPayload = _selectedCards.Contains(cardVm)
+            ? _selectedCards.Select(static vm => vm.Item.Path).ToList()
+            : [cardVm.Item.Path];
+        return _dragPayload;
+    }
+
+    /// <summary>
+    /// 对拖拽卡片集打标（侧栏标签行 Drop 转发）：消费 <see cref="BeginCardDrag"/> 暂存的路径集，
+    /// 走统一批量管线（互斥语义/InfoBar 回执/就地同步/缓存迁移）。空 payload（外部拖入等）忽略。
+    /// </summary>
+    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：按兼容组叠加语义）。</param>
+    /// <param name="tagName">标签名。</param>
+    public async Task ApplyTagToDraggedCardsAsync(TagGroup? ownerGroup, string tagName)
+    {
+        var payload = _dragPayload;
+        _dragPayload = null;
+        if (payload is null || payload.Count == 0)
+        {
+            return;
+        }
+
+        // 未分组/无组上下文兜底（与原侧栏点击打标同口径）：兼容组（非互斥）叠加。
+        var group = ownerGroup ?? new TagGroup
+        {
+            Name = TagSidebarViewModel.UngroupedGroupName,
+            Exclusive = false,
+        };
+
+        await ApplyTagToPathsAsync(payload, group, tagName);
+    }
+
+    /// <summary>
+    /// 按路径集批量打标（选中集快捷键与拖拽共用入口）：路径 → 候选 GalleryItem——优先在当前呈现集中
+    /// 查同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；不在呈现集（如拖拽中途瀑布流被重置）
+    /// 时解析文件名构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+    /// </summary>
+    private async Task ApplyTagToPathsAsync(IReadOnlyList<string> paths, TagGroup group, string tagName)
+    {
+        if (paths.Count == 0 || _isTagOperationRunning || string.IsNullOrWhiteSpace(tagName))
+        {
+            return;
+        }
+
+        var candidates = new List<GalleryItem>(paths.Count);
+        foreach (var path in paths)
+        {
+            var item = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path);
+            if (item is not null)
+            {
+                candidates.Add(item);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
         var title = group.Exclusive
             ? $"互斥组设置「{tagName}」"
             : $"添加标签「{tagName}」";
@@ -915,6 +996,25 @@ public partial class MainViewModel : ObservableObject
         {
             _isTagOperationRunning = false;
         }
+    }
+
+    /// <summary>按路径构造最小候选（文件名解析失败返回 null——目标名冲突或超长等不可打标项）。</summary>
+    private GalleryItem? TryBuildCandidateFromPath(string path)
+    {
+        if (!_tagFilename.TryParse(Path.GetFileName(path), out var baseName, out var extension, out var tags))
+        {
+            return null;
+        }
+
+        return new GalleryItem
+        {
+            Path = path,
+            DirectoryName = Path.GetDirectoryName(path) ?? string.Empty,
+            BaseName = baseName,
+            Extension = extension,
+            Tags = tags,
+            SortKey = GalleryItemNaturalComparer.Tokenize(baseName),
+        };
     }
 
     /// <summary>
@@ -964,16 +1064,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
-        // 不在呈现集（如 CLI 直开）时构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
-        var candidate = FindPresentedItemByPath(path) ?? new GalleryItem
-        {
-            Path = path,
-            DirectoryName = Path.GetDirectoryName(path) ?? string.Empty,
-            BaseName = baseName,
-            Extension = extension,
-            Tags = tags,
-            SortKey = GalleryItemNaturalComparer.Tokenize(baseName),
-        };
+        // 不在呈现集（如 CLI 直开）时解析文件名构造最小候选（上方 TryParse 已成功，必非 null）。
+        var candidate = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path)!;
 
         _isTagOperationRunning = true;
         try

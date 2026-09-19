@@ -158,14 +158,21 @@
                                 </ItemsControl.ItemContainerStyle>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:TagChipViewModel">
+                                        <!-- 标签行整行 Button：Click = 切换筛选；AllowDrop = 拖拽打标目标
+                                             （DragOver/DragLeave/Drop 经 Tag 槽位回查 chip VM，Drop 高亮层
+                                             DropOverlay 在 TagTreeRowButtonStyle 模板内，视觉树按名回查） -->
                                         <Button
+                                            AllowDrop="True"
                                             Background="{x:Bind views:TagSidebarConverters.TagRowBackground(IsFilterActive)}"
                                             Click="OnChipClicked"
+                                            DragLeave="OnTagRowDragLeave"
+                                            DragOver="OnTagRowDragOver"
+                                            Drop="OnTagRowDrop"
                                             PointerEntered="OnRowPointerEntered"
                                             PointerExited="OnRowPointerExited"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="点击：按该标签筛选（多标签任一命中，再点取消）">
+                                            ToolTipService.ToolTip="点击：按该标签筛选（多标签任一命中，再点取消）&#10;拖拽图片到此行：为图片打该标签">
                                             <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />

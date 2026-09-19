@@ -9,7 +9,9 @@
               标签角标、选中态边框、文件名剥离标签段）、resize 去抖重排、空态文本。
               缩略图按需加载：ElementPrepared/ElementClearing 事件在 code-behind 接线（禁止一次性全量加载）。
               Esc 从单图返回后滚动位置由互斥 Visibility 切换天然保持（Collapsed 不卸载元素树，无需代码）。
-              卡片文字区高度 48 与 MasonryLayout.TextAreaHeight 对齐（D3 常量化估算值，两处同步调整）。 -->
+              卡片文字区高度 48 与 MasonryLayout.TextAreaHeight 对齐（D3 常量化估算值，两处同步调整）。
+              拖拽打标（2026-09-19 交互重构）：卡片 CanDrag + DragStarting（与 Tapped/DoubleTapped 天然共存——
+              系统拖拽需按住位移超阈值才进入，单击选中与双击进单图不受影响）；目标是左侧标签树行。 -->
 
     <Grid>
         <ScrollViewer
@@ -27,13 +29,16 @@
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:GalleryItemViewModel">
                         <!-- 卡片（demo .card）：圆角 10、选中 2px 强调色描边（未选透明，靠底色分层）、
-                             hover 上浮 2px（code-behind Translation，等价 demo translateY(-2px)） -->
+                             hover 上浮 2px（code-behind Translation，等价 demo translateY(-2px)）；
+                             CanDrag 拖拽打标入口（DragStarting → MainViewModel.BeginCardDrag 取整集/单卡路径集） -->
                         <Border
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{x:Bind views:WaterfallConverters.CardBorderBrush(IsSelected), Mode=OneWay}"
                             BorderThickness="2"
+                            CanDrag="True"
                             CornerRadius="10"
                             DoubleTapped="{x:Bind OpenInViewer}"
+                            DragStarting="OnCardDragStarting"
                             PointerEntered="OnCardPointerEntered"
                             PointerExited="OnCardPointerExited"
                             Tag="{x:Bind}"

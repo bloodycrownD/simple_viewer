@@ -1,11 +1,15 @@
 // 职责：瀑布流视图 code-behind——ItemsRepeater 装配（MasonryLayout 宽高比注入、批量数据源）、
-//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、卡片点击转发（Shift 键状态）、resize 去抖重排、
-//       卡片 hover 视觉（上浮 2px + 未选态勾选章显隐，视觉对齐 demo .card:hover/.check）。
+//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、卡片点击转发（Shift 键状态）、
+//       卡片 hover 视觉（上浮 2px + 未选态勾选章显隐，视觉对齐 demo .card:hover/.check）、
+//       卡片拖拽打标启动（DragStarting：向 MainViewModel 取整集/单卡路径集并写入 DataPackage 标记）。
 // 不变量：缩略图按需加载（禁止一次性为全部项加载）；realized 元素经 Tag 槽位回查 VM（ItemsRepeater
 //         不设置 DataContext；卡片模板 Tag="{x:Bind}" 携带项 VM 自身，ElementPrepared 覆写为同一引用）；
 //         卡片点击经 Tag 槽位回查 VM 并读取 Shift 键状态交 MainViewModel 分流（连选属 Step 10）；
-//         去抖窗口内连续 resize 不触发重排（避免拖拽中间态 O(n) 重算与视觉跳动）。
-// 调用链：MainWindow（ContentControl 宿主注入）→ WaterfallView → MainViewModel.HandleCardTapped → GalleryItemViewModel。
+//         去抖窗口内连续 resize 不触发重排（避免拖拽中间态 O(n) 重算与视觉跳动）；
+//         拖拽启动不改选中集（拖拽是打标手势不是选卡手势；路径集暂存 VM 侧，Drop 时消费）。
+// 调用链：MainWindow（ContentControl 宿主注入）→ WaterfallView → MainViewModel.HandleCardTapped → GalleryItemViewModel；
+//         卡片拖拽 → OnCardDragStarting → MainViewModel.BeginCardDrag →（Drop 在 TagSidebarControl）
+//         → MainViewModel.ApplyTagToDraggedCardsAsync。
 
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -13,6 +17,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace SimpleViewer.Views;
 
@@ -21,6 +26,13 @@ namespace SimpleViewer.Views;
 /// </summary>
 public sealed partial class WaterfallView : UserControl
 {
+    /// <summary>
+    /// 卡片拖拽数据的自定义格式标记（2026-09-19 拖拽打标）：值仅为计数字符串——
+    /// 同进程内路径集以 MainViewModel 侧暂存为准，DataPackage 只承担“这是本应用卡片拖拽”的判别，
+    /// 目标侧（标签树行）经 DataView.Contains 判定有效性，外部拖入（无此格式）一律拒绝。
+    /// </summary>
+    public const string CardDragFormat = "SimpleViewer.CardPaths";
+
     /// <summary>resize 去抖窗口（毫秒）：停止变化后按最终视口宽重排列数/列宽。</summary>
     private const int ResizeDebounceMilliseconds = 200;
 
@@ -118,6 +130,32 @@ public sealed partial class WaterfallView : UserControl
         var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
             Windows.System.VirtualKey.Shift);
         return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+    }
+
+    /// <summary>
+    /// 卡片拖拽启动（2026-09-19 拖拽打标）：Tag 槽位回查卡片 VM → MainViewModel.BeginCardDrag 取路径集
+    /// （选中集内 = 整集，否则仅该卡；不改选中集）→ DataPackage 写自定义格式标记（值为计数文本）+
+    /// AllowedOperations=Copy。注：WinUI 3 的 DragStartingEventArgs 无 UWP 的 DragUIOverride/AcceptedOperation
+    /// 成员（仅 AllowedOperations/Data/DragUI/Cancel），故不设自定义拖拽标题——系统默认渲染被拖卡片快照。
+    /// 拖拽与 Tapped/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响。
+    /// </summary>
+    private void OnCardDragStarting(object sender, DragStartingEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: GalleryItemViewModel cardVm })
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var paths = ViewModel.BeginCardDrag(cardVm);
+        if (paths.Count == 0)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Data.SetData(CardDragFormat, paths.Count.ToString());
+        e.AllowedOperations = DataPackageOperation.Copy;
     }
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
