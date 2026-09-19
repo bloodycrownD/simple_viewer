@@ -22,6 +22,12 @@ assistant:
 环境经验入 RULE：双 csproj 同目录 restore 踩踏（dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 解法）；SendInput 移动被丢；UIA 坐标=屏幕点勿乘缩放。留痕：features/tagging-pipeline-fixes 与 tag-interaction-rework 的 prd/spec。待用户确认。
 
 user:
+（走查中断后用户催办"活没干完？"）
+
+assistant:
+三项 UI 修正收尾（a737aa1，71/71 绿）：①左栏顶部空块根因 = WinUI CommandBar 主命令默认右对齐、左上留大块空白——工具栏整体重做为左对齐横向文本按钮行（Border+ScrollViewer+StackPanel+Ghost 按钮，分隔线 1px 竖 Rectangle；ThemeButton 从 AppBarButton.Label 改普通 Button.Content"主题：深色"）；②放大置顶：scale>1（容差 1.05）时 SingleImageView 提升 ImageArea ZIndex（盖右栏，同父）+ 写 VM.IsCurrentImageZoomed，MainWindow 订阅后提 ContentAreaGrid（盖左栏）与 MainAreaGrid（盖工具栏/InfoBar/状态栏）ZIndex=100——Grid 默认不裁溢出，双链提升实现"最高层遮盖"；复位/切图/回图库还原（OnCurrentModeChanged 清残留，防图库模式侧栏被盖不可交互）；③收起/展开图标化：左栏标题 ◀/折叠条 ▶、右栏标题 ▶/折叠条 ◀（BMP U+25C0/U+25B6，方向指向展开侧）。实机：滚轮放大遮左右栏→双击复位还原→◀收起折叠条▶→展开，全循环通过。踩坑两记：XamlCompiler 增量漏编 XAML（构建"成功"但跑旧 XBF——遇 UI 改动不生效先删 obj 冷重建）；CommunityToolkit 分部方法 OnCurrentModeChanged 已有实现、重复添加 CS0757（冷重建才暴露，增量构建居然没报）。demo 无折叠交互无需同步。
+
+user:
 优化弹窗主题：弹窗与深色主题不符；且弹窗中的标签库应与左侧栏标签库用相同 UI 样式（附截图：目录弹窗白底）。
 
 assistant:
