@@ -89,7 +89,7 @@
                         ToolTipService.ToolTip="收起信息栏（向右收拢）" />
                 </Grid>
 
-                <!-- 信息区：文件名（三段高亮，Inlines 由 code-behind 组装）+ 结构化行 -->
+                <!-- 信息区：文件名（显示名 = 剥离标签段，文本由 code-behind 组装）+ 结构化行 -->
                 <StackPanel Grid.Row="1" Spacing="6">
                     <TextBlock
                         x:Name="InfoFileNameText"

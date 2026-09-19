@@ -19,6 +19,7 @@
 //         无标签模式为「无标签」chip）随侧栏重建同步重建；无标签筛选与标签筛选互斥（点标签自动退出、
 //         激活无标签清空标签集），untagged-filter-entry；
 //         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         重开图库先 Cancel + await 旧扫描任务再清资源（cr/P1-1），旧扫描迟到的 UI 回投经代次校验丢弃；
 //         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
@@ -72,6 +73,13 @@ public partial class MainViewModel : ObservableObject
     // 图库状态：_galleryItems 为扫描全量暂存（后台线程写，UI 消费走 Waterfall 渐进追加）。
     private readonly List<GalleryItem> _galleryItems = [];
     private CancellationTokenSource? _scanCts;
+
+    // 扫描任务句柄与代次（cr/P1-1 重开图库竞态收口）：重开时先 Cancel + await 旧任务（吞异常）
+    // 再 Dispose 令牌/索引服务，杜绝旧续体迟到执行；代次递增使旧扫描经 Progress 异步回投 UI 的
+    // 迟到回调（状态行覆盖 / 旧块追加瀑布流）凭 generation 比对静默丢弃。均仅 UI 线程读写。
+    private Task? _scanTask;
+    private int _scanGeneration;
+
     private ILibraryIndexService? _indexService;
     private string? _libraryRootPath;
 
@@ -113,9 +121,8 @@ public partial class MainViewModel : ObservableObject
     /// <summary>UI 线程调度器（构造捕获；侧栏重建等 UI 写操作从后台路径回投）。</summary>
     private readonly DispatcherQueue? _dispatcher;
 
-    /// <summary>扫描期间标签计数节流刷新间隔（毫秒）。</summary>
     /// <summary>
-    /// 扫描期间标签计数刷新间隔（2026-09-17 走查修复：TagCounts 为全表聚合，大库扫描中
+    /// 扫描期间标签计数刷新间隔（毫秒；2026-09-17 走查修复：TagCounts 为全表聚合，大库扫描中
     /// 1.5s 一刷会持续占用 UI 线程重建侧栏，输入明显卡顿；放宽到 5s，扫描结束仍有终态强刷）。
     /// </summary>
     private const int TagDataRefreshIntervalMs = 5000;
@@ -286,18 +293,6 @@ public partial class MainViewModel : ObservableObject
     /// <summary>瀑布流空态文案（扫描完成 0 张 / 筛选无命中；由本类在状态切换点设置）。</summary>
     [ObservableProperty]
     private string _waterfallEmptyText = string.Empty;
-
-    /// <summary>当前文件名的标签前前缀段（含“[”，无标签时为完整文件名）。</summary>
-    [ObservableProperty]
-    private string _fileNamePrefix = string.Empty;
-
-    /// <summary>当前文件名的标签段（方括号内文本；无标签为空串）。</summary>
-    [ObservableProperty]
-    private string _fileNameTagSegment = string.Empty;
-
-    /// <summary>当前文件名的标签后后缀段（“]”+ 扩展名；无标签为空串）。</summary>
-    [ObservableProperty]
-    private string _fileNameSuffix = string.Empty;
 
     /// <summary>
     /// 当前图显示名（剥离方括号标签段的 base 名 + 扩展名；解析失败回退完整文件名）。
@@ -609,15 +604,35 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 启动/重启图库递归扫描：取消既有扫描、按根目录重建索引服务、后台消费扫描流。
+    /// 启动/重启图库递归扫描：取消并等待既有扫描彻底收尾、按根目录重建索引服务、后台消费扫描流。
+    /// 竞态收口（cr/P1-1）：重开图库时旧扫描续体曾与新扫描交错——旧 catch 覆盖新状态行、
+    /// finally 对已 Dispose 的索引服务刷新计数抛 ObjectDisposedException（全局未处理异常）、
+    /// _galleryItems 并发 Clear/Add。现先 Cancel + await 旧任务（吞异常）再清理资源，
+    /// 并以 _scanGeneration 代次丢弃仍可能迟到的 UI 回投续体（Progress 回调入队早于任务完成）。
     /// </summary>
     private async Task StartLibraryScanAsync(string root)
     {
         SimpleViewer.Services.DiagnosticTrace.Mark($"scan:start {root}");
-        _scanCts?.Cancel();
+
+        // 旧扫描收尾（cr/P1-1）：Cancel 后等待其 catch/finally 全部执行完毕，才 Dispose 令牌与
+        // 索引服务——旧任务自行收敛终态（"已取消"文案/终态计数刷新），不再污染即将开始的新扫描。
+        if (_scanTask is not null)
+        {
+            _scanCts?.Cancel();
+            try
+            {
+                await _scanTask;
+            }
+            catch
+            {
+                // 旧扫描主体的异常已由其 catch 块收敛；此处仅防御 finally 段刷新的意外逃逸。
+            }
+        }
+
         _scanCts?.Dispose();
         _scanCts = new CancellationTokenSource();
         var token = _scanCts.Token;
+        var generation = ++_scanGeneration;
 
         _libraryRootPath = root;
         HasGallery = true;
@@ -628,11 +643,6 @@ public partial class MainViewModel : ObservableObject
         var indexService = new LibraryIndexService(root, scanService: _scanService);
         _indexService?.Dispose();
         _indexService = indexService;
-
-        // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
-        // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
-        // 事实源是文件名，每次打开图库即清表重灌。
-        await indexService.ClearAllItemsAsync(token);
 
         _galleryItems.Clear();
         ClearCardSelection();
@@ -647,16 +657,54 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(OrBadgeVisibility));
         OnPropertyChanged(nameof(FilterStatsText));
 
-        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）。
-        var progress = new Progress<int>(count => ScanStatusText = $"扫描中 · 已发现 {count} 张");
+        // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）；
+        // 回调内代次校验（cr/P1-1）：旧扫描已入队的 Report 在新扫描启动后才回投 UI 时静默丢弃，
+        // 避免旧扫描的状态行覆盖与旧块（可能来自另一目录）追加进新瀑布流。
+        var progress = new Progress<int>(count =>
+        {
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描中 · 已发现 {count} 张";
+            }
+        });
         IProgress<IReadOnlyList<GalleryItem>> chunkProgress =
-            new Progress<IReadOnlyList<GalleryItem>>(_waterfall.AppendChunkFromScan);
+            new Progress<IReadOnlyList<GalleryItem>>(chunk =>
+            {
+                if (generation == _scanGeneration)
+                {
+                    _waterfall.AppendChunkFromScan(chunk);
+                }
+            });
 
+        _scanTask = RunLibraryScanAsync(root, indexService, token, generation, progress, chunkProgress);
+        await _scanTask;
+    }
+
+    /// <summary>
+    /// 扫描主体（cr/P1-1 自 StartLibraryScanAsync 拆出，供 _scanTask 句柄跟踪取消与收尾）：
+    /// 清空索引缓存、后台消费扫描流、终态收敛（状态行/终态计数刷新/IsScanning 复位）。
+    /// </summary>
+    private async Task RunLibraryScanAsync(
+        string root,
+        ILibraryIndexService indexService,
+        CancellationToken token,
+        int generation,
+        IProgress<int> progress,
+        IProgress<IReadOnlyList<GalleryItem>> chunkProgress)
+    {
+        // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
+        // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
+        // 事实源是文件名，每次打开图库即清表重灌。
         // 扫描期间标签计数节流刷新（TagCounts 全表聚合较重，不宜每块刷）。
         var lastTagRefresh = Stopwatch.StartNew();
 
         try
         {
+            // 清表在 try 内（cr/P2-1）：索引目录只读等 IO 异常不再从 try 外逃逸——
+            // 统一收敛为"扫描失败"状态行（finally 终态刷新 + IsScanning 复位照常执行，
+            // 进程不崩溃，用户仍可再打开其它图库）。
+            await indexService.ClearAllItemsAsync(token);
+
             // ScanAsync 为同步磁盘 IO 迭代器（MoveNextAsync 在消费线程上同步执行磁盘枚举）：
             // 必须 Task.Run 后台消费，UI 线程只收进度/扫描块——几十万张不假死的硬性口径。
             await Task.Run(async () =>
@@ -707,6 +755,12 @@ public partial class MainViewModel : ObservableObject
                 }
             }, token);
 
+            // 代次校验（cr/P1-1）：扫描期间被重开取代时不再写状态行——新扫描 owns 终态文案。
+            if (generation != _scanGeneration)
+            {
+                return;
+            }
+
             ScanStatusText = $"共 {_galleryItems.Count} 张";
             SimpleViewer.Services.DiagnosticTrace.Mark($"scan:end {_galleryItems.Count}");
             if (_galleryItems.Count == 0)
@@ -716,17 +770,38 @@ public partial class MainViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            ScanStatusText = $"扫描已取消 · 已发现 {_galleryItems.Count} 张";
+            // 代次校验（cr/P1-1）：被新扫描取代引发的取消不写状态行（旧 catch 曾覆盖新扫描文案）。
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描已取消 · 已发现 {_galleryItems.Count} 张";
+            }
         }
         catch (Exception ex)
         {
-            ScanStatusText = $"扫描失败：{ex.Message}";
+            if (generation == _scanGeneration)
+            {
+                ScanStatusText = $"扫描失败：{ex.Message}";
+            }
         }
         finally
         {
             // 结束态（成功/取消/失败）统一做一次终态计数刷新，保证侧栏计数与索引一致。
-            await RefreshTagDataAsync(indexService);
-            IsScanning = false;
+            // 代次校验（cr/P1-1）：已被更新扫描取代时静默跳过——避免旧库数据覆盖新扫描计数。
+            if (generation == _scanGeneration)
+            {
+                try
+                {
+                    await RefreshTagDataAsync(indexService);
+                }
+                catch (Exception ex) when (ex is ObjectDisposedException or Microsoft.Data.Sqlite.SqliteException)
+                {
+                    // 防御（cr/P1-1）：索引服务已释放/库文件异常时不上抛——终态刷新失败仅记诊断日志，
+                    // 不能成为全局未处理异常（自动恢复启动后立即手动重开图库的竞态场景）。
+                    App.WriteDiagnosticLog($"[标签计数终态刷新失败] root={root}", ex);
+                }
+
+                IsScanning = false;
+            }
         }
     }
 
@@ -882,6 +957,28 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 回车进入单图（PRD 需求 4「双击或回车进入单图」；MainWindow PreviewKeyDown 仿 Ctrl+A 口径接线，
+    /// cr/P1-4）：取选中集首项——按当前呈现序找第一张选中卡（选中集为 HashSet 无序，呈现序口径确定）；
+    /// 无选中项时取呈现集首项（实现期拍板：无选中 = 取首项，键盘用户从列表头开始浏览的直觉）。
+    /// 与卡片双击共用 <see cref="OpenImageAsSingle"/> 既有管线（单图翻页列表 = 当前呈现集快照）。
+    /// </summary>
+    public Task OpenSelectionAsSingleAsync()
+    {
+        GalleryItemViewModel? target = null;
+        foreach (var viewModel in _waterfall.Items)
+        {
+            if (_selectedCards.Contains(viewModel))
+            {
+                target = viewModel;
+                break;
+            }
+        }
+
+        target ??= _waterfall.Items.FirstOrDefault();
+        return target is null ? Task.CompletedTask : OpenImageAsSingle(target.Item);
+    }
+
+    /// <summary>
     /// Ctrl+点击的加/减选切换（2026-09-19 Explorer 心智：无修饰点击已改为单选重置，toggle 仅归 Ctrl）。
     /// </summary>
     public void ToggleCardSelection(GalleryItemViewModel viewModel)
@@ -1015,8 +1112,9 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>选中集批量打标（快捷键路径；互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。
-    /// 2026-09-19 交互重构后侧栏点击不再进此方法；拖拽路径走 ApplyTagToDraggedCardsAsync，共用 ApplyTagToPathsAsync。</summary>
-    public async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
+    /// 2026-09-19 交互重构后侧栏点击不再进此方法（cr/P2-2 改 private：唯一调用方 ApplyTagByShortcutAsync 在类内；
+    /// 拖拽路径走 ApplyTagToDraggedCardsAsync，共用 ApplyTagToPathsAsync）。</summary>
+    private async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
     {
         if (_selectedCards.Count == 0)
         {
@@ -1471,11 +1569,12 @@ public partial class MainViewModel : ObservableObject
     /// <summary>任一筛选是否激活（标签集非空或无标签模式；筛选条可见性与扫描追加块过滤依据）。</summary>
     public bool HasAnyFilter => _activeFilterTags.Count > 0 || IsUntaggedFilterActive;
 
-    /// <summary>瀑布流追加块的筛选谓词：无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。</summary>
+    /// <summary>
+    /// 瀑布流追加块的筛选谓词（薄包装，状态机下沉 Core——cr/P2-3）：
+    /// 无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。
+    /// </summary>
     public bool MatchesTagFilter(GalleryItem item)
-        => IsUntaggedFilterActive
-            ? item.Tags.Count == 0
-            : item.Tags.Any(tag => _activeFilterTags.Contains(tag));
+        => TagFilterState.Matches(item.Tags, _activeFilterTags, IsUntaggedFilterActive);
 
     /// <summary>当前激活的筛选标签集快照（侧栏 chip 高亮依据）。</summary>
     public IReadOnlyCollection<string> ActiveFilterTags => _activeFilterTags;
@@ -1526,16 +1625,9 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        if (IsUntaggedFilterActive)
-        {
-            IsUntaggedFilterActive = false;
-        }
-        else
-        {
-            // 激活：与标签筛选互斥——先清标签集（此时瀑布流整体替换由 ApplyTagFilterAsync 收口）。
-            _activeFilterTags.Clear();
-            IsUntaggedFilterActive = true;
-        }
+        // 状态机语义下沉 Core（cr/P2-3）：激活 = 清空标签筛选（互斥清集）；再点取消回全量。
+        var (untoggledTags, untagged) = TagFilterState.ToggleUntagged(_activeFilterTags, IsUntaggedFilterActive);
+        WriteFilterState(untoggledTags, untagged);
 
         await ApplyTagFilterAsync();
     }
@@ -1555,30 +1647,27 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 互斥：进入标签筛选即退出无标签模式（无标签激活时标签集恒空，必走替换/添加分支）。
-        IsUntaggedFilterActive = false;
-
-        if (ctrl)
-        {
-            // Ctrl：加/减选（在集中移除、不在则加入——多选 OR 的逐标签 toggle）。
-            if (!_activeFilterTags.Remove(tagName))
-            {
-                _activeFilterTags.Add(tagName);
-            }
-        }
-        else if (_activeFilterTags.Count == 1 && _activeFilterTags.Contains(tagName))
-        {
-            // 无修饰且当前唯一选中就是它：取消筛选回全量（保留"二次点击取消"习惯）。
-            _activeFilterTags.Remove(tagName);
-        }
-        else
-        {
-            // 无修饰其余情况：单选重置（多选集或不同标签都替换为仅该标签）。
-            _activeFilterTags.Clear();
-            _activeFilterTags.Add(tagName);
-        }
+        // 状态机语义下沉 Core（cr/P2-3，零行为变化）：互斥清位 / Ctrl 加减选 /
+        // 唯一选中再点取消 / 无修饰单选重置，语义详见 TagFilterState.Toggle。
+        var (tags, untagged) = TagFilterState.Toggle(_activeFilterTags, IsUntaggedFilterActive, tagName, ctrl);
+        WriteFilterState(tags, untagged);
 
         await ApplyTagFilterAsync();
+    }
+
+    /// <summary>
+    /// 写回筛选状态机结果（cr/P2-3）：集合原位替换——_activeFilterTags 实例引用保持稳定
+    /// （侧栏重建 / chip 高亮持有同一 HashSet）；无标签位经属性 setter 走既有变更通知。
+    /// </summary>
+    private void WriteFilterState(IEnumerable<string> tags, bool untagged)
+    {
+        _activeFilterTags.Clear();
+        foreach (var tag in tags)
+        {
+            _activeFilterTags.Add(tag);
+        }
+
+        IsUntaggedFilterActive = untagged;
     }
 
     /// <summary>
@@ -1712,11 +1801,10 @@ public partial class MainViewModel : ObservableObject
                 .FirstOrDefault(g => g.Tags.Any(t =>
                     string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
                 ?.Name ?? string.Empty;
-            var capturedName = tagName;
             FilterChips.Add(new FilterChipViewModel(
                 groupName,
-                capturedName,
-                new AsyncRelayCommand(() => RemoveTagFilterAsync(capturedName))));
+                tagName,
+                new AsyncRelayCommand(() => RemoveTagFilterAsync(tagName))));
         }
 
         OnPropertyChanged(nameof(OrBadgeVisibility));
@@ -2754,10 +2842,10 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 依据文件名尾部标签段解析显示信息：三段式属性（prefix + 标签段 + suffix，2026-09-19 起仅作
-    /// 解析结果保留）、显示名 <see cref="CurrentImageDisplayName"/>（剥离标签段，单图/瀑布流统一口径）
-    /// 与完整名 <see cref="CurrentFileFullName"/>（tooltip 用）；同时重建右栏当前标签 chips
-    /// （同一解析结果，分段与 chips 永不分裂）。
+    /// 依据文件名尾部标签段解析显示信息：显示名 <see cref="CurrentImageDisplayName"/>（剥离标签段，
+    /// 单图/瀑布流统一口径）与完整名 <see cref="CurrentFileFullName"/>（tooltip 用）；同时重建右栏
+    /// 当前标签 chips（同一解析结果，显示名与 chips 永不分裂）。
+    /// 原三段高亮属性（FileNamePrefix/TagSegment/Suffix）已随底部文件名栏移除删除（cr/P1-3）。
     /// </summary>
     private void UpdateFileNameSegments(string path)
     {
@@ -2765,18 +2853,12 @@ public partial class MainViewModel : ObservableObject
         if (_tagFilename.TryParse(fileName, out var baseName, out var extension, out var tags)
             && tags.Count > 0)
         {
-            FileNamePrefix = baseName + "[";
-            FileNameTagSegment = string.Join(" ", tags);
-            FileNameSuffix = "]" + extension;
             // 显示名 = 剥离标签段（2026-09-19 统一口径：与瀑布流卡片一致；完整名进 tooltip）。
             CurrentImageDisplayName = baseName + extension;
         }
         else
         {
-            // 无标签：完整文件名作为前缀，标签段与后缀为空。
-            FileNamePrefix = fileName;
-            FileNameTagSegment = string.Empty;
-            FileNameSuffix = string.Empty;
+            // 无标签：完整文件名即显示名。
             CurrentImageDisplayName = fileName;
             tags = [];
         }
@@ -2802,9 +2884,6 @@ public partial class MainViewModel : ObservableObject
 
     private void ClearFileNameSegments()
     {
-        FileNamePrefix = string.Empty;
-        FileNameTagSegment = string.Empty;
-        FileNameSuffix = string.Empty;
         CurrentImageDisplayName = string.Empty;
         CurrentFileFullName = string.Empty;
         CurrentImageFileSizeText = string.Empty;

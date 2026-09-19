@@ -10,8 +10,10 @@
               缩略图按需加载：ElementPrepared/ElementClearing 事件在 code-behind 接线（禁止一次性全量加载）。
               Esc 从单图返回后滚动位置由互斥 Visibility 切换天然保持（Collapsed 不卸载元素树，无需代码）。
               卡片文字区高度 48 与 MasonryLayout.TextAreaHeight 对齐（D3 常量化估算值，两处同步调整）。
-              拖拽打标（2026-09-19 交互重构）：卡片 CanDrag + DragStarting（与 Tapped/DoubleTapped 天然共存——
-              系统拖拽需按住位移超阈值才进入，单击选中与双击进单图不受影响）；目标是左侧标签树行。 -->
+              拖拽打标（2026-09-19 交互重构）：卡片 CanDrag + DragStarting（与 Click/DoubleTapped 天然共存——
+              系统拖拽需按住位移超阈值才进入，单击选中与双击进单图不受影响）；目标是左侧标签树行。
+              卡片主交互 Click 化（cr/P1-6）：Button + CardButtonStyle 替代 Border+Tapped——
+              Tapped 仅真实指针手势触发、键盘/UIA Invoke 静默失效（RULE：交互用 Click 不用 Tapped）。 -->
 
     <Grid>
         <ScrollViewer
@@ -28,25 +30,32 @@
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:GalleryItemViewModel">
-                        <!-- 卡片（demo .card）：圆角 10、选中 2px 强调色描边（未选透明，靠底色分层）、
-                             hover 上浮 2px（code-behind Translation，等价 demo translateY(-2px)）；
+                        <!-- 卡片（demo .card，cr/P1-6 Click 化）：Button + CardButtonStyle（透明底模板，
+                             CornerRadius 10；底色/描边沿用实例绑定）、圆角 10、选中 2px 强调色描边
+                             （未选透明，靠底色分层）、hover 上浮 2px（code-behind Translation，
+                             等价 demo translateY(-2px)）；Click 替代 Tapped（键盘/UIA Invoke 可达，RULE）；
                              CanDrag 拖拽打标入口（DragStarting → MainViewModel.BeginCardDrag 取整集/单卡路径集） -->
-                        <Border
+                        <Button
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{x:Bind views:WaterfallConverters.CardBorderBrush(IsSelected), Mode=OneWay}"
                             BorderThickness="2"
                             CanDrag="True"
+                            Click="OnCardClicked"
                             CornerRadius="10"
                             DoubleTapped="{x:Bind OpenInViewer}"
                             DragStarting="OnCardDragStarting"
+                            Padding="0"
                             PointerEntered="OnCardPointerEntered"
                             PointerExited="OnCardPointerExited"
-                            Tag="{x:Bind}"
-                            Tapped="OnCardTapped">
+                            Style="{StaticResource CardButtonStyle}"
+                            Tag="{x:Bind}">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="*" />
+                                    <!-- 文字区行高锚点（cr/P2-9 跨文件常量）：48 与 MasonryLayout.TextAreaHeight
+                                         一致——卡片高度由布局按 卡宽/宽高比+TextAreaHeight 预推算，模板行高
+                                         与常量不一致时文字会被裁/留白，改值时两处同步。 -->
                                     <RowDefinition Height="48" />
+                                    <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
                                 <!-- 缩略图占位（浅色块）→ 异步渐入：OpacityTransition 驱动 0→1 过渡 -->
@@ -114,10 +123,11 @@
                                     </ItemsControl>
                                 </Grid>
 
-                                <!-- 文字区：文件名（剥离标签段）12px + 标签行 10px 次要色（demo .fname/.ftags） -->
+                                <!-- 文字区：文件名（剥离标签段）12px + 标签行 10px 次要色（demo .fname/.ftags）。
+                                     高度由上方 RowDefinition 定 48（与 MasonryLayout.TextAreaHeight 对齐），
+                                     原冗余 Height="48" 已删（cr/P2-9）。 -->
                                 <StackPanel
                                     Grid.Row="1"
-                                    Height="48"
                                     Padding="9,6,9,7"
                                     Spacing="1">
                                     <TextBlock
@@ -133,7 +143,7 @@
                                         Visibility="{x:Bind views:WaterfallConverters.NonEmptyTextToVisibility(BadgeLine), Mode=OneWay}" />
                                 </StackPanel>
                             </Grid>
-                        </Border>
+                        </Button>
                     </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
             </ItemsRepeater>

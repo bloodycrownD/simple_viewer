@@ -52,7 +52,7 @@ public sealed class TagEditRequest
     /// <summary>操作种类。</summary>
     public TagEditKind Kind { get; init; }
 
-    /// <summary>目标组 Id（未分组虚拟组的相关操作为 null）。</summary>
+    /// <summary>目标组 Id（编辑入口均由侧栏配置组行构造，理论恒非空；null 仅为配置被外部修改的防御，cr/P2-2 注释对齐）。</summary>
     public string? GroupId { get; init; }
 
     /// <summary>目标组名（展示用）。</summary>

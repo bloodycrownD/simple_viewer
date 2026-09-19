@@ -1,6 +1,6 @@
 // 职责：瀑布流视图 code-behind——ItemsRepeater 装配（MasonryLayout 宽高比注入、批量数据源）、
-//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、卡片点击转发（Ctrl/Shift 键状态）、
-//       卡片 hover 视觉（上浮 2px + 未选态勾选章显隐，视觉对齐 demo .card:hover/.check）、
+//       缩略图按需加载接线（ElementPrepared 加载 / ElementClearing 取消）、卡片点击转发（Click + Ctrl/Shift 键状态，
+//       cr/P1-6 卡片 Button 化）、卡片 hover 视觉（上浮 2px + 未选态勾选章显隐，视觉对齐 demo .card:hover/.check）、
 //       卡片拖拽打标启动（DragStarting：向 MainViewModel 取整集/单卡路径集并写入 DataPackage 标记）。
 // 不变量：缩略图按需加载（禁止一次性为全部项加载）；realized 元素经 Tag 槽位回查 VM（ItemsRepeater
 //         不设置 DataContext；卡片模板 Tag="{x:Bind}" 携带项 VM 自身，ElementPrepared 覆写为同一引用）；
@@ -82,12 +82,13 @@ public sealed partial class WaterfallView : UserControl
     }
 
     /// <summary>
-    /// 卡片点击转发：Tag 槽位回查卡片 VM，Ctrl/Shift 键实时状态交 MainViewModel 分流
+    /// 卡片点击转发（cr/P1-6：卡片为 Button + Click——键盘/UIA Invoke 可达，RULE 硬约束）：
+    /// Tag 槽位回查卡片 VM，Ctrl/Shift 键实时状态交 MainViewModel 分流
     /// （2026-09-19 Explorer 心智：无修饰单选重置 / Ctrl 加减选 / Shift 范围重置）。
-    /// TappedRoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
+    /// RoutedEventArgs 不携带修饰键，按 MainWindow.IsKeyDown 同模式读取当前线程键盘状态
     /// （点击同步触发，状态可靠）。
     /// </summary>
-    private void OnCardTapped(object sender, TappedRoutedEventArgs e)
+    private void OnCardClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: GalleryItemViewModel viewModel })
         {
@@ -98,10 +99,11 @@ public sealed partial class WaterfallView : UserControl
     /// <summary>
     /// 卡片 hover 进入（视觉对齐 demo .card:hover translateY(-2px)）：上浮 2px（Translation 不影响布局）
     /// 并显示未选态勾选章（半透明黑底白描边；选中态常显由绑定控制，此处跳过）。
+    /// 卡片为 Button（cr/P1-6），参数类型取 FrameworkElement 通用。
     /// </summary>
     private void OnCardPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Border card)
+        if (sender is FrameworkElement card)
         {
             card.Translation = new System.Numerics.Vector3(0, -2, 0);
             SetHoverCheck(card, visible: true);
@@ -111,7 +113,7 @@ public sealed partial class WaterfallView : UserControl
     /// <summary>卡片 hover 离开：回落原位并隐藏未选态勾选章。</summary>
     private void OnCardPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Border card)
+        if (sender is FrameworkElement card)
         {
             card.Translation = default;
             SetHoverCheck(card, visible: false);
@@ -119,7 +121,7 @@ public sealed partial class WaterfallView : UserControl
     }
 
     /// <summary>未选态勾选章显隐（选中态由 IsSelected 绑定常显，跳过避免覆盖绑定值）。</summary>
-    private static void SetHoverCheck(Border card, bool visible)
+    private static void SetHoverCheck(FrameworkElement card, bool visible)
     {
         if (card.Tag is GalleryItemViewModel { IsSelected: false }
             && card.FindName("CheckBadge") is Border badge)
@@ -156,7 +158,8 @@ public sealed partial class WaterfallView : UserControl
     /// （常规体验：小缩略图随鼠标），无小位图回退整张缩略图 BitmapImage（bucket 360+ 偏大但仍优于
     /// 整卡快照），两者皆无才落系统默认（被拖元素整体快照）。同步禁用 GetDeferral 异步生成——
     /// 拖拽启动须即时，异步等待会拖慢入场。多选计数 caption 由目标侧 TagSidebarControl.DragOver 设置。
-    /// 拖拽与 Tapped/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响。
+    /// 拖拽与 Click/DoubleTapped 天然共存：系统拖拽需按住位移超阈值才进入，单击/双击不受影响
+    /// （cr/P1-6 卡片 Button 化后依旧，Button 的 Click 判定被系统拖拽接管时自然取消）。
     /// </summary>
     private void OnCardDragStarting(object sender, DragStartingEventArgs e)
     {
@@ -193,7 +196,7 @@ public sealed partial class WaterfallView : UserControl
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查取消加载。
+        // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查释放视觉资源（cr/P1-5）。
         if (Repeater.ItemsSourceView?.GetAt(args.Index) is GalleryItemViewModel viewModel
             && args.Element is FrameworkElement element)
         {
@@ -206,7 +209,9 @@ public sealed partial class WaterfallView : UserControl
     {
         if (args.Element is FrameworkElement { Tag: GalleryItemViewModel viewModel } element)
         {
-            viewModel.CancelThumbnailLoad();
+            // 取消加载 + 释放已加载的缩略图位图与拖拽小图（cr/P1-5）：卡片 VM 全量常驻不随回收丢弃，
+            // 仅取消加载会让视觉资源留在 VM 上累积；释放后重新 Realize 走 BeginLoadThumbnail 重载恢复。
+            viewModel.ReleaseVisuals();
             element.Tag = null;
         }
     }

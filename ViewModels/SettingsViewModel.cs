@@ -54,13 +54,6 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<ShortcutEditorItem> Items { get; } = [];
 
-    public IReadOnlyList<ViewerCommand> AvailableCommands { get; } =
-        Enum.GetValues<ViewerCommand>();
-
-    /// <summary>Command names for ComboBox (x:Bind friendly).</summary>
-    public IReadOnlyList<string> AvailableCommandNames { get; } =
-        Enum.GetNames<ViewerCommand>();
-
     /// <summary>命令下拉选项（中文显示名 + 枚举名值）。</summary>
     public IReadOnlyList<CommandOption> CommandOptions { get; }
 
@@ -134,16 +127,6 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>当前选中行的命令是否为 ApplyTag（显示标签参数下拉）。</summary>
     public bool IsApplyTagSelected =>
         SelectedItem?.Command == ViewerCommand.ApplyTag;
-
-    /// <summary>Called from settings UI when command ComboBox selection changes.</summary>
-    public void NotifyCommandSelectionChanged()
-    {
-        OnPropertyChanged(nameof(IsMoveToFolderSelected));
-        OnPropertyChanged(nameof(IsApplyTagSelected));
-        OnPropertyChanged(nameof(SelectedCommandName));
-        OnPropertyChanged(nameof(SelectedTargetPath));
-        OnPropertyChanged(nameof(SelectedTagId));
-    }
 
     partial void OnSelectedItemChanged(ShortcutEditorItem? value)
     {

@@ -44,11 +44,22 @@ public sealed class SettingsService : ISettingsService
         }
 
         // v1 → v2 迁移：TagGroups 缺失（或显式 null）补空列表，版本升 2 并回写磁盘。
+        // "shortcuts": null 的损坏配置同样补空（null 按空集合口径，返回对象可直接消费）。
         if (settings.Version < 2)
         {
             settings.TagGroups ??= [];
+            settings.Shortcuts ??= [];
             settings.Version = 2;
-            Save(settings);
+            try
+            {
+                Save(settings);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // 回写属尽力而为（cr/P2-12）：IO/权限失败，或既有配置未过保存校验（如重复绑定）时
+                // 静默放过，返回已迁移的内存对象——Load 位于击键热路径，不因回写失败整体失败；
+                // 磁盘留待下次具备写权限/配置被修正后的 Save 落盘。
+            }
         }
 
         return settings;
@@ -103,7 +114,8 @@ public sealed class SettingsService : ISettingsService
     {
         ValidateNoDuplicateBindings(settings);
 
-        foreach (var binding in settings.Shortcuts)
+        // null 防御（cr/P2-12）：与 ValidateNoDuplicateBindings 同口径，null 按空集合。
+        foreach (var binding in settings.Shortcuts ?? new List<ShortcutBinding>())
         {
             if (string.IsNullOrWhiteSpace(binding.VirtualKey))
             {
@@ -140,8 +152,9 @@ public sealed class SettingsService : ISettingsService
 
     /// <summary>
     /// 校验标签组配置（保存前置）：组名非空；标签名拒绝空名、任何空白字符
-    /// （char.IsWhiteSpace 全集，含全角空格与 nbsp）及方括号；组内与跨组标签重名均拒绝
-    /// （文件名标签是平铺字符串，重名无法区分；Windows 文件名不区分大小写，比较忽略大小写）。
+    /// （char.IsWhiteSpace 全集，含全角空格与 nbsp）、方括号及文件系统非法字符
+    /// （与 <see cref="TagFilenameService.ValidateTagName"/> 共用单一口径，cr/P2-16）；
+    /// 组内与跨组标签重名均拒绝（文件名标签是平铺字符串，重名无法区分；Windows 文件名不区分大小写，比较忽略大小写）。
     /// </summary>
     public static void ValidateTagGroups(AppSettings settings)
     {
@@ -163,7 +176,8 @@ public sealed class SettingsService : ISettingsService
             var groupName = string.IsNullOrWhiteSpace(group.Name) ? "(未命名组)" : group.Name;
             var groupTagNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var tag in group.Tags)
+            // null 防御（cr/P2-12）：损坏配置组的 tags 可为 null，按空集合口径。
+            foreach (var tag in group.Tags ?? new List<TagDefinition>())
             {
                 if (string.IsNullOrEmpty(tag.Name))
                 {
@@ -180,6 +194,15 @@ public sealed class SettingsService : ISettingsService
                 if (tag.Name.Contains('[') || tag.Name.Contains(']'))
                 {
                     errors.Add($"标签名不允许包含方括号（组：{groupName}，标签：{tag.Name}）。");
+                    continue;
+                }
+
+                // 文件系统非法字符（cr/P2-16）：复用 TagFilenameService 单一口径——打标即改名，
+                // 含 \ / : * ? 等字符的目标文件名会让 File.Move 抛 IOException 整批"重命名失败"
+                // （用户难定位的前置校验缺口）；含 \ 还可能拼出跨目录路径分量（文件被移出图库目录）。
+                if (TagFilenameService.ContainsInvalidFileNameChar(tag.Name))
+                {
+                    errors.Add($"标签名不允许包含文件系统非法字符（组：{groupName}，标签：{tag.Name}）。");
                     continue;
                 }
 
@@ -210,7 +233,8 @@ public sealed class SettingsService : ISettingsService
         var errors = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var binding in settings.Shortcuts)
+        // null 防御（cr/P2-12）：损坏配置 "shortcuts": null 反序列化为 null，按空集合口径。
+        foreach (var binding in settings.Shortcuts ?? new List<ShortcutBinding>())
         {
             var key = BuildBindingKey(binding);
             if (!seen.Add(key))

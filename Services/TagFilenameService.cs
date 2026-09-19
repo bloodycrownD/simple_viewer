@@ -1,5 +1,6 @@
 // Responsibility: TagSpaces 文件名标签协议（base[t1 t2].ext）的解析/合成/标签名校验与重命名目标路径预检。
-// Invariants: 仅基名尾部完整方括号段视为标签；标签名不含任何空白字符与方括号；BuildNewPath 对可预期失败返回结果而非抛异常；
+// Invariants: 仅基名尾部完整方括号段视为标签；标签名不含任何空白字符、方括号与文件系统非法字符
+//             （Path.GetInvalidFileNameChars 全集，cr/P2-16）；BuildNewPath 对可预期失败返回结果而非抛异常；
 //             长度双口径预检——Linux 组件名 255 UTF-8 字节（最严格平台）+ Windows 全路径 260 字符，拼接规则唯一来源在 TagFilenameBudget。
 // Call chain: TagService（Step 3 打标重命名）→ TryParse/Compose/BuildNewPath；ValidateTagName 规则与 SettingsService 标签组校验共用口径。
 
@@ -8,8 +9,25 @@ namespace SimpleViewer.Services;
 /// <inheritdoc cref="ITagFilenameService" />
 public sealed class TagFilenameService : ITagFilenameService
 {
-    /// <summary>Windows 传统 MAX_PATH 口径：新路径长度超过该值即返回失败（D11：系统长路径策略之外的前置双保险）。</summary>
+    /// <summary>Windows 传统 MAX_PATH 口径：新路径长度达到该值即返回失败（D11：系统长路径策略之外的前置双保险；PRD 口径"将达到 260 即阻止"）。</summary>
     public const int MaxPathLength = 260;
+
+    /// <summary>文件系统文件名非法字符集（<c>Path.GetInvalidFileNameChars()</c> 全集：\ / : * ? " &lt; &gt; | 及控制字符；缓存避免逐字符查询反复分配数组）。</summary>
+    private static readonly HashSet<char> InvalidFileNameChars = new(Path.GetInvalidFileNameChars());
+
+    /// <summary>判断名字是否含文件系统非法字符（公开静态：SettingsService.ValidateTagGroups 复用本单一口径，cr/P2-16）。</summary>
+    public static bool ContainsInvalidFileNameChar(string name)
+    {
+        foreach (var ch in name)
+        {
+            if (InvalidFileNameChars.Contains(ch))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <inheritdoc />
     public bool TryParse(string? fileName, out string baseName, out string extension, out IReadOnlyList<string> tags)
@@ -71,7 +89,7 @@ public sealed class TagFilenameService : ITagFilenameService
             if (!ValidateTagName(tag))
             {
                 throw new ArgumentException(
-                    $"标签名非法：\"{tag}\"（不允许为空、含空白字符或方括号）。", nameof(tags));
+                    $"标签名非法：\"{tag}\"（不允许为空、含空白字符、方括号或文件系统非法字符）。", nameof(tags));
             }
         }
 
@@ -96,7 +114,9 @@ public sealed class TagFilenameService : ITagFilenameService
             }
         }
 
-        return true;
+        // 文件系统非法字符（cr/P2-16）：打标即改名——含非法字符的目标文件名会让 File.Move 抛 IOException
+        // 整批回执"重命名失败"（前置校验缺口，用户难定位）；含 \ 理论上可拼出跨目录路径分量（文件被移出图库目录）。
+        return !ContainsInvalidFileNameChar(name);
     }
 
     /// <inheritdoc />
@@ -113,7 +133,7 @@ public sealed class TagFilenameService : ITagFilenameService
         {
             if (!ValidateTagName(tag))
             {
-                return TagFilenamePathResult.Fail($"标签名非法：\"{tag}\"（不允许为空、含空白字符或方括号）。");
+                return TagFilenamePathResult.Fail($"标签名非法：\"{tag}\"（不允许为空、含空白字符、方括号或文件系统非法字符）。");
             }
         }
 
@@ -139,10 +159,11 @@ public sealed class TagFilenameService : ITagFilenameService
                 $"{TagFilenameBudget.MaxFileNameComponentBytes} 字节（超出 {exceededBytes} 字节）。");
         }
 
-        if (newFullPath.Length > MaxPathLength)
+        // 达到即拒绝（cr/P2-13，>= 口径）：PRD 口径为"将达到 260 即阻止"，恰好 260 字符不放行。
+        if (newFullPath.Length >= MaxPathLength)
         {
             return TagFilenamePathResult.Fail(
-                $"新路径长度 {newFullPath.Length} 超过 {MaxPathLength} 字符上限。");
+                $"新路径长度 {newFullPath.Length} 达到 {MaxPathLength} 字符上限。");
         }
 
         // 新旧路径相同（含仅大小写差异）不视为冲突；目标名已被其他文件占用才返回冲突。

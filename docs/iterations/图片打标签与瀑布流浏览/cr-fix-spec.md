@@ -9,7 +9,7 @@
 - spec_path: `docs/iterations/图片打标签与瀑布流浏览/spec.md`（只读参考）
 - review_round: 2
 - dag_version: 3
-- 状态: fix-spec-ready（review-full round2 校验 23 条存量全部合格；本轮增补 P2-16/P2-17、修正 P1-7 锚点、open questions 扩充至 9 项——trivial 量级由主代理直接执行）
+- 状态: **executed（2026-09-19）**——25 条全部执行完毕于分支 fix/cr-round1（27 提交：批A 死代码/交互×9、批B 核心正确性×5、批C services 加固×8、批D 下沉重构+K节文档×5），测试 74→100 全绿；主代理实机抽查：卡片 Button 化（UIA AXPress 可达）与 Enter 进单图通过；其余实机项见「合并后 QA」
 - 条目统计: P0 = 0；P1 = 8；P2 = 17；合计 25 条（同源 vm/C-1 与 views/C-2 已合并为 cr/P1-3 一条）
 
 ---
@@ -312,7 +312,7 @@
 
 ## K 节建议（下游执行时闭合）
 
-1. PRD/spec 文档回写（消除文本漂移，对应 Spec deviations 四组）：
+1. PRD/spec 文档回写（消除文本漂移，对应 Spec deviations 四组）——**已闭合（2026-09-19 批 D）**：prd.md 与 spec.md 已按下列口径回写（修订标记统一为"2026-09-19 CR 修订"，spec 各 Step 追加短注不重写原文）：
    - PRD 需求 5 回写"批量移除标签收窄"口径（移除走详情页 ✕ 逐图 / 同名收编）；
    - spec 补记 LastLibraryRoot 启动自动恢复的兼容性说明；
    - 无标签筛选入口随 `features/untagged-filter-entry` 留痕回写主 PRD；

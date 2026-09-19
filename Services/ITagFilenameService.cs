@@ -27,7 +27,9 @@ public interface ITagFilenameService
     string Compose(string baseName, string extension, IReadOnlyList<string> tags);
 
     /// <summary>
-    /// 校验标签名合法性：拒绝空、含任何空白字符（char.IsWhiteSpace 全集，含全角空格与 nbsp）、含方括号。
+    /// 校验标签名合法性：拒绝空、含任何空白字符（char.IsWhiteSpace 全集，含全角空格与 nbsp）、含方括号、
+    /// 含文件系统非法字符（<c>Path.GetInvalidFileNameChars()</c> 全集：\ / : * ? " &lt; &gt; | 及控制字符——
+    /// 打标即改名，前置拒绝防 File.Move 整批"重命名失败"；cr/P2-16）。
     /// </summary>
     /// <returns>合法返回 true。</returns>
     bool ValidateTagName(string? name);
@@ -35,7 +37,7 @@ public interface ITagFilenameService
     /// <summary>
     /// 依据原全路径与新标签集合构建重命名目标全路径（纯预检，不执行任何文件系统变更）。
     /// 预检项：标签合法性、新文件名组件不超过 Linux 兼容上限 255 UTF-8 字节（最严格平台口径）、
-    /// 新路径长度不超过 260 字符（D11 双保险）、目标文件名冲突。
+    /// 新路径长度低于 260 字符（达到即拒绝，D11 双保险）、目标文件名冲突。
     /// 可预期失败一律返回明确原因，不抛异常；源文件存在性由调用方（TagService）保证。
     /// </summary>
     TagFilenamePathResult BuildNewPath(string oldFullPath, IReadOnlyList<string> newTags);

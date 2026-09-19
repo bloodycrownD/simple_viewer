@@ -166,7 +166,7 @@ public sealed class LibraryIndexService : ILibraryIndexService
         var existing = await Task.Run(() => RunCommand(ReadAllPathsCore), cancellationToken).ConfigureAwait(false);
         var orphans = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
 
-        // 阶段 2：流式扫描（文件系统为准），分块写入；命中磁盘项即从孤儿集合排除。
+        // 阶段 2（后台）：流式扫描（文件系统为准），分块写入；命中磁盘项即从孤儿集合排除。
         var scanned = 0;
         var buffer = new List<GalleryItem>(RebuildBatchSize);
         async Task FlushAsync()
@@ -178,20 +178,25 @@ public sealed class LibraryIndexService : ILibraryIndexService
             scanned += batch.Length;
         }
 
-        await foreach (var item in _scanService.ScanAsync(rootPath, null, cancellationToken).ConfigureAwait(false))
+        // 扫描主体整体后台化（cr/P2-11）：await foreach 枚举、攒批与尾块冲刷全部在线程池委托内执行，
+        // 对齐接口 Invariants「所有方法内部以 Task.Run 包裹同步调用」的声明，调用方线程不参与枚举。
+        await Task.Run(async () =>
         {
-            buffer.Add(item);
-            orphans.Remove(item.Path);
-            if (buffer.Count >= RebuildBatchSize)
+            await foreach (var item in _scanService.ScanAsync(rootPath, null, cancellationToken).ConfigureAwait(false))
+            {
+                buffer.Add(item);
+                orphans.Remove(item.Path);
+                if (buffer.Count >= RebuildBatchSize)
+                {
+                    await FlushAsync().ConfigureAwait(false);
+                }
+            }
+
+            if (buffer.Count > 0)
             {
                 await FlushAsync().ConfigureAwait(false);
             }
-        }
-
-        if (buffer.Count > 0)
-        {
-            await FlushAsync().ConfigureAwait(false);
-        }
+        }, cancellationToken).ConfigureAwait(false);
 
         // 阶段 3（后台）：剩余候选即孤儿（库中有、磁盘无），批量删除。
         var orphanList = orphans.ToArray();
@@ -222,6 +227,9 @@ public sealed class LibraryIndexService : ILibraryIndexService
     {
         lock (_sync)
         {
+            // lock 内复查（cr/P2-14）：公共入口的 ThrowIfDisposed 与真正拿到锁之间存在窗口，
+            // Dispose 与并发命令交错时不得在已释放后再重建连接（连接泄漏）。
+            ThrowIfDisposed();
             try
             {
                 action(GetConnectionLocked());
@@ -239,6 +247,8 @@ public sealed class LibraryIndexService : ILibraryIndexService
     {
         lock (_sync)
         {
+            // lock 内复查（cr/P2-14）：同上，Dispose 交错窗口内在 lock 内二次确认已释放状态。
+            ThrowIfDisposed();
             try
             {
                 return action(GetConnectionLocked());

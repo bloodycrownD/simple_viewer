@@ -9,7 +9,7 @@ using Windows.Graphics.Imaging;
 namespace SimpleViewer.Helpers;
 
 /// <summary>
-/// Maps <see cref="LoadedImage"/> from Core into WinUI <see cref="ImageSource"/> instances.
+/// 把 Core 层 <see cref="LoadedImage"/> 映射为 WinUI <see cref="ImageSource"/> 实例。
 /// 另含拖拽跟随小图的 WIC 生成工具（2026-09-19 拖拽视觉；本文件仅编入 UI 工程——
 /// SoftwareBitmap/BitmapDecoder 属 WinRT 投影，Core 工程不引用 WinAppSDK，编不进去）。
 /// </summary>

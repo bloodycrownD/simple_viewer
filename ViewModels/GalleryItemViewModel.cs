@@ -1,6 +1,7 @@
 ﻿// 职责：瀑布流卡片项视图模型——显示名（剥离标签段）/标签角标/缩略图槽位/选中态与卡片交互；
 //       缩略图加载成功后顺带预生成拖拽跟随小图（~120px 短边 SoftwareBitmap，失败静默降级）。
-// 不变量：缩略图按需加载（ElementPrepared 触发、ElementClearing 取消；禁止一次性为全部项加载）；
+// 不变量：缩略图按需加载（ElementPrepared 触发、ElementClearing 取消并释放视觉资源——cr/P1-5，
+//         禁止一次性为全部项加载）；
 //         JPEG 字节经 MemoryStream → BitmapImage 在 UI 线程桥接（ThumbnailResult.ImageBytes 契约）；
 //         拖拽小图生成置于 UiApplyGate 闸门段之后（不阻塞缩略图 UI 应用）；
 //         解码/读盘失败保持浅色占位不抛出；打标重命名后就地 UpdateFrom 更新（不重建、不重排，D15）。
@@ -212,6 +213,23 @@ public partial class GalleryItemViewModel : ObservableObject
         _thumbnailCts?.Cancel();
         _thumbnailCts?.Dispose();
         _thumbnailCts = null;
+    }
+
+    /// <summary>
+    /// 释放卡片持有的视觉资源（cr/P1-5，OnElementClearing 在 UI 线程调用）：
+    /// 取消进行中的加载并置 null 已加载的 <see cref="Thumbnail"/>（bucket 360 位图约 300KB+）与
+    /// <see cref="_dragVisual"/>（~120px SoftwareBitmap 约 70KB）——Items 全量常驻 VM（不随回收丢弃），
+    /// 只取消不释放则滚动 N 张累积约 400KB×N，5 万张验收场景内存无界增长。
+    /// 置 null 后卡片回退浅色占位；UI 线程串行性保证不会被回收后才续上的加载续体重新赋值
+    /// （续体过闸门后仍有 ThrowIfCancellationRequested 检查）。卡片重新 Realize 时
+    /// <see cref="BeginLoadThumbnail"/> 幂等条件（cts 与 Thumbnail 均 null）放行，走既有重载路径恢复
+    /// （ThumbnailService 内存/磁盘缓存兜底，快速渐入）。
+    /// </summary>
+    public void ReleaseVisuals()
+    {
+        CancelThumbnailLoad();
+        Thumbnail = null;
+        _dragVisual = null;
     }
 
     /// <summary>打标/重命名后就地更新数据项（路径/标签/显示名变化；选中态与滚动位置保持）。</summary>
