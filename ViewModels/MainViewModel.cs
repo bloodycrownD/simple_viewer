@@ -2439,9 +2439,16 @@ public partial class MainViewModel : ObservableObject
         _loadCts = new CancellationTokenSource();
         var token = _loadCts.Token;
 
-        ReleaseCurrentImageSource();
-
         var path = _imageFiles[_currentIndex];
+
+        // 切图（路径变了）先清空源——避免旧图残影误导；同图重载（侧栏/右栏收展、窗口 resize
+        // 引起的解码尺寸变化）保持旧源显示直到新源就绪后一次性换上，消除"收起/展开闪一下"
+        // 的刷新感（2026-09-19 走查；对齐 EnsureFullResolutionAsync 的同图换源先例）。
+        if (_currentLoaded is null
+            || !string.Equals(_currentLoaded.Path, path, StringComparison.OrdinalIgnoreCase))
+        {
+            ReleaseCurrentImageSource();
+        }
         // 打标即改名（TagSpaces 协议）：加载期间文件可能被就地重命名（打标管线或外部改名），
         // 按旧路径打开会抛"文件不存在"。竞态自愈——仅当当前索引指向的路径已变化时按新路径
         // 重试一次（路径变化是改名落盘的强信号，避免无意义重试）；重试仍失败走通用失败分支。
@@ -2454,7 +2461,16 @@ public partial class MainViewModel : ObservableObject
                 var loaded = await _imageLoader.LoadAsync(path, _decodeSize, rotationBucket: 0, token);
                 token.ThrowIfCancellationRequested();
 
+                // 同图重载（未预清空）：换源后释放被替换旧源的 GIF 句柄（UriSource 指向文件，
+                // 持有会锁文件阻碍打标改名；异图路径已在加载前 ReleaseCurrentImageSource 清过）。
+                var replacedSource = ImageSource;
                 ImageSource = ImageSourceHelper.FromLoadedImage(loaded);
+                if (!ReferenceEquals(replacedSource, ImageSource)
+                    && replacedSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage replacedBitmap)
+                {
+                    replacedBitmap.UriSource = null;
+                }
+
                 HasImage = true;
                 _lastAppliedDecodeSize = _decodeSize ?? 0;
                 _currentLoaded = loaded;
