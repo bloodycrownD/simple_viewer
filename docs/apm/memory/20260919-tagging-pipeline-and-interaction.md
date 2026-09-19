@@ -22,6 +22,12 @@ assistant:
 环境经验入 RULE：双 csproj 同目录 restore 踩踏（dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 解法）；SendInput 移动被丢；UIA 坐标=屏幕点勿乘缩放。留痕：features/tagging-pipeline-fixes 与 tag-interaction-rework 的 prd/spec。待用户确认。
 
 user:
+展开/收起为什么会刷新页面（图片闪一下）？
+
+assistant:
+根因：收展侧栏/右栏 → ImageHost 显示区尺寸变化 → 解码尺寸重载（RULE 铁律②的设计行为），而 LoadCurrentAsync 是"先 ReleaseCurrentImageSource 清空再异步解码"——清空到换源之间的窗口就是闪空。修复（579f33e）：区分同图/异图——同图重载（收展、窗口 resize 引起的尺寸变化）保持旧源显示直到新源就绪一次性换上（对齐 EnsureFullResolutionAsync 同图换源先例）；切图（路径变化）仍预清空防旧图残影；同图换源后对被替换旧源清 GIF UriSource 句柄（防文件锁阻碍打标改名——原设计靠加载前统一清，改为换源后精准清）。实机：收起/展开/切图循环全过。这也是"打标竞态"的同族问题（布局抖动→重载闪空），同图不预清空后此类闪空从根上消除。
+
+user:
 （走查中断后用户催办"活没干完？"）
 
 assistant:
