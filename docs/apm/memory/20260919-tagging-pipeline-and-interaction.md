@@ -146,3 +146,9 @@ user:
 
 assistant:
 **拖拽回归根因与修复（319936f）**：WinUI 3 的 Button 吞指针输入，Button.CanDrag 不触发 DragStarting（已知问题，Microsoft Q&A "WinUI3: Unable to drag button"，官方解法=拖拽源放外层普通 UIElement）——cr/P1-6 卡片 Border→Button 化时拖拽源随之失效；当时代码注释还写着"Button 化后拖拽依旧"（想当然，本环境拖拽手势注入不了故从未实测）。修复：卡片模板外层包 Grid 挂 CanDrag+DragStarting（OnElementPrepared 的 Tag 槽位正好落在模板根 Grid），Button 保留 Click/hover/双击；字符画验证布局无回归。拖拽手势本身仍留用户实机（环境注入限制未变）。**release.ps1 确定性收口（c8ccd47）**：真凶=publish 漏 `--no-restore`（隐式还原把 assets 踩回 Core 视角→全量 CS0234，是否增量跳过决定成败故间歇）；连环修：publish 目录先清空（增量残留曾致 XBF/dll 代际错配——"Failed to assign ItemsRepeater.ItemTemplate"，也解释了包体 62→43MB 虚胖）、散装 xbf/Views/Assets 显式补拷（publish 本就不拷、此前靠目录累积掩盖并翻车）、还原守卫双检（'/win-x64'+WinAppSDK 包签名；TFM 规范化去尾 .0 使全串匹配永远落空的自坑；msbuild restore 增量误判跳过落盘→清缓存兜底；勿用裸 dotnet restore 兜底会再踩踏）。终版 zip 42.9MB 一次过、解压启动+渲染验证通过。RULE 还原踩踏条目扩写 publish 同罪。v1.0.0 tag 三移至 c8ccd47。反思入记忆：CR 执行轮的两个回归（行序、拖拽）同源于"改了控件形态但只验交互路径不验视觉/手势"，且 fix-spec 执行者对"零布局变化"的断言未做实机复核。
+
+user:
+你修复了？为什么我测试还是不能拖拽？本地你打包了吗？
+
+assistant:
+外层 Grid 包裹方案被用户实测证伪——Q&A "Drag Grid with Streached elements" 给了机制：**可命中子元素拦截指针输入，祖先 CanDrag 手势只在自身空白区触发**；Button 拉满宿主 Grid = 全部按压落在 Button 上，外层手势永不启动（与 Button.CanDrag 失效同族，包裹只对"子元素不占满/不捕获"有效）。二次修复（710f2c1）改**命令式 StartDragAsync**：ElementPrepared 对卡片根 AddHandler(handledEventsToo:true) 挂 PointerPressed/Moved/Released/CaptureLost（XAML 挂接在 Button 标记已处理后收不到，必须代码挂），按压记录起点、位移超 8 DIP 一次性 StartDragAsync(pointerPoint)，DragStarting 仍在根元素触发走既有链路；Click/双击小位移不受影响；ElementClearing 成对 RemoveHandler 防复用重复挂接。教训入 RULE：拖拽类修复必须给出可被用户一键复测的构建（本环境手势注入不可达，两次方案都只能静态保证）；CanDrag 手势路径在本项目卡片形态下不可用是定论，后续拖拽需求一律走 StartDragAsync。本地包已重打（42.9MB 一次过），Debug bin 同步最新，v1.0.0 tag 四移至 710f2c1。拖拽实测仍留用户（方案升级为命令式 API，把握度高于手势路径）。

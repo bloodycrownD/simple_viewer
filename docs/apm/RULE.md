@@ -43,6 +43,7 @@
 - 交互类 bug（选择/修饰键/菜单）必须实机走查：UIA 元素树断言（`get_app_state` 找文本/计数）比视觉模型可靠；**主题/颜色断言用屏幕像素采样**（CopyFromScreen），视觉模型对深浅主题误判过两次。
 - 合成 Shift/Ctrl+点击用 `scripts\shift-click-test.ps1`（SendInput）：① x64 INPUT 结构体必须按联合体 40 字节对齐（32 字节版 SendInput 静默失败且不报错）；② 注入前必须激活目标窗口（键盘事件只进前台窗口线程，后台注入的修饰键目标进程永远看不到）；③ PowerShell 须 `SetProcessDPIAware`，否则 SetCursorPos 坐标被 DPI 虚拟化重映射。
 - **本机 SendInput 鼠标"移动"事件被丢弃（2026-09-19 实锤）**：注入返回成功（ret=1）但光标不动（SetCursorPos 正常、点击/键盘注入可达）——**拖拽手势无法自动化注入**，拖拽类交互只能用户实机验证；`scripts\drag-tag-test.ps1` 是当时的注入脚本（含 40 字节断言与相对移动），留作环境复测用。
+- **CanDrag 手势在"可命中子元素占满宿主"时永不触发（2026-09-19 两连实锤）**：①Button.CanDrag 直接无效（Button 捕获指针）；②外层 Grid 包 CanDrag 也无效——按压全落在拉伸占满的 Button 上，宿主手势只在自身空白背景触发（Q&A "Drag Grid with Streached elements" 机制）。**卡片拖拽定论走命令式路径**：AddHandler(handledEventsToo:true) 监听按压/位移（XAML 挂接在 Button 标记已处理后收不到）+ 位移超阈值 `StartDragAsync(pointerPoint)`（DragStarting 照常在挂 CanDrag 的根元素触发）；ElementClearing 成对 RemoveHandler。拖拽类修复交付时必须同步给用户可一键复测的构建（Debug bin 或 zip），勿凭静态把握宣布修复。
 - **UIA AXPress 不做视觉命中测试（2026-09-19 假阳性实锤）**：a11y Press 直调按钮动作、绕过遮挡层——遮盖式布局中右栏收起按钮整体被工具栏横行遮盖，AXPress 走查"通过"而用户真实鼠标点不到。涉及可点性/遮挡/ZIndex 的验证必须走 raw 鼠标路径（left_click 元素 target + `strategy=event`，坐标转真实事件经 Windows 命中测试）或核对目标 bounds 与上层元素 bounds 无重叠；AXPress 仅适用于纯命令性断言。滚轮缩放注入被 transport 前台校验拒绝（与移动丢弃同族），放大类交互仍留用户实机。
 - UIA bounds 与截图光栅同坐标系（窗口物理尺寸）；`GetDpiForWindow`=144（150%）只影响应用内渲染密度，UIA 坐标即屏幕点，勿再乘缩放。
 - 临时改用户 `%LocalAppData%\SimpleViewer\settings.json` 做测试时：先备份、测完原样还原（app 只在改设置时写盘，退出不覆盖）。
