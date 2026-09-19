@@ -5,9 +5,11 @@
     xmlns:views="using:SimpleViewer.Views"
     MinWidth="460">
     <!-- 职责：标签目录选择器（单图详情右栏「＋」，2026-09-19 交互重构）——两级行列表：
-              组行（组名 + 互斥/兼容徽章，不可点）+ 标签行（可点 = 为当前图打该标签）；
-              已含该标签的行显示已选态（✓ 已有，禁点防误触移除）。
-              对照 TagEditDialog/ShowTagEditorAsync 模板：ContentDialog 宿主、快捷键屏蔽在 MainWindow；
+              组行（对齐侧栏组头视觉：静态展开 chevron + 组名 + 互斥/兼容徽章 + 右对齐计数，
+              不可点）+ 标签行（可点 = 为当前图打该标签，样式复用 TagTreeRowButtonStyle：
+              缩进连接线 + 互斥组单选圆点 + 右对齐计数）；已含该标签的行显示已选态
+              （✓ 已有 + 禁点防误触移除）。计数与侧栏同源（GetTagCatalogSnapshot 快照）；
+              宿主 ContentDialog 经 MainWindow.ApplyDialogTheme 跟随应用主题。
               点击标签行 → 事件 TagApplied（宿主关闭对话框）→ MainViewModel.ApplyCatalogTagAsync
               （单图 toggle 管线"添加"方向；同图改名链路保证右栏 chips 不闪不重载地刷新）。 -->
 
@@ -35,18 +37,30 @@
             <ItemsControl ItemsSource="{x:Bind Groups}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="views:TagCatalogGroup">
-                        <StackPanel Margin="0,0,0,8" Spacing="2">
-                            <!-- 组行：组名 + 徽章 + 计数（不可点——目录选择器只做标签粒度操作） -->
-                            <StackPanel
-                                Margin="0,4"
-                                Orientation="Horizontal"
-                                Spacing="6">
+                        <StackPanel Margin="0,0,0,6" Spacing="2">
+                            <!-- 组行：对齐侧栏组头视觉（chevron 恒为展开态——目录内组固定展开，状态真实；
+                                 不可点：目录选择器只做标签粒度操作） -->
+                            <Grid MinHeight="36" ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="15" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="▾" />
+                                <TextBlock
+                                    Grid.Column="1"
                                     VerticalAlignment="Center"
                                     FontSize="13"
                                     FontWeight="SemiBold"
                                     Text="{x:Bind Name}" />
                                 <Border
+                                    Grid.Column="2"
                                     Padding="5,1"
                                     VerticalAlignment="Center"
                                     Background="{x:Bind views:TagSidebarConverters.ExclusiveBadgeBackground(Exclusive)}"
@@ -58,8 +72,15 @@
                                         Foreground="{x:Bind views:TagSidebarConverters.ExclusiveBadgeForeground(Exclusive)}"
                                         Text="{x:Bind views:TagSidebarConverters.ExclusiveBadge(Exclusive)}" />
                                 </Border>
-                            </StackPanel>
-                            <!-- 标签行：可点（Click 事件经 Tag 槽位回查条目）；已含 = 已选态禁点 -->
+                                <TextBlock
+                                    Grid.Column="4"
+                                    VerticalAlignment="Center"
+                                    FontSize="11"
+                                    Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
+                                    Text="{x:Bind views:TagSidebarConverters.GroupCountText(TotalCount)}" />
+                            </Grid>
+                            <!-- 标签行：可点（Click 事件经 Tag 槽位回查条目）；已含 = 已选态禁点；
+                                 样式对齐侧栏树行：缩进连接线 + 互斥组单选圆点 + 右对齐计数 -->
                             <ItemsControl ItemsSource="{x:Bind Entries}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="views:TagCatalogEntry">
@@ -68,12 +89,15 @@
                                             IsEnabled="{x:Bind views:TagCatalogDialog.Not(IsApplied)}"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}">
-                                            <Grid ColumnSpacing="8">
+                                            <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="14" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
+                                                <!-- 一级缩进 + 竖向连接线（对齐侧栏树行） -->
                                                 <Border Width="14">
                                                     <Border
                                                         Width="1"
@@ -81,19 +105,35 @@
                                                         VerticalAlignment="Stretch"
                                                         Background="{x:Bind views:TagSidebarConverters.TreeLineBrush()}" />
                                                 </Border>
-                                                <TextBlock
+                                                <!-- 互斥组单选圆点（组色相描边；已含 = 实心；兼容组收起） -->
+                                                <Ellipse
                                                     Grid.Column="1"
+                                                    Width="7"
+                                                    Height="7"
+                                                    VerticalAlignment="Center"
+                                                    Fill="{x:Bind views:TagSidebarConverters.RadioDotFill(IsApplied)}"
+                                                    Stroke="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsApplied)}"
+                                                    StrokeThickness="1.5"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(Group.Exclusive)}" />
+                                                <TextBlock
+                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     FontSize="13"
                                                     Foreground="{x:Bind views:TagSidebarConverters.TagRowNameForeground(IsApplied)}"
                                                     Text="{x:Bind TagName}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
-                                                    Grid.Column="2"
+                                                    Grid.Column="3"
                                                     VerticalAlignment="Center"
-                                                    FontSize="11"
+                                                    FontSize="10"
                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                     Text="{x:Bind views:TagSidebarConverters.AppliedSuffix(IsApplied)}" />
+                                                <TextBlock
+                                                    Grid.Column="4"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
+                                                    Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
                                             </Grid>
                                         </Button>
                                     </DataTemplate>

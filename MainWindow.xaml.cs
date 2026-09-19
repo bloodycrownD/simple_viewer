@@ -134,6 +134,14 @@ public sealed partial class MainWindow : Window
         ViewModel.RefreshThemeDependentVisuals();
     }
 
+    /// <summary>
+    /// 按 RootGrid 主题为弹窗着色（2026-09-19 弹窗主题走查修复）：ContentDialog 宿主在 popup 层、
+    /// 不在 RootGrid 视觉树内，其 ThemeResource 与底色按应用/系统主题解析，不认
+    /// RootGrid.RequestedTheme 运行时覆盖（深色应用下弹窗白底）。所有 ContentDialog 展示前统一调用。
+    /// </summary>
+    private void ApplyDialogTheme(ContentDialog dialog)
+        => dialog.RequestedTheme = RootGrid.RequestedTheme;
+
     /// <summary>工具栏「主题」按钮：三态循环并持久化（load-modify-save，保留其他字段）。</summary>
     private void OnThemeButtonClick(object sender, RoutedEventArgs e)
     {
@@ -348,6 +356,7 @@ public sealed partial class MainWindow : Window
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
             };
+            ApplyDialogTheme(dialog);
 
             dialog.PrimaryButtonClick += (_, args) =>
             {
@@ -385,6 +394,7 @@ public sealed partial class MainWindow : Window
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
             };
+            ApplyDialogTheme(dialog);
 
             dialog.PrimaryButtonClick += async (_, args) =>
             {
@@ -429,6 +439,7 @@ public sealed partial class MainWindow : Window
                 CloseButtonText = "关闭",
                 DefaultButton = ContentDialogButton.Close,
             };
+            ApplyDialogTheme(dialog);
 
             catalog.TagApplied += dialog.Hide;
             await dialog.ShowAsync();
@@ -450,6 +461,7 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
+        ApplyDialogTheme(dialog);
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }

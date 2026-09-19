@@ -1218,10 +1218,11 @@ public partial class MainViewModel : ObservableObject
     /// 标签目录快照（TagCatalogDialog 构造时一次性取用）：配置组序列 + 当前图标签集
     /// （判已选态）。快照口径——对话框生命周期内配置不变（编辑入口都在侧栏，对话框打开期间互斥）。
     /// </summary>
-    public (IReadOnlyList<TagGroup> Groups, IReadOnlyCollection<string> CurrentTags) GetTagCatalogSnapshot()
+    public (IReadOnlyList<TagGroup> Groups, IReadOnlyCollection<string> CurrentTags, IReadOnlyDictionary<string, int> TagCounts) GetTagCatalogSnapshot()
         => (
             _settingsService?.Load().TagGroups ?? [],
-            [.. CurrentImageTags]);
+            [.. CurrentImageTags],
+            _latestTagCounts);
 
     /// <summary>
     /// 对当前图应用目录选中的标签（TagCatalogDialog 行点击转发）：走单图 toggle 管线的“添加”方向
