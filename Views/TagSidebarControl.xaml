@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:SimpleViewer.ViewModels"
     xmlns:views="using:SimpleViewer.Views">
-    <!-- 职责：左侧标签栏（spec Step 9）——目录树形结构（Eagle 风格标签树，单色系行式节点）：
+    <!-- 职责：左侧标签栏（spec Step 9）——标题行（标签库 + ∅ 无标签筛选按钮 + 收起）与
+              目录树形结构（Eagle 风格标签树，单色系行式节点）：
               组行（父节点）= 整行 Button：chevron（▸折叠/▾展开，BMP 文本字符 U+25B8/U+25BE）→ 组名 →
               互斥/兼容徽章 → 弹性空位 → 右对齐纯数字计数（TotalCount = 该组去重命中张数）→ 悬停浮现
               ＋⇄✎✕ 管理按钮；子标签行（子节点）= 一级缩进 + 1px 竖向连接线（相邻行连续成树）→
@@ -28,10 +29,11 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 标题行（demo .sidebar-head：标签库 + 小型 ghost 按钮） -->
-        <Grid Grid.Row="0">
+        <!-- 标题行（demo .sidebar-head：标签库 + ∅ 无标签筛选按钮 + 收起按钮） -->
+        <Grid Grid.Row="0" ColumnSpacing="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock
@@ -39,8 +41,19 @@
                 FontSize="14"
                 FontWeight="SemiBold"
                 Text="标签库" />
+            <!-- ∅ 无标签筛选按钮（untagged-filter-entry，参考 Billfish 标签面板「无标签素材」）：
+                 toggle，与标签筛选互斥；激活 = 强调色淡底（转换器双值），Content 用 U+2205（∅，BMP 安全码点） -->
             <Button
                 Grid.Column="1"
+                Background="{x:Bind views:TagSidebarConverters.UntaggedButtonBackground(Main.IsUntaggedFilterActive), Mode=OneWay}"
+                Command="{x:Bind Main.ToggleUntaggedFilterCommand}"
+                Content="∅"
+                FontSize="13"
+                Foreground="{x:Bind views:TagSidebarConverters.UntaggedButtonForeground(Main.IsUntaggedFilterActive), Mode=OneWay}"
+                Style="{StaticResource GhostIconButtonStyle}"
+                ToolTipService.ToolTip="筛选无标签图片（再点取消）" />
+            <Button
+                Grid.Column="2"
                 Command="{x:Bind Main.ToggleSidebarCommand}"
                 Content="◀"
                 FontSize="13"

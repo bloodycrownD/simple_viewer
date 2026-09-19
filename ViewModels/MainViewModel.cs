@@ -2,7 +2,9 @@
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
 //       打标管线（快捷键 / 拖拽卡片到标签行 / 单图详情右栏；2026-09-19 交互重构后侧栏点击不再打标）
 //       与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（OR 语义）与筛选条状态（chip/单删/清空/命中统计，Step 11）、标签栏数据/编辑执行（Step 9）、
+//       标签筛选（OR 语义）与筛选条状态（chip/单删/命中统计，Step 11；「清空筛选」按钮已移除——
+//       取消筛选路径 = 二次点击标签 / chip ✕ / 无标签按钮二次点击，untagged-filter-entry）、
+//       无标签筛选（与标签筛选互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
 //       单图详情右栏数据（结构化信息行 + 当前图标签 chips）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
 //         单图翻页列表 = 进入单图时的瀑布流呈现集快照（Step 11：筛选态翻页在命中集内环绕循环）；
@@ -12,8 +14,10 @@
 //         批量打标分批走 TagService（内部 Task.Run），批间回 UI 线程推进 InfoBar 进度（D13）；成功不回滚；
 //         打标后就地同步（索引 ReplacePath + 卡片 VM UpdateFrom + 单图列表路径替换）——卡片 VM 实例不变，
 //         选中集引用天然保持（Step 10：打标后选中集不丢，路径换新）；
-//         标签筛选集与命中数在本类：筛选变化 → 索引 QueryByTagsAsync → 瀑布流整体替换（筛选态不渐进追加），
-//         清空筛选恢复扫描全量（不清空索引）；筛选条 chip（组名：标签名）随侧栏重建同步重建；
+//         标签筛选集与命中数在本类：筛选变化 → 索引 QueryByTagsAsync / QueryUntaggedAsync → 瀑布流整体替换
+//         （筛选态不渐进追加），取消筛选恢复扫描全量（不清空索引）；筛选条 chip（组名：标签名；
+//         无标签模式为「无标签」chip）随侧栏重建同步重建；无标签筛选与标签筛选互斥（点标签自动退出、
+//         激活无标签清空标签集），untagged-filter-entry；
 //         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
 //         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
@@ -90,6 +94,14 @@ public partial class MainViewModel : ObservableObject
 
     // 标签筛选集（标签名，OR 语义；命中数与筛选条 UI 属 Step 11，本步最小反馈见 GalleryStatusText）。
     private readonly HashSet<string> _activeFilterTags = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 「无标签」筛选是否激活（untagged-filter-entry，2026-09-19，与标签筛选互斥）：
+    /// 激活时瀑布流只显示无任何标签的图片（索引 QueryUntaggedAsync 整体替换）；
+    /// 点任何标签筛选自动退出本模式（ToggleTagFilterAsync 开头清位）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isUntaggedFilterActive;
 
     // 最近一次索引标签计数快照（侧栏计数与编辑对话框影响张数的共享数据源）。
     private IReadOnlyDictionary<string, int> _latestTagCounts = new Dictionary<string, int>();
@@ -625,6 +637,7 @@ public partial class MainViewModel : ObservableObject
         _galleryItems.Clear();
         ClearCardSelection();
         _activeFilterTags.Clear();
+        IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐标签筛选清空口径）
         _latestTagCounts = new Dictionary<string, int>();
         _waterfall.ResetFrom([]);
         WaterfallEmptyText = string.Empty;
@@ -1452,14 +1465,16 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义；Step 11：筛选条 UI） ====================
+    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义；Step 11：筛选条 UI；untagged-filter-entry：无标签筛选） ====================
 
-    /// <summary>标签筛选是否激活（激活时扫描追加块按谓词过滤后入瀑布流）。</summary>
-    public bool IsTagFilterActive => _activeFilterTags.Count > 0;
+    /// <summary>任一筛选是否激活（标签集非空或无标签模式；筛选条可见性与扫描追加块过滤依据）。</summary>
+    public bool HasAnyFilter => _activeFilterTags.Count > 0 || IsUntaggedFilterActive;
 
-    /// <summary>瀑布流追加块的筛选谓词（OR 命中任一激活标签）。</summary>
+    /// <summary>瀑布流追加块的筛选谓词：无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。</summary>
     public bool MatchesTagFilter(GalleryItem item)
-        => item.Tags.Any(tag => _activeFilterTags.Contains(tag));
+        => IsUntaggedFilterActive
+            ? item.Tags.Count == 0
+            : item.Tags.Any(tag => _activeFilterTags.Contains(tag));
 
     /// <summary>当前激活的筛选标签集快照（侧栏 chip 高亮依据）。</summary>
     public IReadOnlyCollection<string> ActiveFilterTags => _activeFilterTags;
@@ -1471,9 +1486,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>筛选条 chip 集合（激活标签；随筛选集/配置组变化全量重建，UI 线程）。</summary>
     public ObservableCollection<FilterChipViewModel> FilterChips { get; } = [];
 
-    /// <summary>筛选条可见性（任一筛选激活；Step 11）。</summary>
+    /// <summary>筛选条可见性（任一筛选激活——标签或无标签；Step 11）。</summary>
     public Visibility FilterBarVisibility =>
-        IsTagFilterActive ? Visibility.Visible : Visibility.Collapsed;
+        HasAnyFilter ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>多标签 OR 语义徽章可见性（两个及以上激活标签）。</summary>
     public Visibility OrBadgeVisibility =>
@@ -1492,19 +1507,41 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>清空全部筛选（筛选条「清空筛选」按钮；恢复图库全量，不清空索引）。</summary>
+    /// <summary>
+    /// 切换「无标签」筛选（untagged-filter-entry；侧栏标题行 ∅ 按钮入口）：
+    /// 激活 = 清空标签筛选（互斥）并只显示无任何标签的图片；再点取消回全量。
+    /// 单图模式下先切回图库让筛选结果可见（对齐 HandleTagChipTappedAsync 行为）。
+    /// </summary>
     [RelayCommand]
-    private async Task ClearTagFiltersAsync()
+    private async Task ToggleUntaggedFilterAsync()
     {
-        if (_activeFilterTags.Count > 0)
+        if (_isTagOperationRunning)
         {
-            _activeFilterTags.Clear();
-            await ApplyTagFilterAsync();
+            return;
         }
+
+        if (CurrentMode == ViewerMode.Single && HasGallery)
+        {
+            CurrentMode = ViewerMode.Gallery;
+        }
+
+        if (IsUntaggedFilterActive)
+        {
+            IsUntaggedFilterActive = false;
+        }
+        else
+        {
+            // 激活：与标签筛选互斥——先清标签集（此时瀑布流整体替换由 ApplyTagFilterAsync 收口）。
+            _activeFilterTags.Clear();
+            IsUntaggedFilterActive = true;
+        }
+
+        await ApplyTagFilterAsync();
     }
 
     /// <summary>
     /// 点击侧栏标签 = 切换筛选：再次点击取消；多标签 OR 语义。
+    /// 与「无标签」筛选互斥（拍板）：点任何标签筛选自动退出无标签模式。
     /// 筛选态下瀑布流只显示命中（索引 QueryByTags 全量命中集整体替换，不渐进追加）；
     /// 命中数经筛选条反馈（Step 11）。
     /// </summary>
@@ -1515,6 +1552,9 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 互斥：进入标签筛选即退出无标签模式（无标签激活时标签集恒空，Remove 必走 Add 分支）。
+        IsUntaggedFilterActive = false;
+
         if (!_activeFilterTags.Remove(tagName))
         {
             _activeFilterTags.Add(tagName);
@@ -1523,10 +1563,20 @@ public partial class MainViewModel : ObservableObject
         await ApplyTagFilterAsync();
     }
 
-    /// <summary>按当前筛选集刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。</summary>
+    /// <summary>
+    /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
+    /// 三分流（untagged-filter-entry）：无标签 → QueryUntaggedAsync；标签集非空 → QueryByTagsAsync；否则全量。
+    /// </summary>
     private async Task ApplyTagFilterAsync()
     {
-        if (_indexService is not null && IsTagFilterActive)
+        if (_indexService is not null && IsUntaggedFilterActive)
+        {
+            var hits = await _indexService.QueryUntaggedAsync();
+            ClearCardSelection();
+            _waterfall.ResetFrom(hits);
+            WaterfallEmptyText = hits.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
+        }
+        else if (_indexService is not null && _activeFilterTags.Count > 0)
         {
             var hits = await _indexService.QueryByTagsAsync([.. _activeFilterTags]);
             ClearCardSelection();
@@ -1622,10 +1672,21 @@ public partial class MainViewModel : ObservableObject
     /// 2026-09-19 口径：_activeFilterTags 不落盘且激活入口仅剩侧栏配置组行（未分组筛选入口
     /// 已随虚拟组移除），标签必属配置组、组名恒可解析；查不到组（配置被外部修改的防御）时
     /// 组名段为空串，chip 显示「：标签名」（理论不可达）。
+    /// untagged-filter-entry：无标签模式激活时在最前插入「无标签」chip（与标签筛选互斥，
+    /// 两者不同时存在），✕ = 再点取消（绑 ToggleUntaggedFilterCommand；组名空串，
+    /// 文本/颜色转换器按空组名特判——FilterChipText 只显示「无标签」、chip 颜色取中性灰）。
     /// </summary>
     private void RebuildFilterChips(List<TagGroup> configGroups)
     {
         FilterChips.Clear();
+        if (IsUntaggedFilterActive)
+        {
+            FilterChips.Add(new FilterChipViewModel(
+                string.Empty,
+                "无标签",
+                ToggleUntaggedFilterCommand));
+        }
+
         foreach (var tagName in _activeFilterTags
                      .OrderBy(t => t, StringComparer.CurrentCulture))
         {
@@ -2334,6 +2395,14 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SidebarExpandedVisibility));
         OnPropertyChanged(nameof(SidebarCollapsedVisibility));
+    }
+
+    partial void OnIsUntaggedFilterActiveChanged(bool value)
+    {
+        // 无标签筛选开关影响筛选条可见性（HasAnyFilter 派生）与统计文本；
+        // 侧栏 ∅ 按钮的激活配色经 x:Bind IsUntaggedFilterActive 自行重算。
+        OnPropertyChanged(nameof(FilterBarVisibility));
+        OnPropertyChanged(nameof(FilterStatsText));
     }
 
     partial void OnIsInfoPanelCollapsedChanged(bool value)

@@ -264,7 +264,9 @@
                                 </StackPanel>
                             </ScrollViewer>
 
-                            <!-- 右侧：命中统计 + 清空筛选（demo .filter-right） -->
+                            <!-- 右侧：命中统计（demo .filter-right；「清空筛选」按钮已移除——
+                                 untagged-filter-entry 拍板：取消筛选路径 = 二次点击标签 / chip ✕ /
+                                 无标签按钮二次点击） -->
                             <StackPanel
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
@@ -275,10 +277,6 @@
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind ViewModel.FilterStatsText, Mode=OneWay}" />
-                                <Button
-                                    Command="{x:Bind ViewModel.ClearTagFiltersCommand}"
-                                    Content="清空筛选"
-                                    Style="{StaticResource GhostButtonStyle}" />
                             </StackPanel>
                         </Grid>
                     </Border>

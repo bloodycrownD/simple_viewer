@@ -408,8 +408,12 @@ public static class TagSidebarConverters
     public static Thickness MultiBadgeStroke(bool exclusive)
         => exclusive ? default : new Thickness(1);
 
-    /// <summary>筛选 chip 文本：「组名：标签名」（demo .filter-chip）。</summary>
-    public static string FilterChipText(string groupName, string tagName) => $"{groupName}：{tagName}";
+    /// <summary>
+    /// 筛选 chip 文本：「组名：标签名」；空组名只显示标签名（untagged-filter-entry：
+    /// 无标签 chip 组名为空串，显示「无标签」而非「：无标签」）。
+    /// </summary>
+    public static string FilterChipText(string groupName, string tagName)
+        => string.IsNullOrEmpty(groupName) ? tagName : $"{groupName}：{tagName}";
 
     /// <summary>筛选条底色：强调色 12% 透明叠加（demo #filterBar accent-soft）。</summary>
     public static Brush FilterBarBackground()
@@ -419,18 +423,78 @@ public static class TagSidebarConverters
             Windows.UI.Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
     }
 
-    /// <summary>筛选 chip 边框：所属组 hue 55% 透明（2026-09-19 口径：激活筛选标签必属配置组，
-    /// 原「未分组」灰蓝特判已随筛选入口移除成死分支而删除）。</summary>
+    /// <summary>
+    /// 筛选 chip 边框：所属组 hue 55% 透明（2026-09-19 口径：激活筛选标签必属配置组，
+    /// 原「未分组」灰蓝特判已随筛选入口移除成死分支而删除）。空组名（无标签 chip，
+    /// untagged-filter-entry）取中性灰描边——无标签不属任何组，无组 hue 可言。
+    /// </summary>
     public static Brush FilterChipBorderBrush(string groupName)
-        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.45, 0.55, AlphaBorder);
+        => string.IsNullOrEmpty(groupName)
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+                AlphaBorder,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00))
+            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.45, 0.55, AlphaBorder);
 
-    /// <summary>筛选 chip 底色：所属组 hue 10% 淡底。</summary>
+    /// <summary>筛选 chip 底色：所属组 hue 10% 淡底；空组名（无标签 chip）取中性 10% 淡底。</summary>
     public static Brush FilterChipBackground(string groupName)
-        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.50, 0.50, AlphaFaint);
+        => string.IsNullOrEmpty(groupName)
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+                AlphaFaint,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00))
+            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.50, 0.50, AlphaFaint);
 
-    /// <summary>筛选 chip 字色：所属组 hue 中亮度（深浅主题均可读）。</summary>
+    /// <summary>筛选 chip 字色：所属组 hue 中亮度（深浅主题均可读）；空组名（无标签 chip）取中性次要灰。</summary>
     public static Brush FilterChipForeground(string groupName)
-        => FromHsl(TagGroupViewModel.HueOfName(groupName), 0.55, 0.50, 0xFF);
+        => string.IsNullOrEmpty(groupName)
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+                0xFF,
+                (byte)(IsDarkTheme ? 0xC8 : 0x44),
+                (byte)(IsDarkTheme ? 0xC8 : 0x44),
+                (byte)(IsDarkTheme ? 0xC8 : 0x44)))
+            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.55, 0.50, 0xFF);
+
+    /// <summary>
+    /// 侧栏标题行「∅ 无标签」按钮底色（untagged-filter-entry）：激活 = 系统强调色淡底
+    /// （深色 18% / 浅色 14%，明暗双值——参照 DropOverlayBackground 手法）；未激活 = 透明
+    /// （对齐 TagRowBackground 未激活分支，观感交还 GhostIconButtonStyle 样式）。
+    /// </summary>
+    public static Brush UntaggedButtonBackground(bool isActive)
+    {
+        if (!isActive)
+        {
+            return TransparentBrush;
+        }
+
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            (byte)(IsDarkTheme ? 0x2E : 0x24),
+            accent.R,
+            accent.G,
+            accent.B));
+    }
+
+    /// <summary>
+    /// 侧栏标题行「∅ 无标签」按钮字色：激活 = 系统强调色实色；未激活 = 次要灰
+    /// （明暗双值，对齐 GhostIconButtonStyle 的 TextFillColorSecondaryBrush 观感）。
+    /// </summary>
+    public static Brush UntaggedButtonForeground(bool isActive)
+    {
+        if (isActive)
+        {
+            var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+            return new SolidColorBrush(accent);
+        }
+
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            (byte)(IsDarkTheme ? 0xA0 : 0x6C),
+            (byte)(IsDarkTheme ? 0xA0 : 0x6B),
+            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
+    }
 
     /// <summary>bool → 可见。</summary>
     public static Visibility BoolToVisibility(bool value)
