@@ -12,7 +12,7 @@
          底部状态栏已整体移除（2026-09-19 用户实测反馈）：单图信息由右栏结构化行承载，
          操作回执统一走 InfoBar（成功静默、失败弹出）。 -->
 
-    <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown" SizeChanged="OnRootGridSizeChanged">
+    <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown">
         <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大保持画布层置底——
              放大溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。 -->
         <Grid x:Name="CanvasLayer" Canvas.ZIndex="0">

@@ -215,13 +215,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnRootGridSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        // 视口尺寸源为 SingleImageView.ImageHost（遮盖式布局后铺满整窗 = 画布区，几何仅随窗口
-        // resize 变化——侧栏/右栏收展是 chrome 遮盖层显隐，不再影响画布，故不触发重解码）。
-        // RootGrid 尺寸仅保留给窗口最小尺寸约束等用途，不再驱动解码尺寸。
-    }
-
     private void OnFullscreenChanged(object? sender, bool isFullscreen)
     {
         AppWindow.SetPresenter(
