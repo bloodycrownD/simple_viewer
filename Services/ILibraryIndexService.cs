@@ -1,9 +1,9 @@
-// Responsibility: 图库 SQLite 索引服务契约——行级增删改、标签 OR 筛选、标签计数、对账重建。
+// Responsibility: 图库 SQLite 索引服务契约——行级增删改、标签 OR 筛选、无标签筛选（untagged-filter-entry）、标签计数、对账重建。
 // Invariants: 标签事实源永远是文件名，索引为可随时删除重建的缓存（D2）；tags 列空格分隔存储、
 //             查询采用左右补空格的 LIKE 写法（防子串误命中）；空标签列表查询返回全量；
 //             结果按预分词自然排序 key 排序（D15）；库文件损坏自动删除重建空库；单连接长驻（WAL）。
 // Call chain: MainViewModel（Step 7 打开图库）→ UpsertChunkAsync 渐进写入；TagService 打标后 ReplacePathAsync 行更新；
-//             Step 9 标签栏 → TagCountsAsync 计数；Step 11 筛选条 → QueryByTagsAsync 驱动瀑布流。
+//             Step 9 标签栏 → TagCountsAsync 计数；Step 11 筛选条 → QueryByTagsAsync / QueryUntaggedAsync 驱动瀑布流。
 
 using SimpleViewer.Models;
 
@@ -70,6 +70,14 @@ public interface ILibraryIndexService : IDisposable
     /// <param name="tags">筛选标签集（OR）。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<IReadOnlyList<GalleryItem>> QueryByTagsAsync(IReadOnlyList<string>? tags, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 无标签筛选（untagged-filter-entry，2026-09-19）：返回 tags 列为空（无任何标签）的全部图库项。
+    /// SQL 谓词 <c>tags IS NULL OR tags = ''</c>（IS NULL 为廉价防御——正常写入无标签恒为空串）。
+    /// 结果按预分词自然排序 key 排序返回（对齐 <see cref="QueryByTagsAsync"/> 口径）。
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task<IReadOnlyList<GalleryItem>> QueryUntaggedAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 每标签计数：从 tags 列全量读取后内存拆分聚合（几十万行一次性聚合可接受）。

@@ -221,6 +221,67 @@ public class LibraryIndexServiceTests
         Assert.Empty(await service.TagCountsAsync());
     }
 
+    [Fact]
+    public async Task T_IX_08_QueryUntagged_ReturnsOnlyRowsWithoutTags()
+    {
+        // untagged-filter-entry：无标签筛选——tags 为空的行命中，有标签的行排除。
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+        await service.UpsertChunkAsync(new[]
+        {
+            MakeItem(MakePath(temp.Path, "plain1.png"), "plain1", ".png", Array.Empty<string>()),
+            MakeItem(MakePath(temp.Path, "img[风景].png"), "img", ".png", new[] { "风景" }),
+            MakeItem(MakePath(temp.Path, "plain10.png"), "plain10", ".png", Array.Empty<string>()),
+            MakeItem(MakePath(temp.Path, "img[风景 已修].png"), "img", ".png", new[] { "风景", "已修" }),
+        });
+
+        var untagged = await service.QueryUntaggedAsync();
+
+        // 仅无标签行命中，且按自然序返回（plain1 < plain10）
+        Assert.Equal(new[] { "plain1.png", "plain10.png" }, untagged.Select(i => i.DisplayName).ToArray());
+        Assert.All(untagged, i => Assert.Empty(i.Tags));
+    }
+
+    [Fact]
+    public async Task T_IX_09_QueryUntagged_EmptyLibraryOrAllTaggedReturnsEmpty()
+    {
+        // 空库 → 空结果；全部行有标签 → 空结果（与 QueryByTags 的空集=全量语义互不影响）。
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+
+        Assert.Empty(await service.QueryUntaggedAsync());
+
+        await service.UpsertChunkAsync(new[]
+        {
+            MakeItem(MakePath(temp.Path, "a[风景].jpg"), "a", ".jpg", new[] { "风景" }),
+        });
+
+        Assert.Empty(await service.QueryUntaggedAsync());
+    }
+
+    [Fact]
+    public async Task T_IX_10_QueryUntagged_UpdateTagsTogglesRowMembership()
+    {
+        // UpdateTagsAsync 清空标签后变命中；重新打标后不再命中（整列替换语义）。
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+        var path = MakePath(temp.Path, "a[风景].jpg");
+        await service.UpsertChunkAsync(new[] { MakeItem(path, "a", ".jpg", new[] { "风景" }) });
+
+        Assert.Empty(await service.QueryUntaggedAsync()); // 有标签行不命中
+
+        await service.UpdateTagsAsync(path, Array.Empty<string>()); // 清空标签
+
+        var afterClear = await service.QueryUntaggedAsync();
+        var row = Assert.Single(afterClear);
+        Assert.Equal(path, row.Path);
+        Assert.Empty(row.Tags);
+
+        await service.UpdateTagsAsync(path, new[] { "人像" }); // 重新打标
+
+        Assert.Empty(await service.QueryUntaggedAsync());
+    }
+
     /// <summary>以默认扫描服务构造被测实例（索引目录注入临时目录，rootPath 参与库文件名哈希）。</summary>
     private static LibraryIndexService CreateService(string indexDirectory, string? rootPath = null)
         => new(rootPath ?? System.IO.Path.Combine(indexDirectory, "root"), indexDirectory, new LibraryScanService());

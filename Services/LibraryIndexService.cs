@@ -1,5 +1,6 @@
 // Responsibility: 图库 SQLite 索引实现——建库（WAL）、行级 Upsert/Remove/UpdateTags/ReplacePath、
-//                 标签 OR 筛选（补空格 LIKE）、标签计数聚合、对账重建（文件系统为准）、损坏自动重建。
+//                 标签 OR 筛选（补空格 LIKE）、无标签筛选（untagged-filter-entry）、标签计数聚合、
+//                 对账重建（文件系统为准）、损坏自动重建。
 // Invariants: 单连接长驻（Dispose 关闭）；全部公共方法经 Task.Run 包裹同步 SQLite 调用（避免 UI 线程阻塞）；
 //             SQLiteException 即删库文件（含 -wal/-shm）重建空库后重试一次（T-IX6）；
 //             tags 列存 " t1 t2 "（左右补空格，无标签存空串）；sort_key 列以 '\u0001' 连接预分词 token
@@ -139,6 +140,13 @@ public sealed class LibraryIndexService : ILibraryIndexService
         return Task.Run(
             () => RunCommand(connection => QueryByTagsCore(connection, effective)),
             cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<GalleryItem>> QueryUntaggedAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        return Task.Run(() => RunCommand(QueryUntaggedCore), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -421,6 +429,29 @@ public sealed class LibraryIndexService : ILibraryIndexService
                 command.Parameters.Add("@t" + i, SqliteType.Text).Value = "% " + EscapeLikePattern(effectiveTags[i]) + " %";
             }
         }
+
+        var results = new List<GalleryItem>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                results.Add(ReadItem(reader));
+            }
+        }
+
+        // 稳定排序（OrderBy 语义）保证同 key 项保持行序，对齐 D15 发现顺序口径。
+        return results.OrderBy(static i => i, GalleryItemNaturalComparer.Instance).ToList();
+    }
+
+    /// <summary>
+    /// 无标签筛选核心（untagged-filter-entry）：tags 列空串（正常写入口径）或 NULL（廉价防御）即命中；
+    /// 读出后按预分词自然排序 key 在内存排序（对齐 QueryByTagsCore 尾部处理）。
+    /// </summary>
+    private static IReadOnlyList<GalleryItem> QueryUntaggedCore(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT path, dir, base_name, ext, tags, w, h, sort_key FROM items WHERE tags IS NULL OR tags = ''";
 
         var results = new List<GalleryItem>();
         using (var reader = command.ExecuteReader())
