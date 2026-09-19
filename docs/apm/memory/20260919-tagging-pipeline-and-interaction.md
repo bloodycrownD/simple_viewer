@@ -80,3 +80,9 @@ user:
 
 assistant:
 敏捷项 back-button-and-chrome-simplify（三提交，71/71 绿，主代理实机走查通过）。①0725322 状态栏整体移除：探索实锤单图内容与右栏同源重复（UpdateStatusText 同方法写两处）、图库模式显示残留文案（切模式不清）；4 类独有信息迁 InfoBar（重命名批量回执=全成功静默/有失败弹 Warning 聚合数；删除/移动/加载失败走 ShowInstantTagFeedback 即时提示）；扫描进度本就走图库状态行无丢失；BottomChromeHeight 避让半链整体移除（TopChromeHeight 保留）。②bbd3b5b 单图左上"◀ 返回图库"浮层按钮：画布层 Z1、左侧动态让出左栏宽（280+12/36+12，订阅 IsSidebarCollapsed 跟随）、顶部 TopChromeHeight 避让、无图库禁用灰态；关键点是左侧避让（否则被 chrome 层左栏遮盖，与右栏按钮被遮同构）。③c014350 撤销清除选择按钮（上轮刚加，用户权衡后移除）：ClearCardSelection 本体保留（6 存活调用点）。过程实锤新环境坑入 RULE：XamlCompiler 确定性崩溃——MainAreaGrid 作为 ChromeLayer 末子元素时 Pass1 沉默崩溃（与 Defender 无关，二分实锤），以 MainInfoBar 后置规避（Grid.Row 定位不受顺序影响）；另补 restore 后校验 nuget.g.props 存在。实机走查：CLI 直开返回按钮禁用灰态位置正确、开图库后双击进单图返回按钮启用、raw 点击真实命中回图库（选中保留）、状态行纯文本无按钮。留痕 features/back-button-and-chrome-simplify prd+spec。
+
+user:
+我发现底部的图片名栏没去除，这个也移除吧。
+
+assistant:
+补删完成（06b8811，trivial 豁免主代理直接实现，build 一次过 + 71/71 绿 + 实机走查通过）：SingleImageView 删 FileNameOverlay 底部浮层，RebuildFileNameInlines 仅重建右栏 InfoFileNameText（文件名由右栏信息区承载，完整名 tooltip 保留）；demo 顶部 viewer-file 区（fileName+path 行）与 CSS 同步删除。实机：单图底部无文件名栏、右栏文件名正常、画布居中不变。补记入 back-button-and-chrome-simplify 的 prd/spec。至此单图模式底部 chrome 全清（状态栏+文件名栏均无），信息呈现收敛于右栏。

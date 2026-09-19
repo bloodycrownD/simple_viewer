@@ -18,6 +18,7 @@ agile_trace: true
 | 0725322 | 删状态栏：MainWindow.xaml 删 StatusBarRow+Row3；MainViewModel 删 StatusText 属性及 7 处写入——UpdateStatusText 拼接行删（右栏三字段写入保留）、RenameFilesAsync 回执迁 InfoBar（全成功静默/有失败弹 Warning 聚合数）、删除/移动/加载失败 4 处走 ShowInstantTagFeedback（注释说明非 tag 场景共用）；BottomChromeHeight 半条链整体移除（订阅/属性/ApplyChromeInsets 底部用法归零），TopChromeHeight 顶部链保留。过程发现 XamlCompiler 确定性崩溃 bug（MainAreaGrid 为 ChromeLayer 末子元素时 Pass1 沉默崩溃），以 MainInfoBar 后置规避并注释留痕（已入 RULE） |
 | bbd3b5b | 返回按钮：SingleImageView 新增 BackToGalleryOverlay（GhostButtonStyle、Content="◀ 返回图库"、ToolTip 注明 Esc、Command=BackToGalleryCommand）；ApplyChromeInsets 扩展 `Margin=(left, TopChromeHeight, 0, 0)`，left 依 IsSidebarCollapsed（展开 280+12/折叠 36+12，常量与 MainWindow 左栏宽同步）；订阅 IsSidebarCollapsed 变化跟随移动；无图库 CanExecute 禁用灰态 |
 | c014350 | 删清除选择按钮：状态行还原单 TextBlock；删 HasSelection/ClearSelection 命令/NotifyCanExecuteChanged 联动（GalleryStatusText 通知保留）；ClearCardSelection 本体保留（6 个存活调用点：重开图库/Esc/单选重置/范围重置/筛选切换×2） |
+| 06b8811 | 补删单图底部文件名栏（用户复查反馈）：SingleImageView 删 FileNameOverlay 浮层，RebuildFileNameInlines 仅重建右栏 InfoFileNameText；demo 顶部 viewer-file 区（fileName+path）与对应 CSS 同步删除 |
 
 ## 详细改动说明
 
