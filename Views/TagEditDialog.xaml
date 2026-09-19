@@ -24,7 +24,7 @@
             <TextBlock FontSize="12" Text="{x:Bind NameLabel, Mode=OneWay}" />
             <TextBox
                 x:Name="NameInput"
-                PlaceholderText="不能含空格或方括号（TagSpaces 文件名语法约束）" />
+                PlaceholderText="{x:Bind NamePlaceholder, Mode=OneWay}" />
         </StackPanel>
 
         <!-- 互斥复选（仅新建组；不勾选则为兼容组——组内标签可共存叠加） -->

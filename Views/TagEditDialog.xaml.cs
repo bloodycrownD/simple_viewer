@@ -33,6 +33,10 @@ public sealed partial class TagEditDialog : UserControl
             or TagEditKind.RenameGroup or TagEditKind.RenameTag;
         ShowExclusiveInput = request.Kind == TagEditKind.AddGroup;
         NameLabel = request.Kind is TagEditKind.AddGroup or TagEditKind.RenameGroup ? "组名" : "标签名";
+        // 组名是纯配置、不写入文件名（校验仅要求非空，可含空格）；仅标签名受 TagSpaces 文件名语法约束。
+        NamePlaceholder = request.Kind is TagEditKind.AddGroup or TagEditKind.RenameGroup
+            ? "组名仅用于标签库展示，不影响文件名"
+            : "不能含空格或方括号（TagSpaces 文件名语法约束）";
         InitialName = request.Kind switch
         {
             TagEditKind.RenameTag => request.TagName,
@@ -62,6 +66,9 @@ public sealed partial class TagEditDialog : UserControl
 
     /// <summary>名称输入标签文本。</summary>
     public string NameLabel { get; }
+
+    /// <summary>名称输入占位提示（组名与标签名的约束不同）。</summary>
+    public string NamePlaceholder { get; }
 
     /// <summary>名称输入初始值（重命名预填）。</summary>
     public string InitialName { get; }
