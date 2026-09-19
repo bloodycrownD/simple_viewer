@@ -40,6 +40,15 @@ public sealed partial class SingleImageView : UserControl
     /// </summary>
     private const double FullResZoomThreshold = 1.2;
 
+    /// <summary>左栏展开宽度（逻辑 px；与 MainWindow 左栏展开态 Border Width 一致）。</summary>
+    private const double SidebarExpandedWidth = 280;
+
+    /// <summary>左栏折叠窄条宽度（逻辑 px；与 MainWindow 左栏折叠态 Border Width 一致）。</summary>
+    private const double SidebarCollapsedWidth = 36;
+
+    /// <summary>浮层与左栏的横向间距（逻辑 px）。</summary>
+    private const double OverlayGap = 12;
+
     /// <summary>缩放/平移交互态归属的图路径（切图复位依据；同图分辨率升级不重置）。</summary>
     private string? _zoomOwnerPath;
 
@@ -111,8 +120,10 @@ public sealed partial class SingleImageView : UserControl
                 _zoomOwnerPath = path;
             }
         }
-        else if (e.PropertyName == nameof(MainViewModel.TopChromeHeight))
+        else if (e.PropertyName is nameof(MainViewModel.TopChromeHeight)
+            or nameof(MainViewModel.IsSidebarCollapsed))
         {
+            // 顶部 chrome 行高与左栏收展都影响浮层避让（返回按钮左侧让出左栏实际宽度）。
             ApplyChromeInsets();
         }
     }
@@ -123,12 +134,18 @@ public sealed partial class SingleImageView : UserControl
     /// 实际高度（MainWindow 依各行 SizeChanged 写入 VM）。右栏收起按钮曾因浮层顶到窗口顶
     /// 被工具栏盖住、真实鼠标点不到（UIA Press 不做视觉命中测试，走查假阳性）。
     /// 底部状态栏已移除（2026-09-19）：底部避让删除，浮层底部恒 0。
+    /// 返回图库按钮（2026-09-19 用户实测反馈）：左侧额外让出左栏实际宽度
+    ///（展开 280 / 折叠 36 + 12 间距，与 MainWindow 左栏 Border 宽一致），左栏收展时跟随移动。
     /// </summary>
     private void ApplyChromeInsets()
     {
         var top = ViewModel.TopChromeHeight;
         InfoPanelOverlay.Margin = new Thickness(0, top, 0, 0);
         InfoPanelCollapsedBar.Margin = new Thickness(0, top, 0, 0);
+
+        var left = (ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth)
+            + OverlayGap;
+        BackToGalleryOverlay.Margin = new Thickness(left, top, 0, 0);
     }
 
     // ==================== 滚轮缩放 / 拖拽平移（2026-09-19：单图查看核心交互） ====================

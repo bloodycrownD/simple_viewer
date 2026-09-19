@@ -5,13 +5,14 @@
     xmlns:views="using:SimpleViewer.Views">
     <!-- 职责：单图查看视图（自 MainWindow Row1 抽出，D14）——图片显示/旋转、空态提示、
               完整文件名一行（等宽字体，方括号标签段高亮；Inlines 由 code-behind 依据 VM 三段属性组装）、
-              单图详情右栏（2026-09-19 交互重构：图片信息结构化行 + 当前图标签 chips 管理）。
+              单图详情右栏（2026-09-19 交互重构：图片信息结构化行 + 当前图标签 chips 管理）、
+              左上角返回图库浮层按钮（2026-09-19 用户实测反馈，Esc 同效）。
               布局（2026-09-19 遮盖式重排）：根 Grid 单 cell 叠加——ImageHost 画布铺满整根（ZIndex=0，
-              几何恒定=整窗，收展侧栏/右栏不再改变显示区、不触发重解码）；右栏（280 展开/36 折叠）与
-              文件名栏均为 chrome 浮层（ZIndex=1，右/底对齐，不透明背景遮盖画布）；放大保持画布层
+              几何恒定=整窗，收展侧栏/右栏不再改变显示区、不触发重解码）；右栏（280 展开/36 折叠）、
+              返回按钮与文件名栏均为 chrome 浮层（ZIndex=1，右/底对齐，不透明背景遮盖画布）；放大保持画布层
               置底、溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。
               绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。
-              约束：不用 DockPanel；✕/＋ 为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）。 -->
+              约束：不用 DockPanel；✕/＋/◀ 为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）。 -->
 
     <Grid>
         <!-- 画布（铺满整根）：ImageHost 即解码尺寸源（SizeChanged → VM.OnViewportSizeChangedAsync），
@@ -241,6 +242,20 @@
                 </Grid>
             </Grid>
         </Border>
+
+        <!-- 返回图库浮层按钮（2026-09-19 用户实测反馈）：单图模式左上角常驻（Esc 同效），
+             CLI 直开无图库时禁用灰态（CanExecute=HasGallery 先例）；同属画布层浮层组（ZIndex=1、
+             chrome 层之下）——左/顶 Margin 由 code-behind 动态让出左栏实际宽度与 TopChromeHeight
+            （ApplyChromeInsets；左栏收展时按钮跟随左右移动）；◀ 为 BMP 文本字符（非 FontIcon，RULE）。 -->
+        <Button
+            x:Name="BackToGalleryOverlay"
+            Canvas.ZIndex="1"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Command="{x:Bind ViewModel.BackToGalleryCommand}"
+            Content="◀ 返回图库"
+            Style="{StaticResource GhostButtonStyle}"
+            ToolTipService.ToolTip="返回图库（Esc）" />
 
         <!-- 右栏折叠态（36 窄条，右缘浮层，仅展开按钮 ◀ 指向展开方向；对照左栏折叠条先例；
              顶部避让同展开态——折叠条 ◀ 按钮曾因顶到窗口顶被工具栏遮盖点不到） -->
