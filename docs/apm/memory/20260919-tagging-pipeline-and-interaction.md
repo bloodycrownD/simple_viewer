@@ -98,3 +98,9 @@ user:
 
 assistant:
 敏捷项 untagged-filter-entry（77bcdd8+b2fa29f+c064cd1，74/74 测试绿含 3 新用例，主代理实机走查通过）。①77bcdd8 索引层 QueryUntaggedAsync（tags IS NULL OR tags=''，独立方法不动 QueryByTagsCore 空集=全量语义）+T_IX_08/09/10。②b2fa29f：IsUntaggedFilterActive+ToggleUntaggedFilter 命令；HasAnyFilter 派生统一挂 FilterBarVisibility 与扫描渐进过滤（原 IsTagFilterActive 删除）；ApplyTagFilterAsync 三分流；互斥拍板——无标签图片按定义不含任何标签，点标签筛选自动退出无标签态、反之激活清空标签集；筛选条"无标签"chip（FilterChipText 空组名特判、chip 中性灰防 HueOfName("")落红色）；侧栏标题行三列 ∅ 按钮（U+2205，激活=强调色淡底，ApplyTheme 重建侧栏故无主题滞留）；删 ClearTagFilters 命令与按钮；打开图库重置。实现微调两处：未激活背景 TransparentBrush（null 会丢画刷）、chip 空组名配色特判。③c064cd1 demo 同步。实机走查：∅ 激活命中 10/10+chip+清空按钮确认消失；∅ 下点"大水印"行互斥切换为标签筛选（命中 0 空态提示）；误触 ✕ 弹删除确认框取消正常（顺带无回归）。留痕 features/untagged-filter-entry prd+spec。
+
+user:
+左侧栏标签的选择逻辑也和图片一样吧，ctrl+点击是多选，默认是单选。
+
+assistant:
+敏捷项 tag-filter-select-model（a6f9274，trivial 豁免主代理直接实现，74/74 绿，实机走查三步通过）：侧栏标签筛选对齐卡片 Explorer 心智——无修饰=单选重置（Clear+Add，多选集下点击也替换）、**保留既有习惯**（当前唯一选中的标签再点=取消回全量——用户在移除清空筛选按钮时明确依赖二次点击取消，与图片"点已选卡保持"是刻意差异：筛选是状态可取消、选择集用于批量）、Ctrl+点击=加减选（原 toggle 收窄到 Ctrl）。实现：TagSidebarControl 补 IsControlKeyDown（照抄 WaterfallView 模式只判 Down）经 HandleChipTappedAsync 转发；ToggleTagFilterAsync 三分支；demo onChipClick 同语义。走查注意：CLI 直开无索引时筛选无处执行（ApplyTagFilterAsync 依赖 _indexService），须先开图库；侧栏行按钮 UIA 索引与标签文本有一格错位（点按钮落在下一行标签），按错位规律反推目标行。留痕 features/tag-filter-select-model prd+spec。
