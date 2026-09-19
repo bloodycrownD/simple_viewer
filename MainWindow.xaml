@@ -11,8 +11,8 @@
          图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。 -->
 
     <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown" SizeChanged="OnRootGridSizeChanged">
-        <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大时 code-behind 把本层 ZIndex
-             提到 100 盖住全部 chrome（OnViewModelPropertyChangedForZoomLayering 单点控制）。 -->
+        <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大保持画布层置底——
+             放大溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。 -->
         <Grid x:Name="CanvasLayer" Canvas.ZIndex="0">
             <ContentControl
                 x:Name="SingleImageHost"
@@ -198,8 +198,8 @@
             </Border>
 
             <!-- 内容区（遮盖式布局后仅承载图库视图；单图已移至画布层 CanvasLayer）。
-                 放大置顶（2026-09-19 遮盖式重排简化）：IsCurrentImageZoomed 时 code-behind 把
-                 CanvasLayer 整层 ZIndex 提到 100——放大图片溢出遮盖左栏/工具栏/状态栏。 -->
+                 放大置底（2026-09-19 用户拍板）：画布层恒置底，放大图片溢出被
+                 左栏/工具栏/状态栏等 chrome 遮盖属预期，不再整体提层。 -->
             <Grid x:Name="ContentAreaGrid" Grid.Column="1">
                 <Grid Visibility="{x:Bind ViewModel.GalleryVisibility, Mode=OneWay}">
                     <Grid.RowDefinitions>

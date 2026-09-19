@@ -13,7 +13,6 @@ using SimpleViewer.Models;
 using SimpleViewer.Services;
 using SimpleViewer.ViewModels;
 using SimpleViewer.Views;
-using System.ComponentModel;
 using Windows.Storage.Pickers;
 using Windows.System;
 using WinRT.Interop;
@@ -69,10 +68,6 @@ public sealed partial class MainWindow : Window
         TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
         _ = ViewModel.InitializeTagSidebarAsync();
 
-        // 放大置顶（2026-09-19 遮盖式布局）：当前图放大时把画布层 CanvasLayer 整层 ZIndex 提到最高，
-        // 放大图片溢出遮盖工具栏/左栏/状态栏等全部 chrome（用户拍板"最高层"）；复位/回图库还原。
-        ViewModel.PropertyChanged += OnViewModelPropertyChangedForZoomLayering;
-
         // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条/文件名栏）在 chrome 层
         // 之下，顶部/底部可点区须让出工具栏+InfoBar/状态栏的实际行高（右栏收起按钮曾被工具栏
         // 横行遮盖点不到）。各行 SizeChanged 汇总写入 VM，SingleImageView 订阅后调整浮层 Margin。
@@ -84,22 +79,6 @@ public sealed partial class MainWindow : Window
         ApplySystemBackdrop();
         ApplyThemeFromSettings();
         ConfigureThumbnailDpiBucket();
-    }
-
-    /// <summary>
-    /// 放大置顶的宿主侧接线（2026-09-19 遮盖式布局后收敛为单点）：
-    /// <see cref="MainViewModel.IsCurrentImageZoomed"/> 变化时仅调 <see cref="CanvasLayer"/> 的
-    /// ZIndex——放大时提到 100 盖住整个 chrome 遮盖层（工具栏/左栏/状态栏），复位还原 0
-    ///（ChromeLayer 恒 1）。视图内部对右栏/文件名栏浮层的遮盖由 SingleImageView 自身 ZIndex 处理。
-    /// </summary>
-    private void OnViewModelPropertyChangedForZoomLayering(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName != nameof(MainViewModel.IsCurrentImageZoomed))
-        {
-            return;
-        }
-
-        Canvas.SetZIndex(CanvasLayer, ViewModel.IsCurrentImageZoomed ? 100 : 0);
     }
 
     /// <summary>

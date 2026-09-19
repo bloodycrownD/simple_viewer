@@ -221,7 +221,6 @@ public sealed partial class SingleImageView : UserControl
         ViewerTransform.TranslateY = vy - ratio * (vy - ViewerTransform.TranslateY);
         ViewerTransform.ScaleX = targetScale;
         ViewerTransform.ScaleY = targetScale;
-        UpdateZoomLayering();
     }
 
     private void ResetZoom()
@@ -230,20 +229,6 @@ public sealed partial class SingleImageView : UserControl
         ViewerTransform.ScaleY = 1;
         ViewerTransform.TranslateX = 0;
         ViewerTransform.TranslateY = 0;
-        UpdateZoomLayering();
-    }
-
-    /// <summary>
-    /// 放大置顶（2026-09-19 遮盖式布局）：scale &gt; 1（浮点容差）时把画布 ImageHost 自身 ZIndex
-    /// 提到 2——盖过文件名栏/右栏浮层（同父兄弟，Grid 默认不裁剪溢出）；并写
-    /// <see cref="MainViewModel.IsCurrentImageZoomed"/> 让宿主把整个画布层提到 chrome 层之上
-    ///（遮盖工具栏/左栏/状态栏）。复位/切图/回图库时还原（侧栏恢复可交互）。
-    /// </summary>
-    private void UpdateZoomLayering()
-    {
-        var zoomed = ViewerTransform.ScaleX > 1.05 || ViewerTransform.ScaleY > 1.05;
-        Canvas.SetZIndex(ImageHost, zoomed ? 2 : 0);
-        ViewModel.IsCurrentImageZoomed = zoomed;
     }
 
     /// <summary>

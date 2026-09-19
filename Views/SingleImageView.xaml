@@ -8,8 +8,8 @@
               单图详情右栏（2026-09-19 交互重构：图片信息结构化行 + 当前图标签 chips 管理）。
               布局（2026-09-19 遮盖式重排）：根 Grid 单 cell 叠加——ImageHost 画布铺满整根（ZIndex=0，
               几何恒定=整窗，收展侧栏/右栏不再改变显示区、不触发重解码）；右栏（280 展开/36 折叠）与
-              文件名栏均为 chrome 浮层（ZIndex=1，右/底对齐，不透明背景遮盖画布）；放大时 code-behind
-              提升 ImageHost ZIndex=2 反盖浮层（UpdateZoomLayering）。
+              文件名栏均为 chrome 浮层（ZIndex=1，右/底对齐，不透明背景遮盖画布）；放大保持画布层
+              置底、溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。
               绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。
               约束：不用 DockPanel；✕/＋ 为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）。 -->
 
