@@ -80,6 +80,14 @@ public partial class MainViewModel : ObservableObject
     // 批量打标/移除防重入闸（操作进行中忽略新的侧栏 chip 打标请求）。
     private bool _isTagOperationRunning;
 
+    // 打标期间的视口尺寸记录与补判定（2026-09-19 打标刷新竞态修复）：打标开始时 InfoBar
+    // 弹出会引发布局抖动 → ImageHost 尺寸瞬时变化 → 解码尺寸变化 → 立即重载会读到改名前的
+    // 旧路径（File.Move 已落盘、同步阶段尚未替换 _imageFiles）→ FileNotFound 清空视图。
+    // 故打标进行中忽略视口尺寸变化，结束后用最后尺寸补一次判定（此时路径已同步，安全）。
+    private int _lastViewportWidth;
+    private int _lastViewportHeight;
+    private bool _pendingDecodeSizeRefresh;
+
     // 标签筛选集（标签名，OR 语义；命中数与筛选条 UI 属 Step 11，本步最小反馈见 GalleryStatusText）。
     private readonly HashSet<string> _activeFilterTags = new(StringComparer.OrdinalIgnoreCase);
 
@@ -427,9 +435,19 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 更新视口尺寸，解码尺寸变化时重载（适应窗口）。
+    /// 打标进行中忽略（InfoBar 开关引发布局抖动，立即重载会与改名竞态；见字段区注释），
+    /// 置待补标志，打标收口（ClearTagOperationRunning）用最后尺寸补判定。
     /// </summary>
     public async Task OnViewportSizeChangedAsync(int width, int height)
     {
+        _lastViewportWidth = width;
+        _lastViewportHeight = height;
+        if (_isTagOperationRunning)
+        {
+            _pendingDecodeSizeRefresh = true;
+            return;
+        }
+
         var newDecodeSize = CalculateDecodeSize(width, height);
         if (newDecodeSize == _decodeSize)
         {
@@ -448,6 +466,20 @@ public partial class MainViewModel : ObservableObject
         }
 
         await LoadCurrentAsync();
+    }
+
+    /// <summary>
+    /// 打标操作收口：清运行标志并补判定挂起的视口尺寸变化（打标期间布局抖动被忽略，
+    /// 此时路径已同步、解码重载安全；无挂起则无动作）。
+    /// </summary>
+    private void ClearTagOperationRunning()
+    {
+        _isTagOperationRunning = false;
+        if (_pendingDecodeSizeRefresh)
+        {
+            _pendingDecodeSizeRefresh = false;
+            _ = OnViewportSizeChangedAsync(_lastViewportWidth, _lastViewportHeight);
+        }
     }
 
     [RelayCommand]
@@ -1028,7 +1060,7 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
-            _isTagOperationRunning = false;
+            ClearTagOperationRunning();
         }
     }
 
@@ -1122,7 +1154,7 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
-            _isTagOperationRunning = false;
+            ClearTagOperationRunning();
         }
     }
 
@@ -2330,6 +2362,8 @@ public partial class MainViewModel : ObservableObject
         RotateRightCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
         MoveToFolderCommand.NotifyCanExecuteChanged();
+        // 右栏「＋」打开标签目录（tag-interaction-rework 新增，CanExecute 同样挂 HasImage）。
+        OpenTagCatalogCommand.NotifyCanExecuteChanged();
     }
 
     private void SetImageList(IReadOnlyList<string> files, int index)
@@ -2363,30 +2397,57 @@ public partial class MainViewModel : ObservableObject
         ReleaseCurrentImageSource();
 
         var path = _imageFiles[_currentIndex];
-        try
+        // 打标即改名（TagSpaces 协议）：加载期间文件可能被就地重命名（打标管线或外部改名），
+        // 按旧路径打开会抛"文件不存在"。竞态自愈——仅当当前索引指向的路径已变化时按新路径
+        // 重试一次（路径变化是改名落盘的强信号，避免无意义重试）；重试仍失败走通用失败分支。
+        // 2026-09-19 走查实锤：无此兜底时，竞态会把 HasImage 置 false、清空 ImageSource
+        //（图片消失/空态出现/删除旋转禁用），且随后打标链路的状态行刷新会掩盖"加载失败"文案。
+        for (var attempt = 0; ; attempt++)
         {
-            var loaded = await _imageLoader.LoadAsync(path, _decodeSize, rotationBucket: 0, token);
-            token.ThrowIfCancellationRequested();
+            try
+            {
+                var loaded = await _imageLoader.LoadAsync(path, _decodeSize, rotationBucket: 0, token);
+                token.ThrowIfCancellationRequested();
 
-            ImageSource = ImageSourceHelper.FromLoadedImage(loaded);
-            HasImage = true;
-            _lastAppliedDecodeSize = _decodeSize ?? 0;
-            _currentLoaded = loaded;
-            _fullResLoadedForCurrent = false;
-            UpdateStatusText(loaded);
+                ImageSource = ImageSourceHelper.FromLoadedImage(loaded);
+                HasImage = true;
+                _lastAppliedDecodeSize = _decodeSize ?? 0;
+                _currentLoaded = loaded;
+                _fullResLoadedForCurrent = false;
+                UpdateStatusText(loaded);
 
-            _imageLoader.PrefetchAdjacent(_imageFiles, _currentIndex, _decodeSize);
-        }
-        catch (OperationCanceledException)
-        {
-            // 已被更新的导航或尺寸重载取代。
-        }
-        catch (Exception ex)
-        {
-            ImageSource = null;
-            HasImage = false;
-            ClearFileNameSegments();
-            StatusText = $"加载失败：{ex.Message}";
+                _imageLoader.PrefetchAdjacent(_imageFiles, _currentIndex, _decodeSize);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                // 已被更新的导航或尺寸重载取代。
+                return;
+            }
+            catch (Exception ex) when (attempt == 0
+                && _currentIndex >= 0
+                && _currentIndex < _imageFiles.Count
+                && (!string.Equals(_imageFiles[_currentIndex], path, StringComparison.OrdinalIgnoreCase)
+                    || (_isTagOperationRunning && !File.Exists(path))))
+            {
+                // 文件在加载期间被就地改名：按当前列表中的新路径重试一次。
+                // 路径未变但文件消失且打标在途：同步阶段即将替换路径——短暂等待后重读再试
+                //（诊断日志实锤过此窗口：异常时 _imageFiles 尚未替换，路径比对过滤器单独不命中）。
+                if (string.Equals(_imageFiles[_currentIndex], path, StringComparison.OrdinalIgnoreCase))
+                {
+                    await Task.Delay(80, CancellationToken.None);
+                }
+
+                path = _imageFiles[_currentIndex];
+            }
+            catch (Exception ex)
+            {
+                ImageSource = null;
+                HasImage = false;
+                ClearFileNameSegments();
+                StatusText = $"加载失败：{ex.Message}";
+                return;
+            }
         }
     }
 
