@@ -282,6 +282,30 @@ public class LibraryIndexServiceTests
         Assert.Empty(await service.QueryUntaggedAsync());
     }
 
+    /// <summary>cr/P2-14：Dispose 后调用任一公共方法均抛 ObjectDisposedException（公共入口 ThrowIfDisposed 与 RunCommand lock 内复查双保险）。</summary>
+    [Fact]
+    public async Task T_IX_11_AfterDispose_AllPublicMethodsThrowObjectDisposedException()
+    {
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+
+        // 先做一次正常操作保证连接已建立，再 Dispose（二次 Dispose 幂等无害）。
+        var path = MakePath(temp.Path, "a.jpg");
+        await service.UpsertChunkAsync(new[] { MakeItem(path, "a", ".jpg", Array.Empty<string>()) });
+        service.Dispose();
+
+        var item = MakeItem(MakePath(temp.Path, "b.jpg"), "b", ".jpg", Array.Empty<string>());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.UpsertChunkAsync(new[] { item }));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.RemovePathAsync(path));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.ClearAllItemsAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.UpdateTagsAsync(path, Array.Empty<string>()));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.ReplacePathAsync(path, item));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.QueryByTagsAsync(null));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.QueryUntaggedAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.TagCountsAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.RebuildAsync(temp.Path));
+    }
+
     /// <summary>以默认扫描服务构造被测实例（索引目录注入临时目录，rootPath 参与库文件名哈希）。</summary>
     private static LibraryIndexService CreateService(string indexDirectory, string? rootPath = null)
         => new(rootPath ?? System.IO.Path.Combine(indexDirectory, "root"), indexDirectory, new LibraryScanService());

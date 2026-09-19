@@ -227,6 +227,9 @@ public sealed class LibraryIndexService : ILibraryIndexService
     {
         lock (_sync)
         {
+            // lock 内复查（cr/P2-14）：公共入口的 ThrowIfDisposed 与真正拿到锁之间存在窗口，
+            // Dispose 与并发命令交错时不得在已释放后再重建连接（连接泄漏）。
+            ThrowIfDisposed();
             try
             {
                 action(GetConnectionLocked());
@@ -244,6 +247,8 @@ public sealed class LibraryIndexService : ILibraryIndexService
     {
         lock (_sync)
         {
+            // lock 内复查（cr/P2-14）：同上，Dispose 交错窗口内在 lock 内二次确认已释放状态。
+            ThrowIfDisposed();
             try
             {
                 return action(GetConnectionLocked());
