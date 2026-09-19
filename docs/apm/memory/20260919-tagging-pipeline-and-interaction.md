@@ -1,8 +1,8 @@
 ---
-date: 2026-09-19 16:15
-title: 打标管线修复、交互重构与五轮走查（pipeline-fixes + interaction-rework）
-keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组保留, 显示名统一, 弹窗主题, 工具栏左对齐, 放大置顶, 收起图标, 收展闪空
-abstract: 用户四连问起的连续敏捷：①打标不重载（同图改名链路+缓存迁移+竞态双保险）；②Linux 255 字节标签预算双口径；③交互重构（点击=筛选自动回图库、拖拽打标、详情页右栏 chips+目录选择器）；随后五轮用户走查修复：未分组标签归零保留（曾见即留）、显示名统一剥离口径（完整名进 tooltip）、弹窗主题跟随（popup 层不认 RootGrid 覆盖）+目录样式对齐侧栏、工具栏左对齐+放大置顶遮侧栏+收起展开 ◀▶ 图标化、收展闪空（同图重载不预清空）。分支 feature/tagging-waterfall（HEAD 8a363aa），71/71 测试绿。待用户实机验证：拖拽打标手感（环境无法注入拖拽手势）、各轮 UI 体验。
+date: 2026-09-19 18:10
+title: 打标管线修复、交互重构与七轮走查（pipeline-fixes + interaction-rework + drag-visual/overlay-canvas）
+keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组保留, 显示名统一, 弹窗主题, 工具栏左对齐, 放大置顶, 收起图标, 收展闪空, 拖拽视觉, 遮盖式布局, 画布层, DragUI, GIF换源空窗
+abstract: 用户连续敏捷：①打标不重载（同图改名链路+缓存迁移+竞态双保险）；②Linux 255 字节标签预算双口径；③交互重构（点击=筛选自动回图库、拖拽打标、详情页右栏）；随后六轮用户走查修复：未分组标签归零保留、显示名统一剥离口径、弹窗主题跟随+目录样式对齐、工具栏左对齐+放大置顶+收展图标化、收展闪空（同图不预清空）、拖拽视觉小缩略图+遮盖式布局（画布全窗底层、侧栏 chrome 遮盖——根治首次收展闪跳与图片位移，顺修 GIF 换源空窗）。分支 feature/tagging-waterfall，71/71 测试绿。待用户实机验证：拖拽小缩略图手感与多选计数 caption、滚轮放大置顶（环境无法注入拖拽/滚轮）。
 ---
 
 user:
@@ -50,3 +50,15 @@ user:
 
 assistant:
 已完整收口（8a363aa 后追加本次整理提交）：本记忆 6 轮按时间序重排（此前修复"吃 user 头"时插错位置导致后四轮倒序）、front matter 刷新为全貌摘要+当前状态（分支 feature/tagging-waterfall，HEAD 见 git log，71/71 绿）。当前快照：五轮走查修复全部提交（4679a12 未分组保留+显示名统一 / 7b0791e 弹窗主题+目录样式 / a737aa1 工具栏左对齐+放大置顶+图标化 / 579f33e 收展闪空）；待用户实机验证项：拖拽打标手感（环境注入不了拖拽手势）、放大置顶体验、收展顺滑度；工作区干净。教训入 RULE：追加记忆新轮次必须用"文件末尾锚点追加"方式，禁止以旧轮 user: 头为 old_string 替换（本会话连犯三次吃头+一次插错位）。
+
+user:
+恢复记忆后三个新问题：1. 拖拽图片到标签时图片仍完整显示，应缩小随鼠标移动；2. 展开/收起第一次仍出现页面刷新现象；3. 展开/收起影响图片位置——建议画布放最底层、侧栏作为画布之上的遮盖（而非组件同级），收展即不影响图片位置。
+
+assistant:
+判定为迭代内敏捷项 drag-visual-thumbnail-and-overlay-canvas（①bug + ②③布局级 feature），继续 feature/tagging-waterfall。双探索结论：①拖拽视觉根因=卡片 CanDrag 无 DragUI 定制→系统默认整卡快照；WinAppSDK 1.6 实有 DragUI.SetContentFromBitmapImage/SoftwareBitmap（WaterfallView.xaml.cs:138 旧注释有误需纠正）；DragUI 不缩放位图，bucket 缩略图 360+px 偏大，需缩略图加载时顺带 WIC 降采样 ~120px SoftwareBitmap 备用；多选计数可走目标侧 DragUIOverride.Caption。②首次收展闪根因=收展→decodeSize 变化→首次缓存 miss 走磁盘+WIC 数十至数百 ms，旧源先 Uniform 拉伸重布局、新源就绪换上=跳变感；二次起 LRU 命中一帧完成故只首次闪。GIF 另有每次换源异步空窗（UriSource 异步打开）。③图片位移=ImageHost 尺寸变化必然结果。拍板用户遮盖方案：RootGrid 改两层——底层画布层（整窗，承载 SingleImageView：ImageHost 铺满+右栏/文件名栏改浮层）+ 上层 chrome 层（原四行：工具栏/InfoBar/MainAreaGrid(左栏+图库)/状态栏）；单图模式 chrome 空明区无 Background 不吞指针、画布指针事件正常；放大置顶简化为画布层 ZIndex 0↔100；图库模式占位结构不动；顺手修 GIF 同图换源 ImageOpened 后提交 + 修订 RULE 铁律②文本（解码尺寸=整窗画布）。执行：先拖拽视觉（小）后遮盖改造（大），两个实现子代理串行。
+
+user:
+（两个实现子代理先后完成，主代理复核与实机走查）
+
+assistant:
+实现+验证+留痕收口（5 提交）：10745d6 拖拽视觉——ImageSourceHelper.TryCreateDragVisualAsync（WIC+Fant 短边 120px SoftwareBitmap，IgnoreExifOrientation 防二次旋转）在 UiApplyGate 闸门段后预生成，OnCardDragStarting 三级回退（小位图 SetContentFromSoftwareBitmap 居中锚点 > Thumbnail BitmapImage > 系统整卡快照），纠正"DragUI 不可定制"错误旧注释；b0e05fd 多选计数——MainViewModel.DragPayloadCount + 标签行 DragOver N>1 时 Caption「打标 N 张」；532c637 遮盖式布局——RootGrid 改 CanvasLayer(Z0 整窗承载 SingleImageView) + ChromeLayer(Z1 原四行)，SingleImageView 单 cell 叠加（ImageHost 铺满、右栏/文件名栏改右/底浮层不透明背景），放大置顶收敛两级单点，Grid 链无 Background 不吞指针；a127599 GIF 同图换源等 ImageOpened（2s 超时/失败/取消放行）再提交；6512655 RULE 铁律②改口径（解码=整窗画布区）。验证：71/71 绿（主代理复核重跑）、build 过（restore 踩踏当日升级必现，按 RULE 定向还原+--no-restore 绕过，RULE 第 8 条已补强）；主代理实机 UIA 走查：单图模式收展左栏/右栏四态 image bounds 恒 [427,323,959,720] 不变（核心验收达成）、FolderPicker 开图库瀑布流 10 卡正常、双击回单图正常。滚轮放大置顶与拖拽视觉留用户实机（computer-use 滚轮注入被前台校验拒绝，与 SendInput 移动丢弃同族限制）。留痕 features/drag-visual-thumbnail-and-overlay-canvas prd+spec。
