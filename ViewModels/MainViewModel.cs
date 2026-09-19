@@ -1003,6 +1003,12 @@ public partial class MainViewModel : ObservableObject
     public bool IsTagOperationRunning => _isTagOperationRunning;
 
     /// <summary>
+    /// 当前拖拽 payload 的项数（2026-09-19 拖拽视觉：BeginCardDrag 写入、Drop 消费前有效；
+    /// 无 payload 时为 0）。侧栏 DragOver 用其显示多选拖拽的计数 caption。
+    /// </summary>
+    public int DragPayloadCount => _dragPayload?.Count ?? 0;
+
+    /// <summary>
     /// 开始卡片拖拽（WaterfallView.DragStarting 转发）：确定本次拖拽的路径集——
     /// 卡片在选中集内 = 整集（对齐“拖选中集内任一卡 = 整集打标”决策），否则仅该卡。
     /// 此时不改选中集（拖拽是打标手势不是选卡手势）；路径集暂存 VM 侧供 Drop 消费

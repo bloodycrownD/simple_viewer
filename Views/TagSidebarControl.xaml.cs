@@ -175,6 +175,9 @@ public sealed partial class TagSidebarControl : UserControl
     /// 标签行 DragOver：拖拽数据含本应用卡片格式（WaterfallView.CardDragFormat）且无打标操作进行中 →
     /// 接受 Copy 并高亮该行（DropOverlay 层视觉树回查，对齐 RowCommands 同模式）；
     /// 否则 AcceptedOperation=None（外部拖入/操作进行中一律拒绝，不出现“可放下”光标）。
+    /// 多选拖拽（N&gt;1）时在系统拖拽浮层加计数 caption（2026-09-19 拖拽视觉）——WinAppSDK 1.6 的
+    /// DragEventArgs.DragUIOverride 存在（Caption/IsCaptionVisible 等），其生命周期随拖拽会话，
+    /// DragLeave/Drop 无需清理；N&lt;=1 不设（单图无需计数）。
     /// DragOver/Drop 属拖拽专用事件（非 Click/Tapped 交互约束范围）。
     /// </summary>
     private void OnTagRowDragOver(object sender, DragEventArgs e)
@@ -185,6 +188,13 @@ public sealed partial class TagSidebarControl : UserControl
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
             SetDropOverlay(root, visible: true);
+
+            var count = Main.DragPayloadCount;
+            if (count > 1)
+            {
+                e.DragUIOverride.Caption = $"打标 {count} 张";
+                e.DragUIOverride.IsCaptionVisible = true;
+            }
         }
         else
         {
