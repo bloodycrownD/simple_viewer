@@ -1,7 +1,8 @@
 // 职责：标签栏视图 code-behind——构造注入（MainViewModel + TagSidebarViewModel）、行点击转发、
 //       行悬停浮现管理按钮（RowCommands 容器 Opacity 切换）与 x:Bind 函数转换器。
 // 不变量：无交互逻辑（分流/命令全部在视图模型）；标签行/组行点击经 Tag 槽位回查 VM（ItemsRepeater 不设置
-//         DataContext）；点击一律 = 筛选（2026-09-19 交互重构，不再读取修饰键状态）；
+//         DataContext）；标签行点击 = 筛选——无修饰 = 单选筛选（唯一选中再点取消）、Ctrl = 加减选
+//         （多标签 OR；键状态只判 Down，与实现一致，cr/P2-7 注释对齐）；
 //         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
 // 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
