@@ -121,7 +121,7 @@
                                         Command="{x:Bind Commands.ToggleExclusive}"
                                         Content="⇄"
                                         Style="{StaticResource GhostIconButtonStyle}"
-                                        ToolTipService.ToolTip="切换互斥/多选"
+                                        ToolTipService.ToolTip="切换互斥/兼容"
                                         Visibility="{x:Bind views:TagSidebarConverters.NotUngroupedToVisibility(IsUngrouped)}" />
                                     <Button
                                         Grid.Column="6"

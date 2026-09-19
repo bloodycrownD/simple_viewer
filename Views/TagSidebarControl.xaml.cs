@@ -170,8 +170,8 @@ public static class TagSidebarConverters
     private static readonly SolidColorBrush TransparentBrush =
         new(Windows.UI.Color.FromArgb(0x00, 0x00, 0x00, 0x00));
 
-    /// <summary>互斥/多选徽章文本。</summary>
-    public static string ExclusiveBadge(bool exclusive) => exclusive ? "互斥" : "多选";
+    /// <summary>互斥/兼容徽章文本（兼容组 = 非互斥组：组内标签可共存叠加）。</summary>
+    public static string ExclusiveBadge(bool exclusive) => exclusive ? "互斥" : "兼容";
 
     /// <summary>组计数文本（组内标签引用张数合计）。</summary>
     public static string GroupCountText(int count) => $"{count} 张";
@@ -219,14 +219,14 @@ public static class TagSidebarConverters
     public static Brush RadioDotFill(bool isActive)
         => isActive ? WhiteBrush : TransparentBrush;
 
-    /// <summary>互斥/多选小徽章底色：互斥 = 琥珀 16% 透明（demo .group-badge.excl）；多选 = 中性淡底（明暗双值）。</summary>
+    /// <summary>互斥/兼容小徽章底色：互斥 = 琥珀 16% 透明（demo .group-badge.excl）；兼容 = 中性淡底（明暗双值）。</summary>
     public static Brush ExclusiveBadgeBackground(bool exclusive)
         => exclusive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(0x29, 0xF0, 0xB4, 0x29))
             : new SolidColorBrush(Windows.UI.Color.FromArgb(
                 (byte)(IsDarkTheme ? 0x24 : 0x14), 0xFF, 0xFF, 0xFF));
 
-    /// <summary>互斥/多选小徽章字色：互斥 = 琥珀（深色下提亮）；多选 = 中性次要色。</summary>
+    /// <summary>互斥/兼容小徽章字色：互斥 = 琥珀（深色下提亮）；兼容 = 中性次要色。</summary>
     public static Brush ExclusiveBadgeForeground(bool exclusive)
         => exclusive
             ? new SolidColorBrush(Windows.UI.Color.FromArgb(
@@ -240,7 +240,7 @@ public static class TagSidebarConverters
                 (byte)(IsDarkTheme ? 0xC8 : 0x6B),
                 (byte)(IsDarkTheme ? 0xC8 : 0x69)));
 
-    /// <summary>徽章描边厚度：互斥 = 无边框（琥珀淡底自足）；多选 = 1px 中性描边（demo .group-badge.multi）。</summary>
+    /// <summary>徽章描边厚度：互斥 = 无边框（琥珀淡底自足）；兼容 = 1px 中性描边（demo .group-badge.multi）。</summary>
     public static Thickness MultiBadgeStroke(bool exclusive)
         => exclusive ? default : new Thickness(1);
 

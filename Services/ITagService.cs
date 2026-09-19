@@ -17,7 +17,7 @@ public interface ITagService
 {
     /// <summary>
     /// 批量打标：互斥组先剔除同组内已有标签再追加（组外/未分组标签一律保留）；
-    /// 非互斥组直接追加（重复打同一标签为幂等命中，文件名不变）。
+    /// 兼容组（非互斥组）直接追加（重复打同一标签为幂等命中，文件名不变）。
     /// </summary>
     /// <param name="paths">候选文件全路径集合。</param>
     /// <param name="tag">要打上的标签。</param>
@@ -66,7 +66,7 @@ public static class TagSemantics
     /// <summary>
     /// 计算打标后的新标签集合：
     /// 互斥组——先剔除同组内已有标签（大小写不敏感）再追加目标标签，组外/未分组标签一律保留；
-    /// 非互斥组——全部保留后追加目标标签（已存在同名标签时不重复追加，幂等）。
+    /// 兼容组（非互斥组）——全部保留后追加目标标签（已存在同名标签时不重复追加，幂等）。
     /// </summary>
     /// <param name="currentTags">当前标签集合（通常来自文件名解析，保序）。</param>
     /// <param name="group">目标组（提供互斥属性与组内标签名单）。</param>
@@ -87,7 +87,7 @@ public static class TagSemantics
         }
         else
         {
-            // 非互斥组：叠加；重复打同一标签不重复追加（幂等）。
+            // 兼容组（非互斥组）：叠加；重复打同一标签不重复追加（幂等）。
             result = currentTags.ToList();
             if (!result.Contains(tagName, StringComparer.OrdinalIgnoreCase))
             {

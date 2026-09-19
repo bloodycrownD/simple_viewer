@@ -799,7 +799,7 @@ public partial class MainViewModel : ObservableObject
     /// 图库模式且选中集非空 → Shift = 从选中集移除该标签，否则 = 批量打标（互斥组按语义替换）；
     /// 其余 → 切换筛选（Step 9 既有语义）。
     /// </summary>
-    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：打标属普通非互斥操作）。</param>
+    /// <param name="ownerGroup">标签所属配置组（未分组虚拟组为 null：打标按兼容组/非互斥叠加语义）。</param>
     /// <param name="tagName">标签名。</param>
     /// <param name="shift">是否按住 Shift（移除语义）。</param>
     public async Task HandleTagChipTappedAsync(TagGroup? ownerGroup, string tagName, bool shift)
@@ -809,7 +809,7 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 未分组/无组上下文：非互斥叠加（spec Step 9——为“未分组”标签打标属普通非互斥操作）。
+        // 未分组/无组上下文：兼容组（非互斥）叠加（spec Step 9——为”未分组”标签打标无组约束）。
         var group = ownerGroup ?? new TagGroup
         {
             Name = TagSidebarViewModel.UngroupedGroupName,
@@ -1421,7 +1421,7 @@ public partial class MainViewModel : ObservableObject
         return SaveSettingsAndRebuildSidebar(settings);
     }
 
-    /// <summary>组「互斥 ⇄ 多选」切换：仅改 TagGroups 配置并保存，不改任何已落盘标签。</summary>
+    /// <summary>组「互斥 ⇄ 兼容」切换：仅改 TagGroups 配置并保存，不改任何已落盘标签。</summary>
     private string? ExecuteToggleExclusive(TagEditRequest request)
     {
         var settings = _settingsService!.Load();

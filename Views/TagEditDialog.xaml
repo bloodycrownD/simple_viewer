@@ -6,7 +6,7 @@
     xmlns:views="using:SimpleViewer.Views"
     MinWidth="420">
     <!-- 职责：标签/组编辑对话框内容控件（spec Step 9，D13：沿用 SettingsPage 的 ContentDialog + TrySave 模板）——
-              新建组/标签、重命名（显示影响张数）、删除（先告知范围）、互斥⇄多选切换确认。
+              新建组/标签、重命名（显示影响张数）、删除（先告知范围）、互斥⇄兼容切换确认。
               按操作种类（TagEditKind）显隐输入区；执行委托（MainViewModel.ExecuteTagEditAsync）返回错误
               时显示于本对话框且不关闭；宿主 ContentDialog 的 PrimaryButtonClick 经 deferral 异步等待 TrySaveAsync。 -->
 
@@ -27,10 +27,10 @@
                 PlaceholderText="不能含空格或方括号（TagSpaces 文件名语法约束）" />
         </StackPanel>
 
-        <!-- 互斥复选（仅新建组） -->
+        <!-- 互斥复选（仅新建组；不勾选则为兼容组——组内标签可共存叠加） -->
         <CheckBox
             x:Name="ExclusiveInput"
-            Content="互斥组（组内标签单选，打标时替换同组旧标签；适合星级/状态类）"
+            Content="互斥组（组内标签单选，新标签替换旧标签；不勾选则为兼容组）"
             IsChecked="False"
             Visibility="{x:Bind views:TagEditDialog.VisibilityOf(ShowExclusiveInput), Mode=OneWay}" />
 

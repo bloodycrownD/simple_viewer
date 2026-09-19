@@ -2,7 +2,7 @@
 //       chip 交互分流（选中集非空/单图模式点击 = 打标，Shift = 移除；否则 = 切换筛选）、编辑请求上抛。
 // 不变量：组/chip 为不可变快照对象——任何变化（计数刷新/筛选切换/配置编辑）经 Rebuild 全量重建
 //         （侧栏规模为几十个 chip，重建开销可忽略，换取免 INPC 的简单性）；
-//         「未分组」为索引 TagCounts 中不属于任何配置组的标签聚合（不可配置互斥属性、非互斥、可筛选）；
+//         「未分组」为索引 TagCounts 中不属于任何配置组的标签聚合（不可配置互斥属性、兼容组语义、可筛选）；
 //         chip 点击经 HandleChipTappedAsync 分流（Step 10 语义，对齐 demo onChipClick）：
 //         单图模式 → 当前图打标；选中集非空 → 批量打标/Shift 移除；其余 → 切换筛选；
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
@@ -40,7 +40,7 @@ public enum TagEditKind
     /// <summary>删除标签组（级联移除组内全部标签）。</summary>
     DeleteGroup,
 
-    /// <summary>组「互斥 ⇄ 多选」切换（仅改 TagGroups 配置，不改已落盘标签）。</summary>
+    /// <summary>组「互斥 ⇄ 兼容」切换（仅改 TagGroups 配置，不改已落盘标签）。</summary>
     ToggleExclusive,
 }
 
@@ -318,7 +318,7 @@ public partial class TagSidebarViewModel : ObservableObject
 /// <param name="AddTag">在该组中新建标签。</param>
 /// <param name="RenameGroup">重命名组。</param>
 /// <param name="DeleteGroup">删除组（含影响张数确认）。</param>
-/// <param name="ToggleExclusive">互斥 ⇄ 多选切换。</param>
+/// <param name="ToggleExclusive">互斥 ⇄ 兼容切换。</param>
 public sealed record GroupCommands(
     ICommand? AddTag,
     ICommand? RenameGroup,
@@ -438,7 +438,7 @@ public sealed class TagChipViewModel
     /// <summary>chip 色相（胶囊边框/底色；纯展示，不持久化）。</summary>
     public int Hue { get; }
 
-    /// <summary>所属配置组（未分组虚拟组为 null——打标按非互斥叠加语义）。</summary>
+    /// <summary>所属配置组（未分组虚拟组为 null——打标按兼容组/非互斥叠加语义）。</summary>
     public TagGroup? OwnerGroup { get; }
 
     /// <summary>chip 命令集。</summary>
