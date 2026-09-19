@@ -51,8 +51,11 @@
                             Tag="{x:Bind}">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="*" />
+                                    <!-- 文字区行高锚点（cr/P2-9 跨文件常量）：48 与 MasonryLayout.TextAreaHeight
+                                         一致——卡片高度由布局按 卡宽/宽高比+TextAreaHeight 预推算，模板行高
+                                         与常量不一致时文字会被裁/留白，改值时两处同步。 -->
                                     <RowDefinition Height="48" />
+                                    <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
 
                                 <!-- 缩略图占位（浅色块）→ 异步渐入：OpacityTransition 驱动 0→1 过渡 -->
@@ -120,10 +123,11 @@
                                     </ItemsControl>
                                 </Grid>
 
-                                <!-- 文字区：文件名（剥离标签段）12px + 标签行 10px 次要色（demo .fname/.ftags） -->
+                                <!-- 文字区：文件名（剥离标签段）12px + 标签行 10px 次要色（demo .fname/.ftags）。
+                                     高度由上方 RowDefinition 定 48（与 MasonryLayout.TextAreaHeight 对齐），
+                                     原冗余 Height="48" 已删（cr/P2-9）。 -->
                                 <StackPanel
                                     Grid.Row="1"
-                                    Height="48"
                                     Padding="9,6,9,7"
                                     Spacing="1">
                                     <TextBlock

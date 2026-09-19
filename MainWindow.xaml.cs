@@ -84,12 +84,19 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// InfoBar 竖向外边距合计（cr/P2-9 跨文件常量锚点）：对应 XAML MainInfoBar 的
+    /// Margin="12,4"（上下分量 4+4，锚注释见该处）——ActualHeight 不含 Margin，
+    /// chrome 高度汇总须手补该值；XAML 改 Margin 竖向分量时两处同步。
+    /// </summary>
+    private const double InfoBarVerticalMargin = 8;
+
+    /// <summary>
     /// chrome 顶行尺寸变化（工具栏/InfoBar）：汇总实际占位高度写入 VM，
     /// 驱动画布层浮层的顶部避让 Margin。InfoBar 行高含其上下 Margin（XAML 为 12,4 → 竖向共 8）。
     /// </summary>
     private void OnChromeRowSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + MainInfoBar.ActualHeight + 8;
+        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + MainInfoBar.ActualHeight + InfoBarVerticalMargin;
     }
 
     /// <summary>

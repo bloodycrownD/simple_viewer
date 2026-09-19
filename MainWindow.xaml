@@ -123,7 +123,9 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左栏展开态：标签栏（Step 9 TagSidebarControl，code-behind 宿主注入，随折叠开关显隐） -->
+            <!-- 左栏展开态：标签栏（Step 9 TagSidebarControl，code-behind 宿主注入，随折叠开关显隐）。
+                 Width="280" 锚点（cr/P2-9 跨文件常量）：与 SingleImageView.SidebarExpandedWidth 一致
+                 （右栏浮层避让按同宽让位），改宽度时两处同步。 -->
             <Border
                 Grid.Column="0"
                 Width="280"
@@ -140,7 +142,9 @@
                     VerticalContentAlignment="Stretch" />
             </Border>
 
-            <!-- 左栏折叠态：窄条仅保留展开按钮（▶ 指向展开方向；BMP 文本字符） -->
+            <!-- 左栏折叠态：窄条仅保留展开按钮（▶ 指向展开方向；BMP 文本字符）。
+                 Width="36" 锚点（cr/P2-9 跨文件常量）：与 SingleImageView.SidebarCollapsedWidth 一致
+                 （右栏浮层避让按同宽让位），改宽度时两处同步。 -->
             <Border
                 Grid.Column="0"
                 Width="36"
@@ -320,6 +324,8 @@
              成为 ChromeLayer 最后一个子元素，WinAppSDK 1.6.240923002 的 XamlCompiler Pass1 会沉默崩溃
              （退出码 1 无输出，MSB3073）；Grid 布局按 Grid.Row 定位，子元素顺序不影响布局，仅 z 序叠加
              （InfoBar 在 Row1、MainAreaGrid 在 Row2，互不重叠，无视觉差异）。 -->
+        <!-- Margin="12,4" 锚点（cr/P2-9 跨文件常量）：竖向分量 4+4 = MainWindow.InfoBarVerticalMargin
+             （OnChromeRowSizeChanged 汇总 chrome 高度时手补）——改竖向 Margin 时两处同步。 -->
         <InfoBar
             x:Name="MainInfoBar"
             Grid.Row="1"
