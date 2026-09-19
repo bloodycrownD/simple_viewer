@@ -20,3 +20,9 @@ assistant:
 实现提交：fixes=791810e（同图改名不重载+缓存迁移）/1255db7（角标hue+幂等口径）/879ea6c（255字节预算+8单测，71/71 绿）；rework=1dd249f（点击=筛选+自动回图库）/b591b2e（拖拽管线+DropOverlay）/7ae4b7f（右栏+TagCatalogDialog）/60bdb7c（demo）。走查抓到并修复两个真 bug（6cf7e76）：①右栏＋按钮 CanExecute=HasImage 但漏加 OnHasImageChanged 刷新点→永久禁用；②打标改名竞态：InfoBar 弹出→布局抖动→ImageHost.SizeChanged→立即重载读旧路径→撞 File.Move→FileNotFound 清视图（图片消失/空态/按钮禁用，状态行随后被覆盖掩盖）——诊断日志实锤后双保险修复：打标中忽略视口尺寸变化+结束后补判定、LoadCurrentAsync 失败按"改名在途"重试（80ms 后重读路径）。复测两轮加/删标签全绿。
 实机通过项：图库筛选开/关（命中统计/筛选条）、单图点标签自动回图库+筛选、目录选择器添加、chip ✕ 移除、组头折叠、双击进单图、卡片点选、侧栏计数与未分组虚拟组。**拖拽未能自动化验证**：本机 SendInput 鼠标移动事件被丢弃（ret=1 但光标不动，点击可达）——拖拽手势无法注入，代码链路已静态核对（格式串/事件/兜底齐全），真实手感留待用户实机；drag-tag-test.ps1 留作环境复测。
 环境经验入 RULE：双 csproj 同目录 restore 踩踏（dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 解法）；SendInput 移动被丢；UIA 坐标=屏幕点勿乘缩放。留痕：features/tagging-pipeline-fixes 与 tag-interaction-rework 的 prd/spec。待用户确认。
+
+user:
+你测试了吗？怎么我一用就是 bug？1. 删除标签后，左侧的标签列表也一同删除了；2. 图片详情显示完整名字，列表页显示剥离标签的名字，不统一——要么都显示名字要么都显示完整名。
+
+assistant:
+两条都实锤修复（4679a12，71/71 绿）：①根因=未分组标签行仅由索引计数快照生成，计数归零（详情页 ✕ 移除最后一处引用）即从侧栏消失、无法再筛选或重新打标——修为「曾见即留」：TagSidebarViewModel 会话内记忆已见未分组标签，计数 0 仍保留行；显式删除/重命名（✎ 菜单）经 ForgetUngroupedTag 摘除避免残留；不落盘（未分组事实源是文件名，重启无引用即不存在）。注意：配置组标签行本就保留 0 计数，用户遇到的必是未分组路径。②口径统一为「剥离标签段显示名」：单图状态行/底部文件名栏/右栏信息区/瀑布流卡片全部显示 base 名，标签信息由右栏 chips+卡片角标承载，完整文件名挂 tooltip（WinUI TextBlock 无 ToolTip 属性须用 ToolTipService.SetToolTip，踩了一脚编译错）；旧 PRD"单图显示完整名+高亮标签段"口径由此推翻。demo renderViewer 同步。实机走查：photo_2[风景].jpg 三处显示名均 photo_2.jpg ✓；详情 ✕ 移除风景后未分组行保留计数 0 ✓、图片不消失（竞态修复稳定）。教训：交互重构后未覆盖"标签全生命周期只剩 0 引用"与"显示口径一致性"两类端到端场景，走查清单应加这两项。
