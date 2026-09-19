@@ -146,7 +146,7 @@ function filteredImages() {
  * 渲染
  * ========================================================= */
 
-/* ---- 左侧标签栏（目录树形：点击组头展开/折叠组内标签） ---- */
+/* ---- 左侧标签栏（目录树行式节点：组行 + 缩进子标签行，点击组行展开/折叠） ---- */
 function renderSidebar() {
   const box = $("#groupList");
   box.innerHTML = "";
@@ -161,14 +161,16 @@ function renderSidebar() {
         <span class="chevron">${collapsed ? "▸" : "▾"}</span>
         <span class="group-name">${esc(g.name)}</span>
         <span class="group-badge ${g.exclusive ? "excl" : "multi"}">${g.exclusive ? "互斥" : "兼容"}</span>
-        <span class="group-count">${groupTagCount(g)} 张</span>
-        <button class="icon-btn" data-act="g-toggle" title="切换互斥/兼容">⇄</button>
-        <button class="icon-btn" data-act="g-rename" title="重命名组">✎</button>
-        <button class="icon-btn" data-act="g-delete" title="删除组">✕</button>
+        <span class="row-count">${groupTagCount(g)}</span>
+        <span class="row-cmds">
+          <button class="icon-btn" data-act="t-add" title="新建标签">＋</button>
+          <button class="icon-btn" data-act="g-toggle" title="切换互斥/兼容">⇄</button>
+          <button class="icon-btn" data-act="g-rename" title="重命名组">✎</button>
+          <button class="icon-btn" data-act="g-delete" title="删除组">✕</button>
+        </span>
       </div>
-      <div class="group-tags">
-        ${g.tags.map(t => chipHtml(g, t)).join("")}
-        <button class="add-tag-btn" data-act="t-add">＋ 标签</button>
+      <div class="tag-rows">
+        ${g.tags.map(t => tagRowHtml(g, t)).join("")}
       </div>`;
     box.appendChild(el);
   }
@@ -177,14 +179,18 @@ function toggleCollapsed(gid) {
   state.collapsedGroups.has(gid) ? state.collapsedGroups.delete(gid) : state.collapsedGroups.add(gid);
   renderSidebar();
 }
-function chipHtml(g, t) {
+function tagRowHtml(g, t) {
   const on = state.filters.has(t.id) ? "filter-on" : "";
-  return `<span class="chip ${on}" data-tag="${t.id}" title="点击：${state.selection.size ? "批量打标" : "筛选"} · Shift+点击：移除标签">
-    ${g.exclusive ? '<span class="radio-dot"></span>' : ""}${esc(t.name)}
-    <span class="tag-count">${tagCount(t.id)}</span>
-    <button class="icon-btn" data-act="t-rename" title="重命名标签">✎</button>
-    <button class="icon-btn" data-act="t-delete" title="删除标签">✕</button>
-  </span>`;
+  return `<div class="tag-row ${on}" data-tag="${t.id}" title="点击：${state.selection.size ? "批量打标" : "筛选"} · Shift+点击：移除标签">
+    <span class="row-indent"><i class="tree-line"></i></span>
+    ${g.exclusive ? '<span class="radio-dot"></span>' : ""}
+    <span class="tag-name">${esc(t.name)}</span>
+    <span class="row-count">${tagCount(t.id)}</span>
+    <span class="row-cmds">
+      <button class="icon-btn" data-act="t-rename" title="重命名标签">✎</button>
+      <button class="icon-btn" data-act="t-delete" title="删除标签">✕</button>
+    </span>
+  </div>`;
 }
 
 /* ---- 瀑布流 ---- */
@@ -375,7 +381,7 @@ function removeTagFromSelection(tag) {
   refreshLight();
 }
 
-/* ---- 侧栏管理（事件委托，处理增删改） ---- */
+/* ---- 侧栏管理（事件委托，处理增删改；行式树：.tag-row 为标签行） ---- */
 $("#groupList").addEventListener("click", async e => {
   const btn = e.target.closest("[data-act]");
   if (btn) {
@@ -383,8 +389,8 @@ $("#groupList").addEventListener("click", async e => {
     const gEl = btn.closest(".tag-group");
     const gid = gEl?.dataset.gid;
     const group = state.groups.find(g => g.id === gid); if (!group) return;
-    const chip = btn.closest(".chip");
-    const tag = chip ? group.tags.find(t => t.id === chip.dataset.tag) : null;
+    const row = btn.closest(".tag-row");
+    const tag = row ? group.tags.find(t => t.id === row.dataset.tag) : null;
     switch (btn.dataset.act) {
       case "t-add": return await actAddTag(group);
       case "t-rename": return tag && await actRenameTag(group, tag);
@@ -396,8 +402,8 @@ $("#groupList").addEventListener("click", async e => {
     }
     return;
   }
-  const chip = e.target.closest(".chip");
-  if (chip) onChipClick(chip.dataset.tag, e);
+  const row = e.target.closest(".tag-row");
+  if (row) onChipClick(row.dataset.tag, e);
 });
 
 /* ---- 标签/组管理动作 ---- */
