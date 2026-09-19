@@ -196,7 +196,7 @@ public sealed partial class WaterfallView : UserControl
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查取消加载。
+        // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查释放视觉资源（cr/P1-5）。
         if (Repeater.ItemsSourceView?.GetAt(args.Index) is GalleryItemViewModel viewModel
             && args.Element is FrameworkElement element)
         {
@@ -209,7 +209,9 @@ public sealed partial class WaterfallView : UserControl
     {
         if (args.Element is FrameworkElement { Tag: GalleryItemViewModel viewModel } element)
         {
-            viewModel.CancelThumbnailLoad();
+            // 取消加载 + 释放已加载的缩略图位图与拖拽小图（cr/P1-5）：卡片 VM 全量常驻不随回收丢弃，
+            // 仅取消加载会让视觉资源留在 VM 上累积；释放后重新 Realize 走 BeginLoadThumbnail 重载恢复。
+            viewModel.ReleaseVisuals();
             element.Tag = null;
         }
     }
