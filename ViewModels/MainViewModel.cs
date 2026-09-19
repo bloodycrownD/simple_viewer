@@ -2277,7 +2277,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(SingleVisibility));
         OnPropertyChanged(nameof(GalleryVisibility));
 
-        // 回图库时清放大置顶态（残留 true 会让内容区盖住侧栏，图库模式下左栏不可交互）。
+        // 回图库时清放大置顶态（残留 true 会让画布层盖住侧栏，图库模式下左栏不可交互）。
         if (value == ViewerMode.Gallery)
         {
             IsCurrentImageZoomed = false;
@@ -2470,8 +2470,21 @@ public partial class MainViewModel : ObservableObject
                 // 同图重载（未预清空）：换源后释放被替换旧源的 GIF 句柄（UriSource 指向文件，
                 // 持有会锁文件阻碍打标改名；异图路径已在加载前 ReleaseCurrentImageSource 清过）。
                 var replacedSource = ImageSource;
-                ImageSource = ImageSourceHelper.FromLoadedImage(loaded);
-                if (!ReferenceEquals(replacedSource, ImageSource)
+                var newSource = ImageSourceHelper.FromLoadedImage(loaded);
+
+                // GIF 顺修（2026-09-19）：GIF 源是 BitmapImage+UriSource（异步打开，ImageOpened 前
+                // 无像素）且不入解码缓存——直接换源则打开完成前 Image 空窗（resize 触发的 GIF 重载
+                // 每次都闪）。同图场景等 ImageOpened 再提交（带超时兜底），旧源在等待期保持显示；
+                // 非 GIF（WriteableBitmap 同步有像素）维持原状直接提交。
+                if (loaded.IsGif
+                    && newSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage gifBitmap)
+                {
+                    await WaitForGifSourceOpenedAsync(gifBitmap, token);
+                    token.ThrowIfCancellationRequested();
+                }
+
+                ImageSource = newSource;
+                if (!ReferenceEquals(replacedSource, newSource)
                     && replacedSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage replacedBitmap)
                 {
                     replacedBitmap.UriSource = null;
@@ -2526,6 +2539,45 @@ public partial class MainViewModel : ObservableObject
         }
 
         ImageSource = null;
+    }
+
+    /// <summary>
+    /// 等待 GIF 新源（BitmapImage+UriSource）异步打开完成（GIF 顺修 2026-09-19）：
+    /// ImageOpened / ImageFailed / 超时（~2s 防挂）/ 取消任一即返回——超时与失败也放行提交
+    ///（旧源已等待多时，短暂空窗优于永久卡住；失败后续链路自会呈现）。防快照竞态：订阅时若
+    /// 像素已就绪（PixelWidth&gt;0，极快打开场景）直接返回，不等一个永不触发的 ImageOpened。
+    /// </summary>
+    private static async Task WaitForGifSourceOpenedAsync(
+        Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap,
+        CancellationToken token)
+    {
+        if (bitmap.PixelWidth > 0)
+        {
+            return;
+        }
+
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // WinUI 3 投影：ImageOpened 为 RoutedEventHandler，ImageFailed 为 ExceptionRoutedEventHandler
+        //（与 UWP 的 TypedEventHandler 签名不同，须分别声明）。
+        RoutedEventHandler opened = (_, _) => completion.TrySetResult(true);
+        ExceptionRoutedEventHandler failed = (_, _) => completion.TrySetResult(false);
+
+        bitmap.ImageOpened += opened;
+        bitmap.ImageFailed += failed;
+        try
+        {
+            using (token.Register(() => completion.TrySetResult(false)))
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+            using (timeout.Token.Register(() => completion.TrySetResult(false)))
+            {
+                await completion.Task;
+            }
+        }
+        finally
+        {
+            bitmap.ImageOpened -= opened;
+            bitmap.ImageFailed -= failed;
+        }
     }
 
     private async Task RemoveCurrentImageAfterFileOperationAsync()
