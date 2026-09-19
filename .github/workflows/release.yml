@@ -48,6 +48,12 @@ jobs:
             if ($i -lt 2) { Start-Sleep -Seconds 2 }
           }
           if (-not $ok) { exit 1 }
+          # 散装资源补拷：publish 不带 .xbf/图标（unpackaged 按文件解析，缺失即启动崩——同 release.ps1）
+          $binOut = "bin/x64/Release/net8.0-windows10.0.19041.0/win-x64"
+          Copy-Item "$binOut/*.xbf" release/publish -Force
+          Copy-Item "$binOut/Views" release/publish -Recurse -Force
+          Copy-Item "$binOut/Assets" release/publish/Assets -Recurse -Force
+          if (-not (Test-Path "release/publish/MainWindow.xbf")) { exit 1 }
 
       - name: 打包 zip
         shell: pwsh

@@ -34,24 +34,36 @@ if (Get-Process -Name viewer -ErrorAction SilentlyContinue) {
     Start-Sleep -Milliseconds 500
 }
 
-# 双 csproj 同目录踩踏（RULE）：还原必须定向主工程，防 Core assets 覆盖 UI 工程
+# 双 csproj 同目录踩踏（RULE）：还原必须定向主工程，防 Core assets 覆盖 UI 工程。
+# 双 csproj 同目录共享 obj\project.assets.json，任何形式的还原（含传递还原 Core）都会最后落盘
+# 自己的视角——校验必须同时含 '/win-x64'（RID 图）与 'Microsoft.WindowsAppSDK'（主工程包签名，
+# Core 视角无此项）；异常用 msbuild 定向 + RestoreForce 补还原（勿用 dotnet restore 裸形态：
+# 会连带还原 Core 再度踩踏，2026-09-19 实锤）。
 Write-Host "[release] 定向还原..." -ForegroundColor Cyan
-dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
-if ($LASTEXITCODE -ne 0) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
-
-# 降级还原防御（RULE：间歇不生成 nuget.g.props，assets 丢 RID 目标，发布时报 NETSDK1047）：补一次强制还原
 $gprops = Join-Path $root "obj\SimpleViewer.csproj.nuget.g.props"
-if (-not (Test-Path $gprops)) {
-    Write-Host "[release] 还原产物异常（缺 nuget.g.props），--force 补还原..." -ForegroundColor Yellow
-    dotnet restore $project --force --nologo -v:q
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $gprops)) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
+$assetsPath = Join-Path $root "obj\project.assets.json"
+function Test-AssetsOk {
+    (Test-Path $gprops) -and (Test-Path $assetsPath) -and
+        (Select-String -Path $assetsPath -Pattern '/win-x64' -SimpleMatch -Quiet) -and
+        (Select-String -Path $assetsPath -Pattern 'Microsoft.WindowsAppSDK' -SimpleMatch -Quiet)
+}
+dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
+if ($LASTEXITCODE -ne 0 -or -not (Test-AssetsOk)) {
+    Write-Host "[release] 还原产物异常（缺 RID 目标或主工程包签名），清缓存强制重还原..." -ForegroundColor Yellow
+    # 增量误判会使 msbuild restore 跳过落盘（Core 视角 assets 滞留）——删缓存文件逼其全量重算
+    Remove-Item $assetsPath, $gprops -Force -ErrorAction SilentlyContinue
+    dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
+    if ($LASTEXITCODE -ne 0 -or -not (Test-AssetsOk)) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
 }
 
 # .NET 自包含发布：WinAppSDK 走框架依赖（机器运行时 + bootstrap 包图解析，见文件头注释）
+# 输出目录必须先清空：增量 publish 会保留上一代 .xbf 搭配新 viewer.dll，
+# 运行时 XBF/程序集代际错配 → "Failed to assign ItemsRepeater.ItemTemplate" 启动崩（2026-09-19 实锤）。
 $outDir = Join-Path $root "release\publish"
+if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 $publishArgs = @($project, "-c", "Release", "-r", "win-x64",
     "--self-contained", "true", "-p:Platform=x64",
-    "-o", $outDir, "--nologo", "-v:q")
+    "-o", $outDir, "--no-restore", "--nologo", "-v:q")
 $published = $false
 for ($attempt = 1; $attempt -le 2; $attempt++) {
     Write-Host "[release] 发布（Release / win-x64 / 自包含）第 $attempt/2 次尝试..." -ForegroundColor Cyan
@@ -76,6 +88,15 @@ for ($attempt = 1; $attempt -le 2; $attempt++) {
     }
 }
 if (-not $published) { Write-Host "[release] 发布失败" -ForegroundColor Red; exit 1 }
+
+# 散装资源补拷：dotnet publish 不拷贝 unpackaged 布局的 .xbf 与图标（ms-appx:/// 按文件解析，
+# 缺失即启动崩 Cannot locate MainWindow.xaml / ItemTemplate 赋值失败——2026-09-19 实锤，
+# 依赖目录累积残留曾掩盖此问题并引发 XBF/程序集代际错配）。
+$binOut = Join-Path $root "bin\x64\Release\net8.0-windows10.0.19041.0\win-x64"
+Copy-Item (Join-Path $binOut "*.xbf") $outDir -Force
+Copy-Item (Join-Path $binOut "Views") $outDir -Recurse -Force
+Copy-Item (Join-Path $binOut "Assets") (Join-Path $outDir "Assets") -Recurse -Force
+if (-not (Test-Path (Join-Path $outDir "MainWindow.xbf"))) { Write-Host "[release] 补拷后仍缺 MainWindow.xbf" -ForegroundColor Red; exit 1 }
 
 # 打 zip
 $zipPath = Join-Path $root "release\SimpleViewer-v$Version-win-x64.zip"
