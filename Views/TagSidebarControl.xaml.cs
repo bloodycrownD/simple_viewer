@@ -121,6 +121,19 @@ public sealed partial class TagSidebarControl : UserControl
         }
     }
 
+    /// <summary>
+    /// 组头点击转发（目录树态）：Tag 槽位回查组 VM，切换该组展开/折叠
+    /// （TagSidebarViewModel 内折叠集合 + 全量 Rebuild 生效，展开状态会话内记忆）。
+    /// Click 直达事件不冒泡：嵌套在组头内的管理按钮（＋⇄✎✕）各自触发 Command，不进入本处理器。
+    /// </summary>
+    private void OnGroupHeaderClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: TagGroupViewModel group })
+        {
+            ViewModel.ToggleGroupExpansion(group.Id);
+        }
+    }
+
     private static bool IsShiftKeyDown()
     {
         // 只判 Down：Locked 位对 Shift 无意义，中文 IME 切中英文会置位（曾致移除语义误触发）。
@@ -263,6 +276,17 @@ public static class TagSidebarConverters
     /// <summary>bool → 可见。</summary>
     public static Visibility BoolToVisibility(bool value)
         => value ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>组展开 → 标签行可见（目录树态：折叠时整行 chip 收起）。</summary>
+    public static Visibility IsExpandedToVisibility(bool isExpanded)
+        => isExpanded ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 组头 chevron 字符（目录树态）：展开 ▾（U+25BE）/ 折叠 ▸（U+25B8）。
+    /// BMP 文本字符方案（不使用 FontIcon/SymbolIcon Glyph，规避 XamlCompiler 沉默崩溃码点；
+    /// 字形缺失方块时备选 U+25B6/U+25BC）。
+    /// </summary>
+    public static string ChevronGlyph(bool isExpanded) => isExpanded ? "\u25BE" : "\u25B8";
 
     /// <summary>非未分组 → 可见（组管理按钮）。</summary>
     public static Visibility NotUngroupedToVisibility(bool isUngrouped)

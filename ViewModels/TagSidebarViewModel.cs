@@ -97,6 +97,13 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <summary>宿主注入的编辑对话框打开回调（MainWindow 构造时注入，含 _shortcutsEnabled 屏蔽）。</summary>
     public Func<TagEditRequest, Task>? ShowTagEditorAsync { get; set; }
 
+    /// <summary>
+    /// 当前折叠的组 Id 集合（会话内记忆，不落盘）：默认空 = 全部展开（与树形化前的平铺信息可见性一致）；
+    /// 新建组不在集合中天然展开。展开状态变化经 ToggleGroupExpansion 全量 Rebuild 生效（免 INPC，
+    /// 沿用「不可变快照 + 重建」不变量）；Rebuild 时按现存组 Id 交集清理已删除组的残留项。
+    /// </summary>
+    private readonly HashSet<string> _collapsedGroupIds = [];
+
     /// <summary>展示的组序列（配置组顺序 + 未分组虚拟组末位）。</summary>
     public ObservableCollection<TagGroupViewModel> Groups { get; } = [];
 
@@ -154,7 +161,8 @@ public partial class TagSidebarViewModel : ObservableObject
                 isUngrouped: false,
                 totalCount,
                 chips,
-                CreateGroupCommands(group)));
+                CreateGroupCommands(group),
+                isExpanded: !_collapsedGroupIds.Contains(group.Id)));
         }
 
         // 未分组虚拟组：索引计数中不属于任何配置组的标签（可筛选、不可配置互斥属性）。
@@ -186,10 +194,29 @@ public partial class TagSidebarViewModel : ObservableObject
                 isUngrouped: true,
                 ungroupedTotal,
                 ungrouped,
-                GroupCommands.NoCommands));
+                GroupCommands.NoCommands,
+                isExpanded: !_collapsedGroupIds.Contains(UngroupedGroupId)));
         }
 
+        // 清理折叠集合中已删除组的残留项（按现存组 Id 交集，避免集合无界增长）。
+        _collapsedGroupIds.IntersectWith(new HashSet<string>(Groups.Select(static g => g.Id)));
+
         IsEmpty = Groups.Count == 0;
+    }
+
+    /// <summary>
+    /// 展开/折叠切换（组头整行按钮的点击入口，TagSidebarControl.OnGroupHeaderClicked 转发）：
+    /// 切换折叠集合成员资格后经 MainViewModel.RebuildTagSidebar 全量重建侧栏
+    /// （新建 VM 对象 + x:Bind OneTime 重求值，无需属性通知）。
+    /// </summary>
+    public void ToggleGroupExpansion(string groupId)
+    {
+        if (!_collapsedGroupIds.Remove(groupId))
+        {
+            _collapsedGroupIds.Add(groupId);
+        }
+
+        _owner.RebuildTagSidebar();
     }
 
     /// <summary>
@@ -317,7 +344,8 @@ public sealed class TagGroupViewModel
         bool isUngrouped,
         int totalCount,
         IReadOnlyList<TagChipViewModel> tags,
-        GroupCommands commands)
+        GroupCommands commands,
+        bool isExpanded = true)
     {
         Id = id;
         Name = name;
@@ -328,6 +356,7 @@ public sealed class TagGroupViewModel
         TotalCount = totalCount;
         Tags = tags;
         Commands = commands;
+        IsExpanded = isExpanded;
     }
 
     /// <summary>未分组虚拟组的固定色相（灰蓝 220，配低饱和使用）。</summary>
@@ -362,6 +391,9 @@ public sealed class TagGroupViewModel
 
     /// <summary>组内标签计数之和（张数引用合计）。</summary>
     public int TotalCount { get; }
+
+    /// <summary>是否展开（目录树态：false 时组内标签行收起；由折叠集合派生，经 Rebuild 重建生效）。</summary>
+    public bool IsExpanded { get; }
 
     /// <summary>组内标签 chip。</summary>
     public IReadOnlyList<TagChipViewModel> Tags { get; }

@@ -1286,8 +1286,11 @@ public partial class MainViewModel : ObservableObject
         RebuildTagSidebar();
     }
 
-    /// <summary>重建侧栏（读配置组 + 计数快照 + 筛选高亮；ObservableCollection 写操作回投 UI 线程）。</summary>
-    private void RebuildTagSidebar()
+    /// <summary>
+    /// 重建侧栏（读配置组 + 计数快照 + 筛选高亮；ObservableCollection 写操作回投 UI 线程）。
+    /// 公开给 TagSidebarViewModel：组头展开/折叠切换（ToggleGroupExpansion）后触发全量重建。
+    /// </summary>
+    public void RebuildTagSidebar()
     {
         var configGroups = _settingsService?.Load().TagGroups ?? [];
         var counts = _latestTagCounts;
