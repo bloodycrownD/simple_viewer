@@ -8,7 +8,7 @@ namespace SimpleViewer.Services;
 /// <inheritdoc cref="ITagFilenameService" />
 public sealed class TagFilenameService : ITagFilenameService
 {
-    /// <summary>Windows 传统 MAX_PATH 口径：新路径长度超过该值即返回失败（D11：系统长路径策略之外的前置双保险）。</summary>
+    /// <summary>Windows 传统 MAX_PATH 口径：新路径长度达到该值即返回失败（D11：系统长路径策略之外的前置双保险；PRD 口径"将达到 260 即阻止"）。</summary>
     public const int MaxPathLength = 260;
 
     /// <inheritdoc />
@@ -139,10 +139,11 @@ public sealed class TagFilenameService : ITagFilenameService
                 $"{TagFilenameBudget.MaxFileNameComponentBytes} 字节（超出 {exceededBytes} 字节）。");
         }
 
-        if (newFullPath.Length > MaxPathLength)
+        // 达到即拒绝（cr/P2-13，>= 口径）：PRD 口径为"将达到 260 即阻止"，恰好 260 字符不放行。
+        if (newFullPath.Length >= MaxPathLength)
         {
             return TagFilenamePathResult.Fail(
-                $"新路径长度 {newFullPath.Length} 超过 {MaxPathLength} 字符上限。");
+                $"新路径长度 {newFullPath.Length} 达到 {MaxPathLength} 字符上限。");
         }
 
         // 新旧路径相同（含仅大小写差异）不视为冲突；目标名已被其他文件占用才返回冲突。

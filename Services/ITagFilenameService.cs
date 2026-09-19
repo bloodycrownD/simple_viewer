@@ -35,7 +35,7 @@ public interface ITagFilenameService
     /// <summary>
     /// 依据原全路径与新标签集合构建重命名目标全路径（纯预检，不执行任何文件系统变更）。
     /// 预检项：标签合法性、新文件名组件不超过 Linux 兼容上限 255 UTF-8 字节（最严格平台口径）、
-    /// 新路径长度不超过 260 字符（D11 双保险）、目标文件名冲突。
+    /// 新路径长度低于 260 字符（达到即拒绝，D11 双保险）、目标文件名冲突。
     /// 可预期失败一律返回明确原因，不抛异常；源文件存在性由调用方（TagService）保证。
     /// </summary>
     TagFilenamePathResult BuildNewPath(string oldFullPath, IReadOnlyList<string> newTags);

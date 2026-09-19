@@ -94,6 +94,18 @@ public class TagFilenameServiceTests
         Assert.NotNull(result.Error);
         Assert.Contains("260", result.Error);
         Assert.DoesNotContain("255", result.Error);
+
+        // 恰好 260 被拒（cr/P2-13：>= 口径，PRD"将达到 260 即阻止"）——
+        // 目录 246（C:\sv-tests\ + 234 个 d）+ 分隔符 1 + "photo[标签].jpg" 13 字符 = 恰好 260；
+        // 少一个 d 即 259，边界另一侧放行（纯预检：目录无需真实存在，目标冲突不触发）。
+        var at260 = _service.BuildNewPath(@"C:\sv-tests\" + new string('d', 234) + @"\photo.jpg", new[] { "标签" });
+        Assert.False(at260.Success);
+        Assert.NotNull(at260.Error);
+        Assert.Contains("260", at260.Error);
+
+        var at259 = _service.BuildNewPath(@"C:\sv-tests\" + new string('d', 233) + @"\photo.jpg", new[] { "标签" });
+        Assert.True(at259.Success);
+        Assert.Equal(259, at259.NewFullPath!.Length);
     }
 
     [Fact]
