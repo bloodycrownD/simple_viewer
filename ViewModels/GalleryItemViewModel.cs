@@ -74,8 +74,10 @@ public partial class GalleryItemViewModel : ObservableObject
     /// <summary>
     /// 以最新配置组重建「标签名 → 组色相」索引（UI 线程；由 TagSidebarViewModel.Rebuild 调用，
     /// 纯展示数据，与业务筛选/打标逻辑无关）。
+    /// 返回索引内容是否变化（键值对全同视为未变化）——变化时宿主需对已呈现卡片补发
+    /// <see cref="Badges"/> 重通知（见 <see cref="NotifyBadgeHuesChanged"/>）。
     /// </summary>
-    internal static void UpdateTagHues(IReadOnlyList<TagGroup> configGroups)
+    internal static bool UpdateTagHues(IReadOnlyList<TagGroup> configGroups)
     {
         var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in configGroups)
@@ -87,8 +89,32 @@ public partial class GalleryItemViewModel : ObservableObject
             }
         }
 
+        // 内容比较（扫描期节流刷新/计数刷新会频繁 Rebuild：配置未变时不打扰已呈现卡片的角标绑定）。
+        var changed = map.Count != _tagHues.Count;
+        if (!changed)
+        {
+            foreach (var pair in map)
+            {
+                if (!_tagHues.TryGetValue(pair.Key, out var hue) || hue != pair.Value)
+                {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
         _tagHues = map;
+        return changed;
     }
+
+    /// <summary>
+    /// 组色相索引更新后的角标重算通知（由 MainViewModel.RebuildTagSidebar 在
+    /// <see cref="UpdateTagHues"/> 返回变化后对已呈现卡片补发）：Badges 是按需计算的派生属性，
+    /// 静态索引替换不触发 INPC——打标时序为 UpdateFrom（先）→ Rebuild 更新索引（后），
+    /// UpdateFrom 时通知的 Badges 用的是旧索引，已呈现卡片的角标底色会滞后一轮
+    ///（新标签映射不到组，误显示未分组灰蓝底）。
+    /// </summary>
+    internal void NotifyBadgeHuesChanged() => OnPropertyChanged(nameof(Badges));
 
     /// <summary>
     /// 缩略图左下角标签角标展示模型（前 3 个标签药丸 + 第 4 个起「+N」；

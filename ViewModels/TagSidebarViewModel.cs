@@ -121,13 +121,15 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <param name="configGroups">配置组（SettingsService.Load().TagGroups）。</param>
     /// <param name="tagCounts">最近一次索引标签计数快照。</param>
     /// <param name="activeFilters">当前激活的筛选标签集（chip 高亮）。</param>
-        public void Rebuild(
+    /// <returns>「标签名 → 组色相」索引是否变化（宿主据此对已呈现瀑布流卡片补发 Badges 重通知，
+    /// 消除打标后角标底色滞后一轮的问题——见 GalleryItemViewModel.NotifyBadgeHuesChanged）。</returns>
+        public bool Rebuild(
             IReadOnlyList<TagGroup> configGroups,
             IReadOnlyDictionary<string, int> tagCounts,
             IReadOnlyCollection<string> activeFilters)
     {
         // 视觉对齐 demo：同步「标签名 → 组色相」索引，供瀑布流角标着色（纯展示数据，不落盘）。
-        GalleryItemViewModel.UpdateTagHues(configGroups);
+        var tagHuesChanged = GalleryItemViewModel.UpdateTagHues(configGroups);
 
         Groups.Clear();
         var configuredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -202,6 +204,7 @@ public partial class TagSidebarViewModel : ObservableObject
         _collapsedGroupIds.IntersectWith(new HashSet<string>(Groups.Select(static g => g.Id)));
 
         IsEmpty = Groups.Count == 0;
+        return tagHuesChanged;
     }
 
     /// <summary>

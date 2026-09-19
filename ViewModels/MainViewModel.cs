@@ -1334,8 +1334,20 @@ public partial class MainViewModel : ObservableObject
 
         void Rebuild()
         {
-            TagSidebar.Rebuild(configGroups, counts, filters);
+            var tagHuesChanged = TagSidebar.Rebuild(configGroups, counts, filters);
             RebuildFilterChips(configGroups);
+
+            if (tagHuesChanged)
+            {
+                // 组色相索引已更新：对已呈现卡片补发 Badges 重通知。打标时序为 UpdateFrom（先）
+                // → RefreshTagDataAsync → Rebuild 更新索引（后），UpdateFrom 通知的 Badges 用的
+                // 是旧索引——不补发则角标底色滞后一轮（新标签误显示未分组灰蓝底，
+                // 2026-09-19 管线修复）。索引未变化时跳过（扫描期节流刷新频繁 Rebuild，免打扰）。
+                foreach (var viewModel in _waterfall.Items)
+                {
+                    viewModel.NotifyBadgeHuesChanged();
+                }
+            }
         }
 
         if (_dispatcher is not null && !_dispatcher.HasThreadAccess)

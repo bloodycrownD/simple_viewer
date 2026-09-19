@@ -281,6 +281,25 @@ public class TagServiceTests
         Assert.Equal("content", File.ReadAllText(path));
     }
 
+    // ---------------------------------------------------------------- T-TG11：仅大小写差异的重命名按幂等跳过（口径统一）
+
+    [Fact]
+    public async Task T_TG_11_CaseOnlyRename_TreatedAsIdempotentNoOp()
+    {
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "photo[a].jpg");
+        File.WriteAllText(path, "x");
+
+        // 旧口径分裂：服务端按 Ordinal 判非幂等执行 File.Move（磁盘改为 [A]），
+        // 同步侧按 OrdinalIgnoreCase 判幂等跳过——内存/索引停留旧路径。
+        // 统一为 Windows 大小写不敏感口径（OrdinalIgnoreCase）后：双方一致视为无操作。
+        var result = await _service.RenameTagAsync([path], "a", "A");
+
+        Assert.Equal(0, result.SucceededCount);
+        Assert.False(result.HasFailures);
+        Assert.Equal("photo[a].jpg", GetOnlyFileNames(temp.Path).Single()); // 文件名保持原样
+    }
+
     // ------------------------------------------------- TagSemantics 纯函数补充（独立可测，spec Step 3）
 
     [Fact]

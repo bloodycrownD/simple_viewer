@@ -4,7 +4,7 @@ using SimpleViewer.Models;
 // Responsibility: 标签打标/移除/重命名/删除的落盘执行（同目录 File.Move 重命名），互斥语义由 TagSemantics 纯函数承担。
 // Invariants: 一律经 TagFilenameService.BuildNewPath 预检（260 长度/目标冲突/标签名合法）后再 File.Move，绝不复用
 //             FileOperationService.MoveToFolder 的"同名先删后移"覆盖语义（D10）；失败逐文件聚合、成功不回滚；
-//             幂等命中（新路径与原路径字面相同）不执行任何实际 IO。
+//             幂等命中（新路径与原路径按 OrdinalIgnoreCase 相同——Windows 文件系统大小写不敏感口径）不执行任何实际 IO。
 // Call chain: MainViewModel/快捷键分派（Step 10/12）→ ApplyTagAsync/RemoveTagAsync/RenameTagAsync/DeleteTagAsync/DeleteGroupAsync
 //             → RenameAll 统一管线 → TagSemantics.Apply → TagFilenameService.BuildNewPath → File.Move。
 
@@ -58,7 +58,8 @@ public sealed class TagService : ITagService
         ArgumentNullException.ThrowIfNull(newTagName);
 
         // 不含旧标签名的文件新集合不变 → 落入无操作跳过；重命名口径下不计成功
-        // （"成功数"应反映被实际更新的文件数，全库候选中未携带旧标签的文件静默跳过）。
+        //（"成功数"应反映被实际更新的文件数，全库候选中未携带旧标签的文件静默跳过）。
+        // 注意：仅大小写差异的改名（如 a → A）按 Windows 大小写不敏感口径落入幂等跳过（RenameAll 统一口径）。
         return Task.Run(() => RenameAll(
             paths,
             currentTags => ReplaceTagCore(currentTags, oldTagName, newTagName),
@@ -101,8 +102,8 @@ public sealed class TagService : ITagService
     /// <param name="paths">候选文件全路径集合。</param>
     /// <param name="computeNewTags">由当前标签集合计算新标签集合的纯函数（由各操作注入语义）。</param>
     /// <param name="countNoOpAsSucceeded">
-    /// 新路径与原路径字面相同（文件已处于目标状态、未执行实际 IO）时是否计入成功数：
-    /// 打标/移除/删除等"目标状态"语义计成功（true，缺省）；全库重命名等"实际更新"语义不计（false）。
+    /// 新路径与原路径相同（OrdinalIgnoreCase，Windows 大小写不敏感口径：文件已处于目标状态、未执行实际 IO）
+    /// 时是否计入成功数：打标/移除/删除等"目标状态"语义计成功（true，缺省）；全库重命名等"实际更新"语义不计（false）。
     /// </param>
     private BatchOperationResult RenameAll(
         IEnumerable<string> paths,
@@ -134,8 +135,11 @@ public sealed class TagService : ITagService
                 continue;
             }
 
-            // 幂等命中：新路径与原路径字面相同（区分大小写，仅大小写差异的重命名仍会执行）→ 不执行任何 IO。
-            if (string.Equals(build.NewFullPath, path, StringComparison.Ordinal))
+            // 幂等命中：新路径与原路径相同即视为无操作，不执行任何 IO。比较口径 OrdinalIgnoreCase
+            //（Windows 文件系统大小写不敏感）——与同步侧 TryComposeNewPath 的幂等判定统一
+            //（2026-09-19 口径修复：旧 Ordinal 口径下"仅大小写差异的重命名"会真实执行 File.Move，
+            // 而同步侧按 IgnoreCase 判幂等跳过，造成磁盘已改、内存/索引停留旧路径的分裂）。
+            if (string.Equals(build.NewFullPath, path, StringComparison.OrdinalIgnoreCase))
             {
                 if (countNoOpAsSucceeded)
                 {
