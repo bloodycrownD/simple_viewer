@@ -141,6 +141,41 @@ public class ThumbnailServiceTests
         await AssertJpegIsFirstFrameRedAsync(result.ImageBytes);
     }
 
+    [Fact]
+    public async Task T_TH_06_MigrateCache_NewPathHitsMemoryAndDiskWithoutRedecode()
+    {
+        // 同图改名（打标重命名）缓存迁移：内存条目复制到新键、磁盘缓存文件复制到新 SHA1 名——
+        // 新路径取回不再解码（内存与磁盘两级均命中）。
+        using var temp = new TempDirectory();
+        var imagePath = Path.Combine(temp.Path, "a.png");
+        File.WriteAllText(imagePath, "x");
+        var renamedPath = Path.Combine(temp.Path, "a[tag].png");
+        var cacheDir = Path.Combine(temp.Path, "thumbcache");
+
+        var decodeCount = 0;
+        Func<string, int, CancellationToken, Task<byte[]>> decode = (_, _, _) =>
+        {
+            Interlocked.Increment(ref decodeCount);
+            return Task.FromResult(new byte[] { 1, 2, 3, 4 });
+        };
+        var service = new ThumbnailService(ThumbnailService.DefaultMemoryBudgetBytes, cacheDir, decode);
+
+        await service.GetThumbnailAsync(imagePath, 360); // 建立内存 + 磁盘缓存
+        service.MigrateCache(imagePath, renamedPath, 360);
+
+        // 内存迁移命中：新路径取回不再解码，结果 Path 挂新路径。
+        var memoryHit = await service.GetThumbnailAsync(renamedPath, 360);
+        Assert.Equal(1, decodeCount);
+        Assert.Equal(renamedPath, memoryHit.Path);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, memoryHit.ImageBytes);
+
+        // 磁盘迁移命中：全新实例（空内存）仅凭迁移后的磁盘缓存取回，仍不触发解码。
+        var second = new ThumbnailService(ThumbnailService.DefaultMemoryBudgetBytes, cacheDir, decode);
+        var diskHit = await second.GetThumbnailAsync(renamedPath, 360);
+        Assert.Equal(1, decodeCount);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, diskHit.ImageBytes);
+    }
+
     /// <summary>解码 JPEG 输出：验证分桶缩放尺寸与首帧（红色）像素。</summary>
     private static async Task AssertJpegIsFirstFrameRedAsync(byte[] jpegBytes)
     {

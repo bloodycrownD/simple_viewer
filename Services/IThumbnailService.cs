@@ -39,4 +39,14 @@ public interface IThumbnailService
         string path,
         int bucket,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 同图改名缓存迁移（打标重命名，图片字节未变）：内存 LRU 中旧路径的全部分桶条目复制到新键；
+    /// 磁盘缓存把旧 SHA1 文件复制到新 SHA1 名（<paramref name="bucket"/> 指定档位）。
+    /// 磁盘复制失败静默降级（不阻塞打标；最坏损失一次缓存命中，下次解码重建）。
+    /// </summary>
+    /// <param name="oldPath">改名前路径。</param>
+    /// <param name="newPath">改名后路径。</param>
+    /// <param name="bucket">当前使用的分桶宽度（磁盘缓存文件名组成部分）。</param>
+    void MigrateCache(string oldPath, string newPath, int bucket);
 }

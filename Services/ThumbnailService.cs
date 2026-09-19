@@ -269,6 +269,77 @@ public sealed class ThumbnailService : IThumbnailService
         return transform;
     }
 
+    /// <inheritdoc />
+    public void MigrateCache(string oldPath, string newPath, int bucket)
+    {
+        if (string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath) || bucket <= 0)
+        {
+            return;
+        }
+
+        var oldNormalized = NormalizePath(oldPath);
+        var newNormalized = NormalizePath(newPath);
+
+        // 内存迁移（锁内，与 TryGetMemory/AddMemory 串行防并发竞态）：旧路径全部分桶条目复制到新键
+        // （结果 Path 挂新路径，JPEG 字节共享引用——ThumbnailResult 不可变，安全）；
+        // 旧键条目移除（路径已失效，留着白占字节预算）。
+        lock (_memoryLock)
+        {
+            var stale = new List<KeyValuePair<CacheKey, LinkedListNode<MemoryEntry>>>();
+            foreach (var pair in _memoryMap)
+            {
+                if (string.Equals(pair.Key.Path, oldNormalized, StringComparison.Ordinal))
+                {
+                    stale.Add(pair);
+                }
+            }
+
+            foreach (var pair in stale)
+            {
+                var source = pair.Value.Value;
+                var targetKey = new CacheKey(newNormalized, pair.Key.Bucket);
+
+                // 新键若已被并发填充则替换（磁盘已改名，旧内容必过期）。
+                if (_memoryMap.TryGetValue(targetKey, out var existingNode))
+                {
+                    _memoryOrder.Remove(existingNode);
+                    _memoryMap.Remove(targetKey);
+                    _memoryBytes -= existingNode.Value.Size;
+                }
+
+                _memoryOrder.Remove(pair.Value);
+                _memoryMap.Remove(pair.Key);
+
+                var migrated = new ThumbnailResult
+                {
+                    Path = newPath,
+                    Bucket = source.Result.Bucket,
+                    ImageBytes = source.Result.ImageBytes,
+                    ImageSource = source.Result.ImageSource,
+                };
+
+                var node = _memoryOrder.AddFirst(new MemoryEntry(targetKey, migrated, source.Size));
+                _memoryMap[targetKey] = node;
+            }
+        }
+
+        // 磁盘迁移：旧 SHA1 缓存文件复制到新 SHA1 名（复制而非改名——保留旧文件无害，
+        // 下次清缓存自然回收；失败静默降级，不阻塞打标主链路）。
+        try
+        {
+            var oldDiskPath = GetDiskCachePath(new CacheKey(oldNormalized, bucket));
+            if (File.Exists(oldDiskPath))
+            {
+                Directory.CreateDirectory(_cacheDirectory);
+                File.Copy(oldDiskPath, GetDiskCachePath(new CacheKey(newNormalized, bucket)), overwrite: true);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 磁盘迁移失败仅损失一次命中（下次未命中解码重建），静默降级。
+        }
+    }
+
     private static ThumbnailResult CreateResult(string path, int bucket, byte[] imageBytes) => new()
     {
         Path = path,

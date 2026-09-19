@@ -160,6 +160,14 @@ public partial class MainViewModel : ObservableObject
     /// <summary><see cref="IsFullscreen"/> 变化时通知窗口切换 chrome。</summary>
     public event EventHandler<bool>? FullscreenChanged;
 
+    /// <summary>
+    /// 当前单图被"同图改名"（打标重命名，图片字节与 ImageSource 均不变）时通知（旧路径, 新路径）。
+    /// 视图据此保持缩放/平移交互态——仅把交互态归属路径追到新路径，不视为切图。
+    /// 与 <see cref="EnsureFullResolutionAsync"/> 确立的"同图换源不重置交互态"互补：那次是路径不变源变，
+    /// 这次是路径变源不变（先例判据 CurrentImagePath 相等对改名场景天然失效，故需显式通知）。
+    /// </summary>
+    public event Action<string, string>? CurrentImageRenamed;
+
     /// <summary>用户触发 ExitApp 快捷键时请求退出。</summary>
     public event EventHandler? ExitRequested;
 
@@ -961,7 +969,8 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 单图模式当前图打标（toggle 语义，对齐 demo viewerTags）：
     /// 已含该标签 → 移除；未含 → 打标（互斥组先剔除同组再追加）。
-    /// 成功后更新翻页列表路径并重载（刷新文件名分段/状态行；图片内容不变，单张 ≤1s 口径）。
+    /// 成功后同图改名不重载：保持 ImageSource/解码缓存与缩放态，仅按新路径重算文件名分段/状态行
+    ///（GIF 按 UriSource 特性完整重载一次；见 RefreshCurrentAfterRenameAsync）。
     /// </summary>
     public async Task ToggleTagOnCurrentImageAsync(TagGroup group, string tagName)
     {
@@ -1007,16 +1016,43 @@ public partial class MainViewModel : ObservableObject
             ShowTagOperationResult(result, sync, exclusiveHint: !remove && group.Exclusive);
             await RefreshTagDataAsync();
 
-            // 改名成功：翻页列表路径已被就地替换（ReplaceGalleryItemState），重载刷新文件名分段与状态行。
+            // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
+            //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
+            // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算状态行与文件名分段；
+            // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
             if (sync.Synced > 0)
             {
-                await LoadCurrentAsync();
+                await RefreshCurrentAfterRenameAsync();
             }
         }
         finally
         {
             _isTagOperationRunning = false;
         }
+    }
+
+    /// <summary>
+    /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算状态行与文件名分段
+    /// （CurrentImagePath 已被 ReplaceGalleryItemState 就地替换为新路径；改名事件已先行通知视图
+    /// 保持缩放/平移态）。GIF 例外：其 ImageSource 以 UriSource 指向文件路径，改名后旧 Uri 失效
+    /// 且 BitmapImage 无法用内存字节重建动画源——按旧策略完整重载一次（换源时视图路径对比
+    /// 命中"同图"已追新的路径，缩放态仍保持，仅视觉上一次换源）。
+    /// </summary>
+    private async Task RefreshCurrentAfterRenameAsync()
+    {
+        var path = CurrentImagePath;
+        if (path is null)
+        {
+            return;
+        }
+
+        if (_currentLoaded is not { IsGif: false } loaded)
+        {
+            await LoadCurrentAsync();
+            return;
+        }
+
+        UpdateStatusText(loaded, path);
     }
 
     /// <summary>
@@ -1616,22 +1652,26 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 批量改名后就地同步成功项：预测新路径 → 旧路径消失且新路径存在（实际改名成功）时
-    /// 索引行替换（ReplacePathAsync）+ 全量暂存/瀑布流卡片/单图翻页列表更新。
+    /// 索引行替换（ReplacePathAsync）+ 全量暂存/瀑布流卡片/单图翻页列表更新 + 解码/缩略图缓存迁移。
     /// 幂等命中（新旧路径一致）不计数也不失败；预测失败或旧文件仍在（未改名）计 Failed
     /// （失败原因已由 TagService 回执聚合）。
+    /// 三阶段执行（2026-09-19 打标管线修复）：① UI 线程宽松预测（纯字符串计算）；
+    /// ② 后台线程磁盘事实判定 + 缓存迁移——File.Exists 每项两次的同步探测与磁盘缓存复制
+    /// 在 UI 续体上批量执行曾是可感知卡顿源；③ UI 线程就地同步（集合/卡片/索引写操作）。
     /// </summary>
     private async Task<SyncResult> SyncRenamedItemsAsync(
         IReadOnlyList<GalleryItem> candidates,
         Func<IReadOnlyList<string>, IReadOnlyList<string>> transform)
     {
-        var synced = 0;
+        // 阶段一（UI 线程）：宽松预测新路径。
+        // 宽松口径（2026-09-17 走查修复）：本阶段运行在 TagService 改名落盘之后，
+        // 预测出的目标路径必然已存在——若沿用 BuildNewPath 的目标存在性冲突预检，
+        // 每一次成功的改名都会被误判为冲突并跳过同步（索引/卡片停留旧路径、计数失真、
+        // 回执误报"失败 N 张"）。此处只做语法与长度预检，改名的成败以磁盘事实判定。
+        var predicted = new List<(GalleryItem Candidate, string NewPath)>();
         var failed = 0;
         foreach (var candidate in candidates)
         {
-            // 宽松预测（2026-09-17 走查修复）：本阶段运行在 TagService 改名落盘之后，
-            // 预测出的目标路径必然已存在——若沿用 BuildNewPath 的目标存在性冲突预检，
-            // 每一次成功的改名都会被误判为冲突并跳过同步（索引/卡片停留旧路径、计数失真、
-            // 回执误报"失败 N 张"）。此处只做语法与长度预检，改名的成败以磁盘事实判定。
             var newPath = TryComposeNewPath(candidate, transform);
             if (newPath is null)
             {
@@ -1644,19 +1684,39 @@ public partial class MainViewModel : ObservableObject
                 continue; // 幂等命中：文件名不变，无需同步。
             }
 
-            if (File.Exists(candidate.Path))
+            predicted.Add((candidate, newPath));
+        }
+
+        // 阶段二（后台线程）：磁盘事实判定 + 同图改名缓存迁移。
+        // 旧路径消失 + 新路径存在 = 改名已落盘；此时迁移解码 LRU 与缩略图缓存到新路径键
+        // （字节未变，翻页/重置后直接命中，避免旧条目成白占容量的孤儿、旧磁盘缓存永久失效）。
+        var renamed = await Task.Run(() =>
+        {
+            var results = new List<(GalleryItem Candidate, string NewPath)>();
+            foreach (var (candidate, newPath) in predicted)
             {
-                failed++; // 旧路径仍在 = 该文件未被改名（TagService 回执已聚合原因）。
-                continue;
+                if (File.Exists(candidate.Path))
+                {
+                    continue; // 旧路径仍在 = 该文件未被改名（TagService 回执已聚合原因）。
+                }
+
+                if (!File.Exists(newPath))
+                {
+                    continue; // 旧不在、新也不在：文件被外部移动/删除的异常态。
+                }
+
+                _imageLoader.MigrateCache(candidate.Path, newPath);
+                _thumbnailService.MigrateCache(candidate.Path, newPath, GalleryItemViewModel.ThumbnailBucket);
+                results.Add((candidate, newPath));
             }
 
-            if (!File.Exists(newPath))
-            {
-                failed++; // 旧不在、新也不在：文件被外部移动/删除的异常态。
-                continue;
-            }
+            return results;
+        });
 
-            // 旧路径消失 + 新路径存在 = 改名已落盘，同步索引与瀑布流。
+        // 阶段三（UI 线程续体）：确认改名项就地同步索引与瀑布流/单图列表。
+        var synced = 0;
+        foreach (var (candidate, newPath) in renamed)
+        {
             var newItem = BuildGalleryItem(newPath, candidate);
             if (_indexService is not null)
             {
@@ -1667,6 +1727,7 @@ public partial class MainViewModel : ObservableObject
             synced++;
         }
 
+        failed += predicted.Count - renamed.Count;
         return new SyncResult(synced, failed);
     }
 
@@ -1813,12 +1874,18 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        // 单图翻页列表：路径替换（若当前正显示该图，调用方负责刷新文件名分段/重载）。
+        // 单图翻页列表：路径替换（若当前正显示该图，调用方负责刷新文件名分段/轻量刷新或重载）。
         for (var i = 0; i < _imageFiles.Count; i++)
         {
             if (string.Equals(_imageFiles[i], oldPath, StringComparison.OrdinalIgnoreCase))
             {
                 _imageFiles[i] = newItem.Path;
+                if (i == _currentIndex)
+                {
+                    // 当前显示图被改名：通知视图"同图改名"（交互态归属路径追新，不触发切图复位缩放）。
+                    CurrentImageRenamed?.Invoke(oldPath, newItem.Path);
+                }
+
                 break;
             }
         }
@@ -2178,14 +2245,17 @@ public partial class MainViewModel : ObservableObject
         await LoadCurrentAsync();
     }
 
-    private void UpdateStatusText(LoadedImage loaded)
+    private void UpdateStatusText(LoadedImage loaded, string? displayPath = null)
     {
-        var fileName = Path.GetFileName(loaded.Path);
+        // displayPath：状态行与文件名分段的取值路径。同图改名后 loaded.Path 停留旧路径
+        //（复用已解码结果不重建 LoadedImage），显示信息须按新路径计算（2026-09-19 管线修复）。
+        var path = displayPath ?? loaded.Path;
+        var fileName = Path.GetFileName(path);
         var sizeText = FormatFileSize(loaded.FileSizeBytes);
         var dimensions = $"{loaded.PixelWidth}x{loaded.PixelHeight}";
         var indexInfo = $"{_currentIndex + 1}/{_imageFiles.Count}";
         StatusText = $"名称：{fileName} | 大小：{sizeText} | 尺寸：{dimensions} | 序号：{indexInfo}";
-        UpdateFileNameSegments(loaded.Path);
+        UpdateFileNameSegments(path);
     }
 
     /// <summary>

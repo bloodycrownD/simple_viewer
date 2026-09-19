@@ -55,6 +55,7 @@ public sealed partial class SingleImageView : UserControl
         InitializeComponent();
 
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ViewModel.CurrentImageRenamed += OnCurrentImageRenamed;
         RebuildFileNameInlines();
 
         // 视口尺寸源（2026-09-19 修复二次缩放锯齿）：解码尺寸贴合实际显示区（含侧栏占位），
@@ -68,6 +69,21 @@ public sealed partial class SingleImageView : UserControl
                     (int)e.NewSize.Width, (int)e.NewSize.Height);
             }
         };
+    }
+
+    /// <summary>
+    /// 同图改名通知（打标重命名，图片字节与 ImageSource 均不变）：仅把缩放/平移交互态的
+    /// 归属路径 <see cref="_zoomOwnerPath"/> 追到新路径——区别于切图（ImageSource 与路径都变 → 复位）
+    /// 与同图分辨率升级（源变路径不变 → 保持），这是"路径变、源不变"的第三种情形，交互态同样保持
+    ///（否则下方 ImageSource 属性变更分支以路径判切图，会把改名误判切图打断用户放大态）。
+    /// GIF 改名后会重载换源：事件先行更新归属路径，换源时的路径对比即命中"同图"而不复位。
+    /// </summary>
+    private void OnCurrentImageRenamed(string oldPath, string newPath)
+    {
+        if (string.Equals(_zoomOwnerPath, oldPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _zoomOwnerPath = newPath;
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
