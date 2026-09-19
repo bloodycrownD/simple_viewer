@@ -54,13 +54,6 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<ShortcutEditorItem> Items { get; } = [];
 
-    public IReadOnlyList<ViewerCommand> AvailableCommands { get; } =
-        Enum.GetValues<ViewerCommand>();
-
-    /// <summary>Command names for ComboBox (x:Bind friendly).</summary>
-    public IReadOnlyList<string> AvailableCommandNames { get; } =
-        Enum.GetNames<ViewerCommand>();
-
     /// <summary>命令下拉选项（中文显示名 + 枚举名值）。</summary>
     public IReadOnlyList<CommandOption> CommandOptions { get; }
 

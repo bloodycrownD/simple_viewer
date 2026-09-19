@@ -113,9 +113,8 @@ public partial class MainViewModel : ObservableObject
     /// <summary>UI 线程调度器（构造捕获；侧栏重建等 UI 写操作从后台路径回投）。</summary>
     private readonly DispatcherQueue? _dispatcher;
 
-    /// <summary>扫描期间标签计数节流刷新间隔（毫秒）。</summary>
     /// <summary>
-    /// 扫描期间标签计数刷新间隔（2026-09-17 走查修复：TagCounts 为全表聚合，大库扫描中
+    /// 扫描期间标签计数刷新间隔（毫秒；2026-09-17 走查修复：TagCounts 为全表聚合，大库扫描中
     /// 1.5s 一刷会持续占用 UI 线程重建侧栏，输入明显卡顿；放宽到 5s，扫描结束仍有终态强刷）。
     /// </summary>
     private const int TagDataRefreshIntervalMs = 5000;
@@ -1025,8 +1024,9 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>选中集批量打标（快捷键路径；互斥组按语义替换；打标后选中集保持——卡片 VM 就地更新，路径换新）。
-    /// 2026-09-19 交互重构后侧栏点击不再进此方法；拖拽路径走 ApplyTagToDraggedCardsAsync，共用 ApplyTagToPathsAsync。</summary>
-    public async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
+    /// 2026-09-19 交互重构后侧栏点击不再进此方法（cr/P2-2 改 private：唯一调用方 ApplyTagByShortcutAsync 在类内；
+    /// 拖拽路径走 ApplyTagToDraggedCardsAsync，共用 ApplyTagToPathsAsync）。</summary>
+    private async Task ApplyTagToSelectionAsync(TagGroup group, string tagName)
     {
         if (_selectedCards.Count == 0)
         {
@@ -1722,11 +1722,10 @@ public partial class MainViewModel : ObservableObject
                 .FirstOrDefault(g => g.Tags.Any(t =>
                     string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
                 ?.Name ?? string.Empty;
-            var capturedName = tagName;
             FilterChips.Add(new FilterChipViewModel(
                 groupName,
-                capturedName,
-                new AsyncRelayCommand(() => RemoveTagFilterAsync(capturedName))));
+                tagName,
+                new AsyncRelayCommand(() => RemoveTagFilterAsync(tagName))));
         }
 
         OnPropertyChanged(nameof(OrBadgeVisibility));
