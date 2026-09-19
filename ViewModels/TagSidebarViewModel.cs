@@ -187,10 +187,11 @@ public partial class TagSidebarViewModel : ObservableObject
 
     /// <summary>
     /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发，2026-09-19 交互重构）：
-    /// 点击一律 = 切换筛选（单图模式下由 MainViewModel 额外切回图库）；打标走拖拽/详情页右栏/快捷键。
+    /// 点击一律 = 筛选（单图模式下由 MainViewModel 额外切回图库）；打标走拖拽/详情页右栏/快捷键。
+    /// ctrl（2026-09-19 对齐卡片选择心智）：false = 单选筛选（唯一选中时再点 = 取消）；true = 加/减选（多标签 OR）。
     /// </summary>
-    public Task HandleChipTappedAsync(TagChipViewModel chip)
-        => _owner.HandleTagChipTappedAsync(chip.Name);
+    public Task HandleChipTappedAsync(TagChipViewModel chip, bool ctrl)
+        => _owner.HandleTagChipTappedAsync(chip.Name, ctrl);
 
     /// <summary>配置组内标签的编辑命令集（重命名/删除）——侧栏标签行均属配置组
     /// （2026-09-19 口径：无组标签不经侧栏展示/编辑，清理走右栏 chips ✕ 或配置组同名收编）。</summary>

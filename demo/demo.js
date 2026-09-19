@@ -376,10 +376,19 @@ function syncSelectionClass() {
   for (const [id, el] of cardEls) el.classList.toggle("selected", state.selection.has(id));
 }
 
-/* ---- 标签点击：一律筛选（2026-09-19 交互重构：打标走拖拽/详情右栏） ---- */
-function onChipClick(tagId) {
+/* ---- 标签点击：一律筛选（2026-09-19 交互重构：打标走拖拽/详情右栏） ----
+   修饰心智对齐 WinUI 卡片选择（2026-09-19）：无修饰 = 单选重置（唯一选中时再点 = 取消）；
+   Ctrl/⌘+点击 = 加/减选（多标签 OR）。 */
+function onChipClick(tagId, ctrl) {
   state.untagged = false; // 互斥（untagged-filter-entry）：点任何标签筛选自动退出无标签模式
-  state.filters.has(tagId) ? state.filters.delete(tagId) : state.filters.add(tagId);
+  if (ctrl) {
+    state.filters.has(tagId) ? state.filters.delete(tagId) : state.filters.add(tagId);
+  } else if (state.filters.size === 1 && state.filters.has(tagId)) {
+    state.filters.delete(tagId); // 二次点击取消（保留既有习惯）
+  } else {
+    state.filters.clear();
+    state.filters.add(tagId);
+  }
   refreshAll();
 }
 
@@ -424,7 +433,7 @@ $("#groupList").addEventListener("click", async e => {
     return;
   }
   const row = e.target.closest(".tag-row");
-  if (row) onChipClick(row.dataset.tag);
+  if (row) onChipClick(row.dataset.tag, e.ctrlKey || e.metaKey);
 });
 
 /* 拖拽卡片 → 标签行：dragover 高亮（drop-on），drop 按拖拽 payload（整集/单卡）打标 */

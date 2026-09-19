@@ -110,14 +110,23 @@ public sealed partial class TagSidebarControl : UserControl
     /// 标签行点击转发（2026-09-19 交互重构：点击一律 = 筛选）：Tag 槽位回查 chip VM 交视图模型转发。
     /// 用 Click 而非 Tapped（2026-09-17 走查修复）：Click 对鼠标/触摸/键盘/自动化调用均触发，
     /// Tapped 仅真实指针手势触发，键盘与辅助功能路径会静默失效。
-    /// 不再读取修饰键状态——Shift+点击移除入口已取消（移除走单图详情右栏 chip 的 ✕）。
+    /// 修饰键只读 Ctrl（2026-09-19 对齐卡片选择心智）：无修饰 = 单选筛选（唯一选中时再点 = 取消），
+    /// Ctrl+点击 = 加/减选（多标签 OR）。
     /// </summary>
     private void OnChipClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: TagChipViewModel chip })
         {
-            _ = ViewModel.HandleChipTappedAsync(chip);
+            _ = ViewModel.HandleChipTappedAsync(chip, IsControlKeyDown());
         }
+    }
+
+    private static bool IsControlKeyDown()
+    {
+        // 只判 Down（照抄 WaterfallView.IsControlKeyDown 模式；禁判 Locked 位——RULE 铁律）。
+        var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Control);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     /// <summary>

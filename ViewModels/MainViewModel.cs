@@ -929,14 +929,15 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选）：
-    /// 切换该标签的筛选（OR 语义，再点取消）；单图模式下额外切回图库让筛选结果可见
+    /// 单图模式下额外切回图库让筛选结果可见
     /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
     /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）。
     /// 原 Shift+点击“从选中集移除”入口随之取消——移除走详情页右栏 chip 的 ✕（原
     /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    public async Task HandleTagChipTappedAsync(string tagName)
+    /// <param name="ctrl">Ctrl 按下 = 加/减选（多标签 OR）；否则单选筛选（见 <see cref="ToggleTagFilterAsync"/>）。</param>
+    public async Task HandleTagChipTappedAsync(string tagName, bool ctrl)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
@@ -948,7 +949,7 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        await ToggleTagFilterAsync(tagName);
+        await ToggleTagFilterAsync(tagName, ctrl);
     }
 
     /// <summary>
@@ -1540,23 +1541,40 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 点击侧栏标签 = 切换筛选：再次点击取消；多标签 OR 语义。
+    /// 点击侧栏标签 = 筛选（2026-09-19 对齐卡片 Explorer 心智）：
+    /// 无修饰 = 单选重置（替换为该标签；当前唯一选中就是它时再点 = 取消回全量，保留既有习惯）；
+    /// Ctrl+点击 = 加/减选切换（多标签 OR 语义）。
     /// 与「无标签」筛选互斥（拍板）：点任何标签筛选自动退出无标签模式。
     /// 筛选态下瀑布流只显示命中（索引 QueryByTags 全量命中集整体替换，不渐进追加）；
     /// 命中数经筛选条反馈（Step 11）。
     /// </summary>
-    public async Task ToggleTagFilterAsync(string tagName)
+    public async Task ToggleTagFilterAsync(string tagName, bool ctrl = false)
     {
         if (string.IsNullOrWhiteSpace(tagName))
         {
             return;
         }
 
-        // 互斥：进入标签筛选即退出无标签模式（无标签激活时标签集恒空，Remove 必走 Add 分支）。
+        // 互斥：进入标签筛选即退出无标签模式（无标签激活时标签集恒空，必走替换/添加分支）。
         IsUntaggedFilterActive = false;
 
-        if (!_activeFilterTags.Remove(tagName))
+        if (ctrl)
         {
+            // Ctrl：加/减选（在集中移除、不在则加入——多选 OR 的逐标签 toggle）。
+            if (!_activeFilterTags.Remove(tagName))
+            {
+                _activeFilterTags.Add(tagName);
+            }
+        }
+        else if (_activeFilterTags.Count == 1 && _activeFilterTags.Contains(tagName))
+        {
+            // 无修饰且当前唯一选中就是它：取消筛选回全量（保留"二次点击取消"习惯）。
+            _activeFilterTags.Remove(tagName);
+        }
+        else
+        {
+            // 无修饰其余情况：单选重置（多选集或不同标签都替换为仅该标签）。
+            _activeFilterTags.Clear();
             _activeFilterTags.Add(tagName);
         }
 
