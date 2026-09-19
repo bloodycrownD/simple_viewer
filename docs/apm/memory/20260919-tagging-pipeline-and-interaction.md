@@ -92,3 +92,9 @@ user:
 
 assistant:
 敏捷项 ungrouped-tags-ignore（f87767b+9440d8c，71/71 绿，主代理实机走查通过），推翻 4679a12"曾见即留"与 spec Step 9 虚拟组设计。拍板口径：①聚合类 UI 完全忽略无组标签——侧栏"未分组"虚拟组（含曾见即留/ForgetUngroupedTag/未分组行✎✕）、卡片角标（对齐 demo 只遍历组内，+N 按过滤后）、筛选回退全部删除；②右栏 chips 保留显示无组标签且 ✕ 可移除——唯一清理出口（有意偏差 demo），移除管线本就按名落盘（FindGroupByTagName 兜底组保留仅满足签名，remove 不消费组）；③归组途径=配置组内新建同名标签自然收编；④互斥语义层"组外保留"（2 项测试覆盖）与 Services/索引层零改动。探索要点：目录选择器天然只遍历配置组（零改动）；打标入口全携带配置组不可能产出无组标签；TagSidebarControl 未分组视觉 x:Bind 分支删字段时被编译期强制清零。实机走查：造 photo_99[神秘标签].jpg → 图库侧栏无"未分组"组；CLI 直开 → 右栏 chips 显示"神秘标签" → ✕ → 磁盘改名 photo_99.jpg 落盘实证；产物已清理。留痕 features/ungrouped-tags-ignore prd+spec。
+
+user:
+清除筛选按钮用处不大（二次点击标签即可取消）；且目前不支持筛选无标签图片——参考截图（Billfish 标签面板标题栏的"无标签素材"按钮），增加一个 icon 筛选无标签图片。
+
+assistant:
+敏捷项 untagged-filter-entry（77bcdd8+b2fa29f+c064cd1，74/74 测试绿含 3 新用例，主代理实机走查通过）。①77bcdd8 索引层 QueryUntaggedAsync（tags IS NULL OR tags=''，独立方法不动 QueryByTagsCore 空集=全量语义）+T_IX_08/09/10。②b2fa29f：IsUntaggedFilterActive+ToggleUntaggedFilter 命令；HasAnyFilter 派生统一挂 FilterBarVisibility 与扫描渐进过滤（原 IsTagFilterActive 删除）；ApplyTagFilterAsync 三分流；互斥拍板——无标签图片按定义不含任何标签，点标签筛选自动退出无标签态、反之激活清空标签集；筛选条"无标签"chip（FilterChipText 空组名特判、chip 中性灰防 HueOfName("")落红色）；侧栏标题行三列 ∅ 按钮（U+2205，激活=强调色淡底，ApplyTheme 重建侧栏故无主题滞留）；删 ClearTagFilters 命令与按钮；打开图库重置。实现微调两处：未激活背景 TransparentBrush（null 会丢画刷）、chip 空组名配色特判。③c064cd1 demo 同步。实机走查：∅ 激活命中 10/10+chip+清空按钮确认消失；∅ 下点"大水印"行互斥切换为标签筛选（命中 0 空态提示）；误触 ✕ 弹删除确认框取消正常（顺带无回归）。留痕 features/untagged-filter-entry prd+spec。
