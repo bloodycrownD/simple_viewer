@@ -71,6 +71,39 @@
                 <Setter Property="CornerRadius" Value="4" />
             </Style>
 
+            <!-- 瀑布流卡片按钮（cr/P1-6：卡片主交互 Click 化——Tapped 对键盘/UIA 静默失效，
+                 RULE「交互用 Click 不用 Tapped」）：模板仅 Border + ContentPresenter（对齐 Ghost 系
+                 透明底极简模板），CornerRadius 10 对齐卡片圆角，底色/描边由卡片实例的 Background/
+                 BorderBrush 绑定提供；hover/选中视觉沿用既有 code-behind Translation 与 x:Bind 绑定，
+                 模板不叠加 PointerOver 底色（保持改造前像素级一致）。拖拽 CanDrag + DragStarting 与
+                 Click/DoubleTapped 照常共存（系统拖拽需按住位移超阈值才进入）。 -->
+            <Style x:Key="CardButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border
+                                x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                                <ContentPresenter
+                                    x:Name="Content"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- 标签组组头按钮（目录树父行）：整行透明底承载展开/折叠，hover/pressed 主题浅叠加；
                  内容 Stretch 占满整行扩大点击区、行高约 36px（树行观感）；内嵌管理按钮（＋⇄✎✕）为独立
                  Button——WinUI 嵌套 Button 点击各自直达不冒泡，点管理按钮不触发展开切换 -->
