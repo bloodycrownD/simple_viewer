@@ -213,6 +213,21 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCurrentImageZoomed;
 
+    /// <summary>
+    /// chrome 遮盖层顶部行总高（工具栏 + InfoBar，含 InfoBar 上下 Margin；2026-09-19 遮挡修复）：
+    /// MainWindow 依各行 SizeChanged 写入。画布层浮层（右栏/折叠条）位于 chrome 层之下，
+    /// 顶部可点区必须让出这段高度（右栏收起按钮曾被工具栏横行遮盖、鼠标点不到）。
+    /// </summary>
+    [ObservableProperty]
+    private double _topChromeHeight;
+
+    /// <summary>
+    /// chrome 遮盖层底部行总高（状态栏）：同 <see cref="TopChromeHeight"/>，浮层底部避让用
+    ///（原文件名栏硬编码 34 的动态替代）。
+    /// </summary>
+    [ObservableProperty]
+    private double _bottomChromeHeight;
+
 
     /// <summary>是否已打开图库（选定根目录并启动过扫描）。</summary>
     [ObservableProperty]

@@ -35,6 +35,7 @@
              观感怪——换成左对齐横向文本按钮行，命令绑定照搬；分隔线用 1px 竖 Rectangle。
              图标一律 BMP 文本字符（不用 FontIcon/SymbolIcon 的 PUA 字形，RULE）。窄窗口横向可滚。 -->
         <Border
+            x:Name="ToolBarRow"
             Grid.Row="0"
             Padding="8,4"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
@@ -119,6 +120,7 @@
              进行中显示 ProgressBar 分批推进；终态回执“成功 N / 失败 M”，失败明细可滚动展开；
              用户关闭经 TwoWay 写回 VM（下次操作重新打开） -->
         <InfoBar
+            x:Name="MainInfoBar"
             Grid.Row="1"
             Margin="12,4"
             IsClosable="True"
@@ -351,6 +353,7 @@
         <!-- 状态栏（demo #statusBar）：12px 次要色 + 上边线分隔。
              遮盖式布局：作为 chrome 覆盖在画布底部之上（画布整窗铺满，图片底部可能被其遮住属预期）。 -->
         <Border
+            x:Name="StatusBarRow"
             Grid.Row="3"
             Padding="16,7"
             Background="{ThemeResource LayerFillColorDefaultBrush}"

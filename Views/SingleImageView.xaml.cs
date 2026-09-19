@@ -59,6 +59,7 @@ public sealed partial class SingleImageView : UserControl
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.CurrentImageRenamed += OnCurrentImageRenamed;
         RebuildFileNameInlines();
+        ApplyChromeInsets();
 
         // 视口尺寸源（2026-09-19 修复二次缩放锯齿 + 遮盖式布局）：解码尺寸贴合画布实际区，
         // 显示层 1:1 无重采样。画布铺满整窗且几何恒定——仅窗口 resize 触发 SizeChanged；
@@ -110,6 +111,26 @@ public sealed partial class SingleImageView : UserControl
                 _zoomOwnerPath = path;
             }
         }
+        else if (e.PropertyName is nameof(MainViewModel.TopChromeHeight)
+            or nameof(MainViewModel.BottomChromeHeight))
+        {
+            ApplyChromeInsets();
+        }
+    }
+
+    /// <summary>
+    /// chrome 遮让（2026-09-19 遮挡修复）：画布层浮层（右栏展开/折叠条/文件名栏）位于 chrome
+    /// 遮盖层之下，顶部被工具栏+InfoBar 横行、底部被状态栏遮盖——可点/可见区必须让出这两段
+    /// 实际高度（MainWindow 依各行 SizeChanged 写入 VM）。右栏收起按钮曾因浮层顶到窗口顶
+    /// 被工具栏盖住、真实鼠标点不到（UIA Press 不做视觉命中测试，走查假阳性）。
+    /// </summary>
+    private void ApplyChromeInsets()
+    {
+        var top = ViewModel.TopChromeHeight;
+        var bottom = ViewModel.BottomChromeHeight;
+        InfoPanelOverlay.Margin = new Thickness(0, top, 0, bottom);
+        InfoPanelCollapsedBar.Margin = new Thickness(0, top, 0, bottom);
+        FileNameOverlay.Margin = new Thickness(0, 0, 0, bottom);
     }
 
     // ==================== 滚轮缩放 / 拖拽平移（2026-09-19：单图查看核心交互） ====================
