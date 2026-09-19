@@ -133,7 +133,11 @@ public partial class App : Application
             var lastRoot = settingsService.Load().LastLibraryRoot;
             if (!string.IsNullOrWhiteSpace(lastRoot) && Directory.Exists(lastRoot))
             {
-                _ = viewModel.OpenLibraryRootAsync(lastRoot);
+                // fire-and-forget 补异常观察（cr/P2-1）：启动恢复失败原先完全静默——
+                // 异常死在任务里既无日志也无状态提示；ContinueWith 仅在故障时记诊断日志。
+                _ = viewModel.OpenLibraryRootAsync(lastRoot).ContinueWith(
+                    t => WriteDiagnosticLog($"[启动恢复上次图库失败] root={lastRoot}", t.Exception),
+                    TaskContinuationOptions.OnlyOnFaulted);
             }
         }
 

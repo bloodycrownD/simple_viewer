@@ -695,13 +695,16 @@ public partial class MainViewModel : ObservableObject
         // 索引缓存全量重建（2026-09-17 走查修复）：同一根目录复用旧库文件时，
         // 上一轮的孤儿行（打标改名前的旧 path）会污染候选集与标签计数；
         // 事实源是文件名，每次打开图库即清表重灌。
-        await indexService.ClearAllItemsAsync(token);
-
         // 扫描期间标签计数节流刷新（TagCounts 全表聚合较重，不宜每块刷）。
         var lastTagRefresh = Stopwatch.StartNew();
 
         try
         {
+            // 清表在 try 内（cr/P2-1）：索引目录只读等 IO 异常不再从 try 外逃逸——
+            // 统一收敛为"扫描失败"状态行（finally 终态刷新 + IsScanning 复位照常执行，
+            // 进程不崩溃，用户仍可再打开其它图库）。
+            await indexService.ClearAllItemsAsync(token);
+
             // ScanAsync 为同步磁盘 IO 迭代器（MoveNextAsync 在消费线程上同步执行磁盘枚举）：
             // 必须 Task.Run 后台消费，UI 线程只收进度/扫描块——几十万张不假死的硬性口径。
             await Task.Run(async () =>
