@@ -77,11 +77,6 @@ public sealed partial class SettingsPage : UserControl
         }
     }
 
-    private void OnCommandSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        ViewModel.NotifyCommandSelectionChanged();
-    }
-
     /// <summary>Validates and saves bindings. Returns false when validation fails.</summary>
     public bool TrySave() => ViewModel.TrySave();
 }

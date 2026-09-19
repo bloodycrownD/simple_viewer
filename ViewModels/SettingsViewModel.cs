@@ -128,16 +128,6 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsApplyTagSelected =>
         SelectedItem?.Command == ViewerCommand.ApplyTag;
 
-    /// <summary>Called from settings UI when command ComboBox selection changes.</summary>
-    public void NotifyCommandSelectionChanged()
-    {
-        OnPropertyChanged(nameof(IsMoveToFolderSelected));
-        OnPropertyChanged(nameof(IsApplyTagSelected));
-        OnPropertyChanged(nameof(SelectedCommandName));
-        OnPropertyChanged(nameof(SelectedTargetPath));
-        OnPropertyChanged(nameof(SelectedTagId));
-    }
-
     partial void OnSelectedItemChanged(ShortcutEditorItem? value)
     {
         if (_subscribedItem is not null)
