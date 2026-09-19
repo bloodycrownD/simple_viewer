@@ -248,6 +248,98 @@ public class LibraryScanServiceTests
         Assert.Equal(1, bad.FileSizeBytes);                // 文件大小仍被记录
     }
 
+    [Fact]
+    public async Task T_SC_09_JpegExifOrientation_SwapsDimensionsForRotatedValues()
+    {
+        using var temp = new TempDirectory();
+
+        // APP1(Exif) 手工字节构造（cr/P1-7，T-SC8 同法扩展）：
+        // SOI + APP1 + SOF0；APP1 段 = FFE1 + 段长(34 = payload 32 + 自身 2) + "Exif\0\0"(6)
+        // + TIFF 头(MM/II 字节序 + 0x002A + IFD0 偏移 8)(8) + IFD0(条目数 1(2)
+        // + Orientation 条目(tag 0x0112 / type SHORT / count 1 / 值内联)(12) + 下一 IFD 偏移 0(4))。
+        // SOF0 存储宽高固定 32x60（横向）；Orientation 5-8（旋转 90°/270°）显示宽高应交换为 60x32，
+        // 与缩略图烘焙 EXIF 旋转后的实际像素一致。
+        var rotatedBig = new byte[]
+        {
+            0xFF, 0xD8,                                                   // SOI
+            0xFF, 0xE1, 0x00, 0x22,                                       // APP1，段长 34
+            0x45, 0x78, 0x69, 0x66, 0x00, 0x00,                           // "Exif\0\0"
+            0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,               // TIFF 头：MM 大端，IFD0 @ 8
+            0x00, 0x01,                                                   // IFD0 条目数 = 1
+            0x01, 0x12,                                                   // tag = 0x0112（Orientation）
+            0x00, 0x03,                                                   // type = SHORT(3)
+            0x00, 0x00, 0x00, 0x01,                                       // count = 1
+            0x00, 0x06,                                                   // value = 6（顺时针 90°）
+            0x00, 0x00,                                                   // value 对齐填充
+            0x00, 0x00, 0x00, 0x00,                                       // 下一 IFD 偏移 = 0
+            0xFF, 0xC0, 0x00, 0x0B,                                       // SOF0，段长 11
+            0x08,                                                         // 精度
+            0x00, 0x3C,                                                   // 高 = 60（存储）
+            0x00, 0x20,                                                   // 宽 = 32（存储）
+        };
+        File.WriteAllBytes(Path.Combine(temp.Path, "rotated-big.jpg"), rotatedBig);
+
+        // II 小端变体（Orientation=8，逆时针 90°）：tag/type/count/value 全小端字节序。
+        var rotatedLittle = new byte[]
+        {
+            0xFF, 0xD8,                                                   // SOI
+            0xFF, 0xE1, 0x00, 0x22,                                       // APP1，段长 34
+            0x45, 0x78, 0x69, 0x66, 0x00, 0x00,                           // "Exif\0\0"
+            0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,               // TIFF 头：II 小端，IFD0 @ 8
+            0x00, 0x01,                                                   // IFD0 条目数 = 1
+            0x12, 0x01,                                                   // tag = 0x0112（小端）
+            0x03, 0x00,                                                   // type = SHORT(3)（小端）
+            0x01, 0x00, 0x00, 0x00,                                       // count = 1（小端）
+            0x08, 0x00,                                                   // value = 8（小端）
+            0x00, 0x00,                                                   // value 对齐填充
+            0x00, 0x00, 0x00, 0x00,                                       // 下一 IFD 偏移 = 0
+            0xFF, 0xC0, 0x00, 0x0B,                                       // SOF0，段长 11
+            0x08,                                                         // 精度
+            0x00, 0x3C,                                                   // 高 = 60（存储）
+            0x00, 0x20,                                                   // 宽 = 32（存储）
+        };
+        File.WriteAllBytes(Path.Combine(temp.Path, "rotated-little.jpg"), rotatedLittle);
+
+        // 对照组：Orientation=1（正常方向）不交换。
+        var normal = new byte[]
+        {
+            0xFF, 0xD8,                                                   // SOI
+            0xFF, 0xE1, 0x00, 0x22,                                       // APP1，段长 34
+            0x45, 0x78, 0x69, 0x66, 0x00, 0x00,                           // "Exif\0\0"
+            0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08,               // TIFF 头：MM 大端，IFD0 @ 8
+            0x00, 0x01,                                                   // IFD0 条目数 = 1
+            0x01, 0x12,                                                   // tag = 0x0112（Orientation）
+            0x00, 0x03,                                                   // type = SHORT(3)
+            0x00, 0x00, 0x00, 0x01,                                       // count = 1
+            0x00, 0x01,                                                   // value = 1（正常）
+            0x00, 0x00,                                                   // value 对齐填充
+            0x00, 0x00, 0x00, 0x00,                                       // 下一 IFD 偏移 = 0
+            0xFF, 0xC0, 0x00, 0x0B,                                       // SOF0，段长 11
+            0x08,                                                         // 精度
+            0x00, 0x3C,                                                   // 高 = 60
+            0x00, 0x20,                                                   // 宽 = 32
+        };
+        File.WriteAllBytes(Path.Combine(temp.Path, "normal.jpg"), normal);
+
+        var items = await ScanAllAsync(temp.Path);
+        Assert.Equal(3, items.Count);
+
+        var big = Assert.Single(items, i => i.BaseName == "rotated-big");
+        Assert.Equal(60, big.Width);   // 交换：32x60 存储 → 60x32 显示
+        Assert.Equal(32, big.Height);
+        Assert.Equal(60.0 / 32.0, big.AspectRatio, precision: 10);
+
+        var little = Assert.Single(items, i => i.BaseName == "rotated-little");
+        Assert.Equal(60, little.Width);
+        Assert.Equal(32, little.Height);
+        Assert.Equal(60.0 / 32.0, little.AspectRatio, precision: 10);
+
+        var normalItem = Assert.Single(items, i => i.BaseName == "normal");
+        Assert.Equal(32, normalItem.Width); // Orientation=1 不交换
+        Assert.Equal(60, normalItem.Height);
+        Assert.Equal(32.0 / 60.0, normalItem.AspectRatio, precision: 10);
+    }
+
     private async Task<List<GalleryItem>> ScanAllAsync(
         string root, IProgress<int>? progress = null, CancellationToken cancellationToken = default)
     {

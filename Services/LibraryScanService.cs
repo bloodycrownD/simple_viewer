@@ -228,12 +228,18 @@ public sealed class LibraryScanService : ILibraryScanService
         return (0, 0);
     }
 
-    /// <summary>JPEG 段扫描：跳过 APPn 等段，定位首个 SOF（C0-CF 中除 C4/C8/CC）读取精度+高+宽。</summary>
+    /// <summary>
+    /// JPEG 段扫描：跳过 APPn 等段，定位首个 SOF（C0-CF 中除 C4/C8/CC）读取精度+高+宽；
+    /// 途经首个 APP1(Exif) 段时解析 Orientation 标签（0x0112，cr/P1-7）——值 5-8 表示存储帧需
+    /// 旋转 90°/270° 才是显示方向，返回前交换宽高，使 AspectRatio/瀑布流卡片槽与缩略图
+    /// （ThumbnailService 已烘焙 EXIF 旋转）的实际像素比例一致；PNG/GIF 无此协议不处理。
+    /// </summary>
     private static (int Width, int Height) ReadJpegDimensions(FileStream stream)
     {
         // 循环外一次性分配：[0..2) 兼作段长缓冲，[0..5) 兼作 SOF payload 缓冲（CA2014：循环内不 stackalloc）。
         Span<byte> scratch = stackalloc byte[5];
         var scanned = 0L;
+        var orientation = 0; // 首个 APP1(Exif) 的 Orientation（0 = 无/未知/解析失败，不旋转）。
         while (scanned < MaxJpegHeaderScanBytes)
         {
             var lead = stream.ReadByte();
@@ -306,7 +312,21 @@ public sealed class LibraryScanService : ILibraryScanService
 
                 var h = BinaryPrimitives.ReadUInt16BigEndian(sof[1..3]);
                 var w = BinaryPrimitives.ReadUInt16BigEndian(sof[3..5]);
-                return IsValidDimension(w, h) ? (w, h) : (0, 0);
+                if (!IsValidDimension(w, h))
+                {
+                    return (0, 0);
+                }
+
+                // EXIF 方向 5-8（cr/P1-7）：竖拍照片的存储宽高与显示宽高互为转置——交换后返回。
+                return orientation is >= 5 and <= 8 ? (h, w) : (w, h);
+            }
+
+            // 首个 APP1(Exif)：解析 Orientation（方法内消费整段 payload，返回时流位于段尾）。
+            if (marker == 0xE1 && orientation == 0)
+            {
+                orientation = TryReadExifOrientation(stream, segmentLength);
+                scanned += segmentLength - 2;
+                continue;
             }
 
             // 跳过非 SOF 段 payload（段长含自身 2 字节）。
@@ -316,6 +336,122 @@ public sealed class LibraryScanService : ILibraryScanService
         }
 
         return (0, 0);
+    }
+
+    /// <summary>
+    /// 解析 APP1(Exif) 段的 Orientation 标签（0x0112；cr/P1-7）。
+    /// 无论解析到哪一步，返回时流位置已统一回推到段末尾（payload = 段长 - 2，由 finally 保证），
+    /// 外层段循环的推进语义不变。段结构："Exif\0\0"(6) + TIFF 头（MM/II 字节序标记 + 0x002A +
+    /// IFD0 偏移，8）+ IFD0 条目表（2 字节条目数 + 每条 12 字节 tag/type/count/value）；
+    /// Orientation 为 SHORT(type=3) count=1，值内联在条目 value 前 2 字节。
+    /// 结构不符/IO 失败返回 0（按未知处理，不旋转）。
+    /// </summary>
+    private static int TryReadExifOrientation(FileStream stream, int segmentLength)
+    {
+        var payloadStart = stream.Position;
+        var payloadLength = segmentLength - 2;
+        try
+        {
+            // 最短合法 Exif：头 6 + TIFF 头 8 + IFD0 计数 2 + 单条目 12 = 28 字节。
+            if (payloadLength < 28)
+            {
+                return 0;
+            }
+
+            Span<byte> exifId = stackalloc byte[6];
+            if (Fill(stream, exifId) < 6)
+            {
+                return 0;
+            }
+
+            // "Exif\0\0" 校验：非 Exif 的 APP1（如 XMP 直接载荷）不解析。
+            if (exifId[0] != (byte)'E' || exifId[1] != (byte)'x' || exifId[2] != (byte)'i'
+                || exifId[3] != (byte)'f' || exifId[4] != 0 || exifId[5] != 0)
+            {
+                return 0;
+            }
+
+            Span<byte> tiffHeader = stackalloc byte[8];
+            if (Fill(stream, tiffHeader) < 8)
+            {
+                return 0;
+            }
+
+            var bigEndian = tiffHeader[0] == (byte)'M' && tiffHeader[1] == (byte)'M';
+            if (!bigEndian && !(tiffHeader[0] == (byte)'I' && tiffHeader[1] == (byte)'I'))
+            {
+                return 0; // 字节序标记非法。
+            }
+
+            // IFD0 偏移相对 TIFF 头起点（TIFF 头 = "Exif\0\0" 6 字节之后）。
+            var ifdOffset = bigEndian
+                ? BinaryPrimitives.ReadUInt32BigEndian(tiffHeader[4..8])
+                : BinaryPrimitives.ReadUInt32LittleEndian(tiffHeader[4..8]);
+            if (ifdOffset < 8 || ifdOffset > int.MaxValue)
+            {
+                return 0;
+            }
+
+            // IFD0 越出段 payload 即结构损坏。
+            var ifdStart = payloadStart + 6 + ifdOffset;
+            if (ifdStart - payloadStart >= payloadLength)
+            {
+                return 0;
+            }
+
+            stream.Seek(ifdStart, SeekOrigin.Begin);
+
+            Span<byte> countBytes = stackalloc byte[2];
+            if (Fill(stream, countBytes) < 2)
+            {
+                return 0;
+            }
+
+            var entryCount = bigEndian
+                ? BinaryPrimitives.ReadUInt16BigEndian(countBytes)
+                : BinaryPrimitives.ReadUInt16LittleEndian(countBytes);
+
+            // 逐条目扫描（12 字节/条）：命中 tag=0x0112 且 type=SHORT(3) 取内联值。
+            Span<byte> entry = stackalloc byte[12];
+            for (var i = 0; i < entryCount; i++)
+            {
+                if (stream.Position - payloadStart + 12 > payloadLength || Fill(stream, entry) < 12)
+                {
+                    return 0; // 条目表越段/读不满：结构损坏。
+                }
+
+                var tag = bigEndian
+                    ? BinaryPrimitives.ReadUInt16BigEndian(entry[..2])
+                    : BinaryPrimitives.ReadUInt16LittleEndian(entry[..2]);
+                if (tag != 0x0112)
+                {
+                    continue;
+                }
+
+                var type = bigEndian
+                    ? BinaryPrimitives.ReadUInt16BigEndian(entry[2..4])
+                    : BinaryPrimitives.ReadUInt16LittleEndian(entry[2..4]);
+                if (type != 3)
+                {
+                    return 0; // 非 SHORT：结构异常，放弃。
+                }
+
+                return bigEndian
+                    ? BinaryPrimitives.ReadUInt16BigEndian(entry[8..10])
+                    : BinaryPrimitives.ReadUInt16LittleEndian(entry[8..10]);
+            }
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+        finally
+        {
+            // 无论解析进行到哪一步，统一回推到段末尾，保证外层段循环推进语义不变。
+            stream.Seek(payloadStart + payloadLength, SeekOrigin.Begin);
+        }
+
+        return 0;
     }
 
     private static bool IsValidDimension(uint width, uint height)
