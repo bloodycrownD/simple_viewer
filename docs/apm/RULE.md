@@ -45,6 +45,7 @@
 
 ## 杂项
 
+- **记忆文件追加轮次必须用"文件末尾锚点追加"**（old_string 取当前末轮结尾文本，new_string = 该文本 + 新轮次）：禁止以某轮 `user:` 头作 old_string 整体替换——2026-09-19 连犯三次"吃掉上轮 user 头"+一次插错位置致轮次倒序；追加后用 `(?m)^(user|assistant):` 正则核对轮次序列（应严格 u→a 交替）且轮次顺序=时间顺序。
 - 含中文的 PowerShell 脚本必须 UTF-8 带 BOM（PS5.1 无 BOM 按 ANSI 读会语法错）。
 - 文档：PRD/spec 在 `docs\iterations\图片打标签与瀑布流浏览\`；交互原型在 `demo\`（改交互先对照它）。旧 `.apm\` 目录已废弃（APM 新家在 `docs\apm\`）。
 - gitignore 已含 `test-library/`（本地测试图库，勿提交）。
