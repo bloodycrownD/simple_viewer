@@ -27,3 +27,9 @@ user:
 
 assistant:
 按 RULE 实机 UI 测试方法论走查全通过（临时注入测试组配置，测完还原 settings.json）：①UIA 断言组行/标签行独立 Button、折叠后子行消失 chevron ▸、展开恢复；②打标链路：点"待筛选"→ photo_1[风景 待筛选].jpg，同组点"已选中"互斥替换 → photo_1[风景 已选中].jpg，再点移除 → photo_1[风景].jpg（TagSpaces 协议全程核对）；③折叠态跨 3 次打标 Rebuild 保留；④标签行 ✎ 打开重命名对话框且组未误折叠，opacity-0 按钮 AXPress 可命中；⑤像素级放大核查连接线连续贯穿、radio dot 渲染；⑥63/63 单测绿、build 过、BOM 断言过。注意：-d 直开单图模式不扫描目录（PRD 拍板行为），树行计数为 0 属预期非回归。留痕：features/tag-group-tree-ui/prd.md + spec.md。待用户确认；可推翻的默认值：默认全展开（可改默认折叠）、展开态不落盘、管理按钮悬停浮现。
+
+user:
+标签组不是标签吧？那你新建后弹出的窗口，文本是不是应该修改下？
+
+assistant:
+实锤：TagEditDialog 输入框占位提示硬编码「不能含空格或方括号（TagSpaces 文件名语法约束）」，新建/重命名组对话框也显示这句——但组名是纯配置不进文件名（校验仅要求非空，可含空格），把 TagSpaces 约束安在组名上是"把组当标签"。修复（trivial 豁免，主代理直接改）：TagEditDialog 新增 NamePlaceholder 属性按 Kind 分流——组类操作显示「组名仅用于标签库展示，不影响文件名」，标签类操作保留约束提示；demo 本来就分开（组名"如：拍摄地点"）无需动。build 过、实机验证新文案生效（UIA 断言对话框占位文本）。
