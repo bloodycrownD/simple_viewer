@@ -114,9 +114,12 @@ select {
 
 .tag-group { margin-bottom: 6px; border-radius: 8px; }
 .tag-group:hover { background: var(--panel-2); }
+.tag-group.collapsed .group-tags { display: none; }
 .group-head {
   display: flex; align-items: center; gap: 6px; padding: 8px 8px 4px;
+  cursor: pointer;
 }
+.chevron { flex: none; font-size: 10px; color: var(--text-2); user-select: none; }
 .group-name { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .group-badge {
   font-size: 10px; border-radius: 4px; padding: 1px 5px; white-space: nowrap;

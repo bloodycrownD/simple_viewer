@@ -88,6 +88,7 @@ const state = {
   sortMode: "name",
   theme: "dark",
   lastClickId: null,
+  collapsedGroups: new Set(), // 折叠的组 Id（会话内记忆，不落盘；默认空 = 全展开）
 };
 const cardEls = new Map(); // imageId -> card DOM
 
@@ -145,21 +146,23 @@ function filteredImages() {
  * 渲染
  * ========================================================= */
 
-/* ---- 左侧标签栏 ---- */
+/* ---- 左侧标签栏（目录树形：点击组头展开/折叠组内标签） ---- */
 function renderSidebar() {
   const box = $("#groupList");
   box.innerHTML = "";
   for (const g of state.groups) {
+    const collapsed = state.collapsedGroups.has(g.id);
     const el = document.createElement("div");
-    el.className = "tag-group";
+    el.className = "tag-group" + (collapsed ? " collapsed" : "");
     el.dataset.gid = g.id;
     el.style.setProperty("--hue", g.hue);
     el.innerHTML = `
-      <div class="group-head">
+      <div class="group-head" data-act="g-expand" title="展开/折叠组内标签">
+        <span class="chevron">${collapsed ? "▸" : "▾"}</span>
         <span class="group-name">${esc(g.name)}</span>
-        <span class="group-badge ${g.exclusive ? "excl" : "multi"}">${g.exclusive ? "互斥" : "多选"}</span>
+        <span class="group-badge ${g.exclusive ? "excl" : "multi"}">${g.exclusive ? "互斥" : "兼容"}</span>
         <span class="group-count">${groupTagCount(g)} 张</span>
-        <button class="icon-btn" data-act="g-toggle" title="切换互斥/多选">⇄</button>
+        <button class="icon-btn" data-act="g-toggle" title="切换互斥/兼容">⇄</button>
         <button class="icon-btn" data-act="g-rename" title="重命名组">✎</button>
         <button class="icon-btn" data-act="g-delete" title="删除组">✕</button>
       </div>
@@ -169,6 +172,10 @@ function renderSidebar() {
       </div>`;
     box.appendChild(el);
   }
+}
+function toggleCollapsed(gid) {
+  state.collapsedGroups.has(gid) ? state.collapsedGroups.delete(gid) : state.collapsedGroups.add(gid);
+  renderSidebar();
 }
 function chipHtml(g, t) {
   const on = state.filters.has(t.id) ? "filter-on" : "";
@@ -382,6 +389,7 @@ $("#groupList").addEventListener("click", async e => {
       case "t-add": return await actAddTag(group);
       case "t-rename": return tag && await actRenameTag(group, tag);
       case "t-delete": return tag && await actDeleteTag(group, tag);
+      case "g-expand": return toggleCollapsed(gid);
       case "g-toggle": return actToggleExclusive(group);
       case "g-rename": return await actRenameGroup(group);
       case "g-delete": return await actDeleteGroup(group);
@@ -441,7 +449,7 @@ async function actDeleteTag(group, tag) {
 }
 function actToggleExclusive(group) {
   group.exclusive = !group.exclusive;
-  showToast(`「${group.name}」已切换为${group.exclusive ? "互斥（此后组内单选）" : "多选"}。已打上的标签不变，仅影响后续交互。`, 3200);
+  showToast(`「${group.name}」已切换为${group.exclusive ? "互斥（此后组内单选）" : "兼容"}。已打上的标签不变，仅影响后续交互。`, 3200);
   refreshLight();
 }
 async function actRenameGroup(group) {
@@ -470,7 +478,7 @@ $("#addGroupBtn").addEventListener("click", async () => {
   const r = await showModal({
     title: "新建标签组",
     input: "", placeholder: "组名，如：拍摄地点",
-    checkbox: { label: "互斥组（组内标签单选，适合星级/状态）", checked: false },
+    checkbox: { label: "互斥组（组内标签单选，新标签替换旧标签；不勾选为兼容组）", checked: false },
   });
   if (!r || !r.value.trim()) return;
   state.groups.push({ id: uid("g"), name: r.value.trim(), exclusive: !!r.checked, tags: [], hue: (state.groups.length * 67 + 30) % 360 });
