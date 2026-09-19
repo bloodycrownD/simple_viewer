@@ -1,8 +1,8 @@
 ---
-date: 2026-09-19 19:05
-title: 打标管线修复、交互重构与八轮走查打磨（pipeline-fixes + interaction-rework + overlay/selection 打磨）
-keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组保留, 显示名统一, 弹窗主题, 工具栏左对齐, 收展闪空, 拖拽视觉, 遮盖式布局, 画布层, DragUI, GIF换源空窗, AXPress假阳性, 单选重置, 成功回执静默, 放大置底
-abstract: 用户连续敏捷：①打标不重载；②255 字节标签预算；③交互重构（点击=筛选、拖拽打标、详情页右栏）；随后八轮走查与打磨：未分组保留、显示名统一、弹窗主题、工具栏左对齐、收展闪空、拖拽小缩略图+遮盖式布局（画布全窗底层根治收展闪跳与位移）、右栏被工具栏遮挡（chrome 行高度联动避让，AXPress 假阳性教训入 RULE）、选择模型 Explorer 心智（默认单选/Ctrl 加减选/Shift 范围重置+清除选择按钮）+打标成功回执静默（仅失败弹）+放大置底（拆置顶链）。分支 feature/tagging-waterfall，71/71 绿。待用户实机：Ctrl/Shift 选择、滚轮放大置底、拖拽手感（修饰键/拖拽/滚轮注入不可达）。
+date: 2026-09-19 23:40
+title: 打标管线修复、交互重构、多轮走查打磨、全量 CR 与 v1.0.0 发布（pipeline-fixes + interaction-rework + overlays + CR round1 + release）
+keywords: 打标性能, 缓存键, 同图改名, 标签预算, 255字节, 点击筛选, 拖拽打标, 详情页右栏, 未分组忽略, 显示名统一, 弹窗主题, 工具栏左对齐, 收展闪空, 拖拽视觉, 遮盖式布局, 画布层, DragUI, GIF换源空窗, AXPress假阳性, Explorer选择模型, 单选重置, 成功回执静默, 放大置底, 无标签筛选, CR全量, 扫描竞态, EXIF宽高比, TagFilterState下沉Core, MasonryPlanner下沉Core, 自包含发布, GitHub Actions draft release, CHANGELOG, 图标圆角, XamlCompiler预热, -v冒号形式
+abstract: 22 轮长迭代收口（feature/tagging-waterfall→master）：①打标管线（同图改名不重载/255 字节预算/缓存迁移）；②交互重构（点击=筛选、拖拽打标、详情页右栏、标签目录弹窗）；③多轮走查（遮盖式布局根治收展闪跳、Explorer 选择模型、无标签筛选、未分组忽略、放大置底、显示名统一）；④code-review-loop 全量 CR 25 条修复（扫描竞态/EXIF 宽高比/卡片 Button 化/TagFilterState+MasonryPlanner 下沉 Core，测试 74→100）；⑤v1.0.0 发布（release.ps1 + GitHub Actions draft release + CHANGELOG + 图标圆角）+ 用户实机抓到 cr/P2-9 行序回归（卡片钉死 48px 细条，9c52bc3 修复）+ 发布三坑收口（WinAppSDK 自包含 XAML 资源崩→改框架依赖、Content 图标 CopyToPublishDirectory、tests 还原顺序）。发布形态：.NET 自包含 + WinAppSDK 框架依赖（机器装一次 1.6 运行时）。留用户实机：CR QA 六项 + 圆角图标观感 + draft release 确认 Publish。
 ---
 
 user:
@@ -116,3 +116,27 @@ user:
 
 assistant:
 cr-fix-spec 25 条全部执行完毕（fix/cr-round1 分支 27 提交，四批串行实现子代理：批A 死代码/交互×9、批B 核心正确性×5、批C services 加固×8、批D 下沉重构+K节文档×5），测试 74→100 全绿（新增 parity×8/PresentedPathSet×3/EXIF×1/TagFilterState×7/MasonryPlanner×4/迁移容错×2/ODE×1 及边界断言），合并回 master（f7090dd）。关键实现：P1-1 扫描 _scanTask+代次收口；P1-2 PresentedPathSet 下沉 Core 去重；P1-5 ReleaseVisuals 卡片回收释放；P1-7 TryReadExifOrientation（APP1/TIFF 双字节序）竖拍宽高交换；P1-4 Enter 进单图（无选中取首项）；P1-6 CardButtonStyle 卡片 Button 化；P2-3/P2-10 TagFilterState 与 MasonryPlanner 下沉 Core；K 节 PRD/spec 回写消除 7 项口径漂移。主代理实机抽查：卡片 UIA AXPress 可达（修复前裸 image 不可 Invoke）、Enter 从图库进单图通过。留用户实机：扫描中换目录/筛选、5 万张内存曲线、拖拽/修饰键回归（fix-spec 合并后 QA 六项）。cr-fix-spec 状态已置 executed。
+
+user:
+merge并push吧。
+
+assistant:
+master（f7090dd）已 push origin（本地 ede762f，与远端一致，含 cr-fix-spec executed 置位提交）。
+
+user:
+打个release包，另外能写个github workflow与changelog吗？这样以后就能用github发布release了。
+
+assistant:
+发布三件套（470a3fb）：①scripts/release.ps1 自包含打包（SelfContained+WindowsAppSDKSelfContained，解压即用免装 .NET8/WinAppSDK；Get-Process 守卫杀 viewer——taskkill 无进程时 stderr 打断 $ErrorActionPreference=Stop 的教训；定向 restore 规避双 csproj 踩踏；版本参数/git describe 回退 0.0.0-dev）。②.github/workflows/release.yml：push v* tag 触发 checkout→dotnet8→定向 restore→test（100 项）→自包含 publish→zip→softprops/action-gh-release@v2 建 **draft** release（generate_release_notes，手动 Publish 才公开）。③CHANGELOG.md v1.0.0 全量条目。调试连环三坑全修进脚本：`dotnet msbuild -v q` 必须冒号 `-v:q`（MSB1016；dotnet restore/build/publish 认空格、msbuild 原生解析器只认冒号）；splat 数组首元素误带动词造成 `dotnet publish publish`（MSB1008 只能指定一个项目）；Release obj 冷路径 XamlCompiler MSB3073 连败两轮——手动执行遗留 input.json 预热即过（build.ps1 注释头经验复现），已把"重试间自动定位 input.json+net472 XamlCompiler.exe 预热"烧进脚本（重试条件从"成功但无 exe"改为"失败即重试"），workflow 同步修 -v:q+失败重试。本地全链路跑通：SimpleViewer-v1.0.0-win-x64.zip 62.2MB/462 文件（viewer.exe/Core.dll/e_sqlite3 齐全）。release/ 入 .gitignore。v1.0.0 tag 已推触发 workflow。
+
+user:
+忘记个事情，顺便把icon处理下，变成圆角，这样好看些。
+
+assistant:
+scripts/make_icon.py（PIL）重制 Assets/AppIcon.ico：打开即最大帧（手动选帧踩 IcoFile 无 frameinfo 的 AttributeError）、4× 超采样 rounded_rectangle 掩模（半径 22%）LANCZOS 回缩 putalpha、重存 7 尺寸 16-256 全 32bpp。像素级断言替代目检（本环境 Read 图走 CDN 无法目视）：ICO 目录 7 帧齐全、256 帧四角 alpha=0/顶边中点与中心 alpha=255。原 .bak 删除（git 可恢复）。圆角观感留用户实机；脚本可复用换图标。
+
+user:
+先等等，图片怎么成这个样子了?（截图：瀑布流卡片全部变成 ~48px 高的细长条）
+
+assistant:
+两小时连环修三伤，全部收口：①**卡片细长条（9c52bc3）**=cr/P2-9 行序回归——RowDefinition 被改成 [48,*] 而 Grid.Row 分配未动（缩略图 Row0 钉死 48、文字 Row1 吞剩余），提交还自称"零布局变化"。定位过程：索库宽高正确→单图面板显示 1277×1800 正确→UIA 卡片 bounds 95 DIP 高+像素行带分析 72px 图片区→锁定模板层，git log -L 实锤 7843322。修复后字符画（scripts/visual-ascii-view.py）验证正常。教训入 RULE：XAML"等价重构"必须实机走查视觉（AXPress/Enter 交互走查全绿但页面是坏的）；工具转正 scripts/visual-band-check.py + visual-ascii-view.py。②**release 包启动崩**=两叠加坑：自包含 WinAppSDK 布局缺散装 xbf（框架依赖 publish 会拷）→ 报 MainWindow.xaml 找不到；补齐后报 themeresources.xaml 找不到——WindowsAppSDKSelfContained=true 的 unpackaged 无包图、框架 pri 子图登记机制未打通（makepri 手工生成应用 pri 无效、传 pri 属性到 restore 会破坏 RID 图 NETSDK1047）——拍板改走 **.NET 自包含 + WinAppSDK 框架依赖**（机器装一次 1.6 运行时），zip 解压实测启动+卡片渲染全通过；图标不进包=publish 不拷 Content 项，CopyToPublishDirectory=PreserveNewest 解决。③**GitHub workflow 失败**=tests 项目没 restore + 还原顺序（tests 还原会连带还原 Core 踩踏根 obj）——yml 改为 tests 先还原、主工程定向还原最后。还原"降级"新变种（assets 丢 RID 目标）入 RULE，release.ps1 内置 g.props 缺失 --force 补救。CHANGELOG 补记两条修复+已知限制。100/100 测试绿。

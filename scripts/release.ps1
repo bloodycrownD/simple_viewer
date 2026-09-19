@@ -1,7 +1,11 @@
-﻿# Release 打包脚本：自包含发布（免装 .NET 8 / Windows App SDK 运行时，解压即用）
+﻿# Release 打包脚本：.NET 自包含 + WinAppSDK 框架依赖发布（免装 .NET 8，解压即用；
+# 前置条件：目标机需装一次 Windows App SDK 1.6 运行时，https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/downloads）
+# 注意（2026-09-19）：WindowsAppSDKSelfContained=true 的自包含布局存在 XAML 资源解析缺陷
+#       （ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml 无法定位，启动即崩——
+#       自包含 unpackaged 无包图，框架 pri 子图登记机制未打通），v1.0.0 起改为框架依赖 + 运行时前置说明。
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\release.ps1 [-Version 1.0.0]
 # 版本：未指定时优先取 git describe（最近 tag），无 tag 回退 0.0.0-dev。
-# 产物：release\SimpleViewer-v<版本>-win-x64.zip（内含 viewer.exe 与全部依赖）。
+# 产物：release\SimpleViewer-v<版本>-win-x64.zip（内含 viewer.exe、.NET 运行时、散装 .xbf 与图标）。
 # 注意：与 build.ps1 同坑——先杀运行中的 viewer（锁 DLL）；双 csproj 踩踏走定向 restore。
 
 param(
@@ -35,11 +39,18 @@ Write-Host "[release] 定向还原..." -ForegroundColor Cyan
 dotnet msbuild $project -t:Restore -p:Platform=x64 -nologo -v:q
 if ($LASTEXITCODE -ne 0) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
 
-# 自包含发布：SelfContained + WindowsAppSDKSelfContained 打包全部运行时
-# XamlCompiler 间歇沉默崩溃（MSB3073 退出码1无输出，同 build.ps1 背景）：失败原样重试一次（利用预热后的缓存）
+# 降级还原防御（RULE：间歇不生成 nuget.g.props，assets 丢 RID 目标，发布时报 NETSDK1047）：补一次强制还原
+$gprops = Join-Path $root "obj\SimpleViewer.csproj.nuget.g.props"
+if (-not (Test-Path $gprops)) {
+    Write-Host "[release] 还原产物异常（缺 nuget.g.props），--force 补还原..." -ForegroundColor Yellow
+    dotnet restore $project --force --nologo -v:q
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $gprops)) { Write-Host "[release] 还原失败" -ForegroundColor Red; exit 1 }
+}
+
+# .NET 自包含发布：WinAppSDK 走框架依赖（机器运行时 + bootstrap 包图解析，见文件头注释）
 $outDir = Join-Path $root "release\publish"
 $publishArgs = @($project, "-c", "Release", "-r", "win-x64",
-    "--self-contained", "true", "-p:Platform=x64", "-p:WindowsAppSDKSelfContained=true",
+    "--self-contained", "true", "-p:Platform=x64",
     "-o", $outDir, "--nologo", "-v:q")
 $published = $false
 for ($attempt = 1; $attempt -le 2; $attempt++) {

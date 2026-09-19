@@ -8,6 +8,8 @@
 - **XamlCompiler 确定性崩溃（2026-09-19 二分实锤，与 Defender 竞态无关）**：ChromeLayer 内 MainAreaGrid 作为**最后一个子元素**时 XamlCompiler Pass1 沉默崩溃（MSB3073、退出码 1 无输出，冷热 obj 均复现）——解法：把 MainInfoBar 块移到 MainAreaGrid 之后（Grid 按 Grid.Row 定位，子元素顺序不影响布局）；MainWindow.xaml 相应位置有注释，改此区域时保持该顺序。
 - **双 csproj 同目录同 TFM 的还原踩踏（2026-09-19 实锤，当日已升级为必现）**：`SimpleViewer.csproj` 与 `SimpleViewer.Core.csproj` 共享 `obj\project.assets.json`，`dotnet restore`（含 build.ps1 前置还原）与 **`dotnet build sln` 的隐式 restore** 都会把 assets 覆盖为 Core-only，UI 工程缺 WinAppSDK/CommunityToolkit → 全量 CS0234/CS0246。解法：`dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64` 定向还原后，用与 build.ps1 循环体同款参数 `--no-restore` build（如 `dotnet build SimpleViewer.sln -c Debug -p:Platform=x64 --nologo -v:q -m:1 -nr:false --no-restore`）；遇"突然全量引用错误"先跑定向还原，别怀疑代码。
 - **重建前必须 `taskkill /IM viewer.exe /F`**——运行中的 viewer 锁 DLL 导致复制失败（注意 cmd 下用 `&` 分隔，`;` 会让杀进程静默失败）。
+- **发布三坑（2026-09-19 v1.0.0 打包实锤）**：①WindowsAppSDKSelfContained=true 的 unpackaged 布局启动即崩（ms-appx:///Microsoft.UI.Xaml/Themes/themeresources.xaml 定位失败——无包图时框架 pri 子图登记机制未打通，makepri 手工生成应用 pri 也无效）——release.ps1/workflow 走 **.NET 自包含 + WinAppSDK 框架依赖**（机器装一次 1.6 运行时，bootstrap 包图解析与 Debug 同机制）；②publish 默认不拷 Content 项，图标须 `CopyToPublishDirectory=PreserveNewest`（散装 xbf 框架依赖 publish 下会正常拷贝）；③**还原顺序铁律**：tests 项目还原会连带还原 Core 踩踏根 obj assets——tests 还原在前、主工程定向还原永远最后；定向还原还可能"降级"（assets 丢 RID 目标→NETSDK1047，nuget.g.props 缺失），release.ps1 已内置 g.props 缺失时 `dotnet restore --force` 补救。
+- **发布命令行三坑（2026-09-19 release.ps1 实锤）**：① `dotnet msbuild` 的 verbosity 只认冒号形式 `-v:q`——`-v q` 报 MSB1016（dotnet restore/build/publish 认空格形式，裸 msbuild 解析器不认）；② PowerShell splat 数组首元素不得含动词——脚本行已写 `dotnet publish` 时 `@arr` 里再放 "publish" 会拼成 `publish publish 项目` 报 MSB1008"只能指定一个项目"；③ Release 配置 obj 冷路径下 XamlCompiler MSB3073 可连败（原样重试无效）——release.ps1 已内置"重试间自动执行遗留 input.json + nuget 缓存 net472\XamlCompiler.exe 预热"，手动等价解法见构建节 XamlCompiler 条。
 
 ## XAML 硬约束（违反 = 崩溃或运行期炸）
 
@@ -44,6 +46,7 @@
 - **UIA AXPress 不做视觉命中测试（2026-09-19 假阳性实锤）**：a11y Press 直调按钮动作、绕过遮挡层——遮盖式布局中右栏收起按钮整体被工具栏横行遮盖，AXPress 走查"通过"而用户真实鼠标点不到。涉及可点性/遮挡/ZIndex 的验证必须走 raw 鼠标路径（left_click 元素 target + `strategy=event`，坐标转真实事件经 Windows 命中测试）或核对目标 bounds 与上层元素 bounds 无重叠；AXPress 仅适用于纯命令性断言。滚轮缩放注入被 transport 前台校验拒绝（与移动丢弃同族），放大类交互仍留用户实机。
 - UIA bounds 与截图光栅同坐标系（窗口物理尺寸）；`GetDpiForWindow`=144（150%）只影响应用内渲染密度，UIA 坐标即屏幕点，勿再乘缩放。
 - 临时改用户 `%LocalAppData%\SimpleViewer\settings.json` 做测试时：先备份、测完原样还原（app 只在改设置时写盘，退出不覆盖）。
+- **XAML 模板"等价重构"不可免检（2026-09-19 实锤）**：cr/P2-9 把 WaterfallView 卡片 RowDefinition 从 [*,48] 改为 [48,*] 而 Grid.Row 分配未动——缩略图被钉死 48 DIP 细条、文字区吞掉剩余高度；提交信息称"零布局变化"，单测/CR 校验全过（XAML 布局不可单测），直到用户实机开图库才暴露。教训：①改 RowDefinition 行序/对齐/尺寸约束后必须实机走查**视觉布局**（截图行带投影+降采样字符画即可无视觉模型完成，工具已转正：scripts\visual-band-check.py、scripts\visual-ascii-view.py）；②执行轮走查范围须覆盖上轮改过的每个 XAML 文件的呈现，不能只测交互路径（AXPress/Enter 走查全绿但页面是坏的）。
 
 ## 杂项
 

@@ -1,9 +1,11 @@
 # Release 工作流：推送 v* 标签即自动构建并创建 GitHub Draft Release
 # 用法：git tag v1.0.0 && git push origin v1.0.0
-# 产物：SimpleViewer-v<标签>-win-x64.zip（自包含，解压即用）
+# 产物：SimpleViewer-v<标签>-win-x64.zip（.NET 自包含 + WinAppSDK 框架依赖，需目标机装一次 1.6 运行时）
 # 说明：创建的是 Draft Release——到 GitHub Releases 页确认无误后手动点 Publish 发布。
-#       CI 全新环境仍踩双 csproj 同目录还原踩踏（RULE 实锤），故用定向 restore + --no-restore；
-#       XamlCompiler 间歇沉默崩溃以重试兜底。
+#       CI 全新环境仍踩双 csproj 同目录还原踩踏（RULE 实锤），故用定向 restore + --no-restore
+#       （tests 独立 obj 先还原，主工程定向还原放最后防覆盖）；XamlCompiler 间歇沉默崩溃以重试兜底。
+#       WindowsAppSDKSelfContained=true 自包含布局有 XAML 资源解析缺陷（themeresources 定位失败），
+#       与本地 release.ps1 同策略走框架依赖（2026-09-19）。
 
 name: release
 
@@ -26,8 +28,10 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 定向还原（双 csproj 踩踏规避）
-        run: dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 -nologo -v:q
+      - name: 定向还原（tests 独立 obj 先还原，再主工程定向还原防双 csproj 踩踏）
+        run: |
+          dotnet restore tests/SimpleViewer.Tests/SimpleViewer.Tests.csproj --nologo -v:q
+          dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 -nologo -v:q
 
       - name: 测试（Core 层 100 项）
         run: dotnet test tests/SimpleViewer.Tests/SimpleViewer.Tests.csproj --no-restore -nologo -v q
@@ -36,7 +40,7 @@ jobs:
         shell: pwsh
         run: |
           $pub = @("SimpleViewer.csproj","-c","Release","-r","win-x64","--self-contained","true",
-            "-p:Platform=x64","-p:WindowsAppSDKSelfContained=true","-o","release/publish","--no-restore","--nologo","-v:q")
+            "-p:Platform=x64","-o","release/publish","--no-restore","--nologo","-v:q")
           $ok = $false
           foreach ($i in 1..2) {
             dotnet publish @pub

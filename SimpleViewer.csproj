@@ -52,7 +52,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\AppIcon.ico" />
+    <!-- CopyToPublishDirectory：publish 布局默认不拷 Content 项（解压包缺图标，2026-09-19） -->
+    <Content Include="Assets\AppIcon.ico" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

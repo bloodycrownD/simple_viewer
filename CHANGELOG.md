@@ -46,8 +46,15 @@
 - 设置文件损坏（v1 迁移/非法字符）不再崩溃；标签名拒绝文件系统非法字符。
 - 标签重命名部分失败、批量打标失败明细回执；诊断日志与 UI 心跳看门狗。
 - 核心状态机（筛选/瀑布流布局/自然排序一致性）下沉 Core 并补自动化测试（100 项）。
+- 瀑布流卡片行序回归修复：缩略图被钉死在 48px 细条（cr/P2-9 行序颠倒），恢复
+  图片在上、文件名在下的正常卡片布局。
+- 自包含发布包启动崩溃修复：publish 布局补齐散装 .xbf 与图标资源
+  （此前报 XamlParseException 无法定位 MainWindow.xaml）。
 
 ### 构建
 
 - 双 csproj 拆分（UI / 可单测 Core）；`scripts\build.ps1` 与 `scripts\release.ps1`
-  （自包含发布，解压即用）；推送 `v*` 标签自动构建并创建 GitHub Draft Release。
+  （.NET 自包含发布——免装 .NET 8，需装一次 Windows App SDK 1.6 运行时）；
+  推送 `v*` 标签自动构建并创建 GitHub Draft Release。
+- 已知限制：WinAppSDK 全自包含布局的 XAML 资源解析问题未解（启动即崩），
+  v1.0.0 采用框架依赖 + 运行时前置说明绕行。
