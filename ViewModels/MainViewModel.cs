@@ -870,6 +870,28 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 回车进入单图（PRD 需求 4「双击或回车进入单图」；MainWindow PreviewKeyDown 仿 Ctrl+A 口径接线，
+    /// cr/P1-4）：取选中集首项——按当前呈现序找第一张选中卡（选中集为 HashSet 无序，呈现序口径确定）；
+    /// 无选中项时取呈现集首项（实现期拍板：无选中 = 取首项，键盘用户从列表头开始浏览的直觉）。
+    /// 与卡片双击共用 <see cref="OpenImageAsSingle"/> 既有管线（单图翻页列表 = 当前呈现集快照）。
+    /// </summary>
+    public Task OpenSelectionAsSingleAsync()
+    {
+        GalleryItemViewModel? target = null;
+        foreach (var viewModel in _waterfall.Items)
+        {
+            if (_selectedCards.Contains(viewModel))
+            {
+                target = viewModel;
+                break;
+            }
+        }
+
+        target ??= _waterfall.Items.FirstOrDefault();
+        return target is null ? Task.CompletedTask : OpenImageAsSingle(target.Item);
+    }
+
+    /// <summary>
     /// Ctrl+点击的加/减选切换（2026-09-19 Explorer 心智：无修饰点击已改为单选重置，toggle 仅归 Ctrl）。
     /// </summary>
     public void ToggleCardSelection(GalleryItemViewModel viewModel)

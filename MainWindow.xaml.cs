@@ -1,8 +1,10 @@
-// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10）、对话框宿主
+// 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10、
+//       图库 Enter 进入单图 cr/P1-4）、对话框宿主
 //       （设置/标签编辑/标签目录选择器——均含 _shortcutsEnabled 屏蔽）、视图模型宿主回调注入、
 //       双模式壳装配与打标进度/回执区（D13 InfoBar，XAML 内嵌）。
 // 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
 //         Ctrl+A 仅在快捷键表未占用时接管（用户自定义绑定优先）；
+//         Enter 同口径（无修饰 + 图库模式 + 快捷键表未占用时接管进入单图，cr/P1-4）；
 //         ExitApp 分派点先经 Esc 三态路由拦截（单图+有图库→返回图库；瀑布流+选中集→清空选中；其余→原退出行为）。
 // 调用链：App → MainWindow → ShortcutService.TryMatch → MainViewModel 命令。
 
@@ -259,6 +261,16 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
                 ViewModel.SelectAllCards();
+            }
+            // Enter：图库回车进入单图（PRD 需求 4「双击或回车进入单图」，cr/P1-4）。仿 Ctrl+A
+            // 接管口径：无修饰键 + 图库模式 + 已打开图库 + 快捷键表未占用（TryMatch 未命中即
+            // 用户未绑定该键，绑定优先）；焦点在 TextBox 时上方已提前返回，不误触文本输入。
+            else if (e.Key == VirtualKey.Enter && !control && !shift && !menu
+                && ViewModel.CurrentMode == ViewerMode.Gallery
+                && ViewModel.HasGallery)
+            {
+                e.Handled = true;
+                _ = ViewModel.OpenSelectionAsSingleAsync();
             }
 
             return;
