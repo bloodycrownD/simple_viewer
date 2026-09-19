@@ -203,6 +203,17 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private ViewerMode _currentMode = ViewerMode.Gallery;
 
+    /// <summary>
+    /// 当前图是否处于放大态（2026-09-19 层级走查）：SingleImageView 缩放时写入，
+    /// 宿主（MainWindow）据此把内容区 ZIndex 提到工具栏/状态栏之上——放大后的图片
+    /// 溢出显示区时遮盖左栏/右栏/工具栏/状态栏（用户拍板"最高层"）；复位/切图/回图库时
+    /// 置回 false（侧栏恢复可交互）。视图内部对右栏的遮盖由 SingleImageView 直接
+    /// 提升 ImageArea 的 ZIndex 完成（同父兄弟）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isCurrentImageZoomed;
+
+
     /// <summary>是否已打开图库（选定根目录并启动过扫描）。</summary>
     [ObservableProperty]
     private bool _hasGallery;
@@ -2259,6 +2270,12 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SingleVisibility));
         OnPropertyChanged(nameof(GalleryVisibility));
+
+        // 回图库时清放大置顶态（残留 true 会让内容区盖住侧栏，图库模式下左栏不可交互）。
+        if (value == ViewerMode.Gallery)
+        {
+            IsCurrentImageZoomed = false;
+        }
     }
 
     partial void OnHasGalleryChanged(bool value)

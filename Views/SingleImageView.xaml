@@ -20,8 +20,10 @@
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
-        <!-- Col0：图片区（原两行结构：ImageHost + 完整文件名栏） -->
-        <Grid Grid.Column="0">
+        <!-- Col0：图片区（原两行结构：ImageHost + 完整文件名栏）。
+             x:Name=ImageArea 供放大置顶（scale>1 时 code-behind 提升 ZIndex 盖过 Col1 右栏，
+             同父兄弟；2026-09-19 层级走查） -->
+        <Grid x:Name="ImageArea" Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
@@ -107,9 +109,10 @@
                     <Button
                         Grid.Column="1"
                         Command="{x:Bind ViewModel.ToggleInfoPanelCommand}"
-                        Content="收起"
-                        Style="{StaticResource GhostButtonStyle}"
-                        ToolTipService.ToolTip="收起信息栏" />
+                        Content="▶"
+                        FontSize="13"
+                        Style="{StaticResource GhostIconButtonStyle}"
+                        ToolTipService.ToolTip="收起信息栏（向右收拢）" />
                 </Grid>
 
                 <!-- 信息区：文件名（三段高亮，Inlines 由 code-behind 组装）+ 结构化行 -->
@@ -243,7 +246,7 @@
             </Grid>
         </Border>
 
-        <!-- Col1：右栏折叠态（36 窄条，仅展开按钮；对照左栏折叠条先例） -->
+        <!-- Col1：右栏折叠态（36 窄条，仅展开按钮 ◀ 指向展开方向；对照左栏折叠条先例） -->
         <Border
             Grid.Column="1"
             Width="36"
@@ -253,12 +256,13 @@
             Visibility="{x:Bind ViewModel.InfoPanelCollapsedVisibility, Mode=OneWay}">
             <Button
                 Margin="0,8,0,0"
-                Padding="5,5"
+                Padding="6,6"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Top"
                 Command="{x:Bind ViewModel.ToggleInfoPanelCommand}"
-                Content="展开"
-                Style="{StaticResource GhostButtonStyle}"
+                Content="◀"
+                FontSize="13"
+                Style="{StaticResource GhostIconButtonStyle}"
                 ToolTipService.ToolTip="展开信息栏" />
         </Border>
     </Grid>

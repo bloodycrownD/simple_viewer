@@ -13,6 +13,7 @@ using SimpleViewer.Models;
 using SimpleViewer.Services;
 using SimpleViewer.ViewModels;
 using SimpleViewer.Views;
+using System.ComponentModel;
 using Windows.Storage.Pickers;
 using Windows.System;
 using WinRT.Interop;
@@ -68,10 +69,31 @@ public sealed partial class MainWindow : Window
         TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
         _ = ViewModel.InitializeTagSidebarAsync();
 
+        // 放大置顶（2026-09-19 层级走查）：当前图放大时把内容区与主区 ZIndex 提到最高，
+        // 放大图片溢出遮盖左栏/右栏/工具栏/状态栏（用户拍板"最高层"）；复位/回图库还原。
+        ViewModel.PropertyChanged += OnViewModelPropertyChangedForZoomLayering;
+
         ConfigureWindowChrome();
         ApplySystemBackdrop();
         ApplyThemeFromSettings();
         ConfigureThumbnailDpiBucket();
+    }
+
+    /// <summary>
+    /// 放大置顶的宿主侧接线：<see cref="MainViewModel.IsCurrentImageZoomed"/> 变化时调整两级
+    /// ZIndex——ContentAreaGrid（盖左栏，MainAreaGrid 内兄弟）与 MainAreaGrid（盖工具栏/
+    /// InfoBar/状态栏，RootGrid 内兄弟）。视图内部对右栏的遮盖由 SingleImageView 自行处理。
+    /// </summary>
+    private void OnViewModelPropertyChangedForZoomLayering(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MainViewModel.IsCurrentImageZoomed))
+        {
+            return;
+        }
+
+        var zIndex = ViewModel.IsCurrentImageZoomed ? 100 : 0;
+        Canvas.SetZIndex(ContentAreaGrid, zIndex);
+        Canvas.SetZIndex(MainAreaGrid, zIndex);
     }
 
     /// <summary>
@@ -118,11 +140,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyTheme(string preferred)
     {
-        ThemeButton.Label = preferred switch
+        ThemeButton.Content = preferred switch
         {
-            "Dark" => "深色",
-            "Light" => "浅色",
-            _ => "跟随系统",
+            "Dark" => "主题：深色",
+            "Light" => "主题：浅色",
+            _ => "主题：跟随系统",
         };
         RootGrid.RequestedTheme = preferred switch
         {

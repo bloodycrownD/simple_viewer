@@ -41,9 +41,10 @@
             <Button
                 Grid.Column="1"
                 Command="{x:Bind Main.ToggleSidebarCommand}"
-                Content="收起"
-                Style="{StaticResource GhostButtonStyle}"
-                ToolTipService.ToolTip="收起标签栏" />
+                Content="◀"
+                FontSize="13"
+                Style="{StaticResource GhostIconButtonStyle}"
+                ToolTipService.ToolTip="收起标签栏（向左收拢）" />
         </Grid>
 
         <!-- 组列表（配置组 + 未分组虚拟组末位） -->
