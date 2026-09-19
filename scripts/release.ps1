@@ -48,7 +48,9 @@ function Test-AssetsOk {
 }
 $coreProject = Join-Path $root "SimpleViewer.Core.csproj"
 dotnet msbuild $coreProject -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
-dotnet msbuild $project -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
+# RestoreRecursive=false：主工程还原完全不碰 Core 节点（单次 msbuild 内部两者并行竞写
+# 同一 assets、后写完者胜——让主工程作为唯一写者压轴，竞态根除，2026-09-19 定论）。
+dotnet msbuild $project -t:Restore -p:Platform=x64 -p:RestoreRecursive=false -nr:false -nologo -v:q
 if ($LASTEXITCODE -ne 0 -or -not (Test-AssetsOk)) {
     Write-Host "[release] 还原产物异常（缺 RID 目标或主工程包签名），清缓存强制重还原..." -ForegroundColor Yellow
     Remove-Item $assetsPath, $gprops -Force -ErrorAction SilentlyContinue

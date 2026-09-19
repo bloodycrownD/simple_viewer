@@ -28,15 +28,17 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: 定向还原（tests → Core → 主工程 串行，防双 csproj 并行竞写 assets）
+      - name: 定向还原（tests → Core → 主工程 RestoreRecursive=false 单写者压轴）
         shell: pwsh
         run: |
+          # 双 csproj 共享 obj\project.assets.json，单次 msbuild 还原内部主工程与传递 Core
+          # 并行竞写（后写完者胜）——RestoreRecursive=false 让主工程还原完全不碰 Core 节点，
+          # 作为唯一写者压轴，消除竞态（2026-09-19 定论，CI run#8 实锤竞态后本地验证）。
           dotnet restore tests/SimpleViewer.Tests/SimpleViewer.Tests.csproj --nologo -v:q
           dotnet msbuild SimpleViewer.Core.csproj -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
-          dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 -nr:false -nologo -v:q
-          # 还原产物校验：assets 必须是主工程视角（含 WinAppSDK 包签名；缺则说明竞写又踩踏）
+          dotnet msbuild SimpleViewer.csproj -t:Restore -p:Platform=x64 -p:RestoreRecursive=false -nr:false -nologo -v:q
           if (-not (Select-String -Path obj/project.assets.json -Pattern 'Microsoft.WindowsAppSDK' -SimpleMatch -Quiet)) {
-            Write-Error 'assets 非主工程视角（双 csproj 还原竞写）'
+            Write-Error 'assets 非主工程视角（还原竞写）'
             exit 1
           }
 
