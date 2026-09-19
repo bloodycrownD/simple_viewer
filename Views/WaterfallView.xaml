@@ -31,12 +31,11 @@
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:GalleryItemViewModel">
-                        <!-- 拖拽宿主 Grid（2026-09-19 拖拽回归修复）：WinUI 3 的 Button 吞指针输入，
-                             Button.CanDrag 不触发 DragStarting（已知问题，Q&A "WinUI3: Unable to drag
-                             button"）——cr/P1-6 卡片 Border→Button 化时拖拽源随之失效。官方解法：拖拽源
-                             放外层普通 UIElement（此处 Grid，Tag 由 OnElementPrepared 写入 VM 供
-                             DragStarting 回查）；Click/DoubleTapped/hover 留在 Button 上，经系统
-                             拖拽位移阈值自然共存。 -->
+                        <!-- 拖拽宿主 Grid（2026-09-19 拖拽二次修复）：CanDrag 手势在"Button 子元素拉伸
+                             占满宿主"时永不触发（Button 捕获指针拦截手势识别，两次实锤：Button.CanDrag
+                             与外层 Grid.CanDrag 均无效）——实际启动走 code-behind 的命令式路径：
+                             handledEventsToo 监听按压/位移超阈值即 StartDragAsync，DragStarting 仍在本
+                             元素触发（XAML 挂 OnCardDragStarting），Click/双击/hover 留在 Button。 -->
                         <Grid CanDrag="True" DragStarting="OnCardDragStarting">
                         <!-- 卡片（demo .card，cr/P1-6 Click 化）：Button + CardButtonStyle（透明底模板，
                              CornerRadius 10；底色/描边沿用实例绑定）、圆角 10、选中 2px 强调色描边

@@ -39,7 +39,23 @@ public sealed partial class WaterfallView : UserControl
     /// <summary>resize 去抖窗口（毫秒）：停止变化后按最终视口宽重排列数/列宽。</summary>
     private const int ResizeDebounceMilliseconds = 200;
 
+    /// <summary>卡片拖拽启动的位移阈值（DIP）：按压后移动超过该距离即主动 StartDragAsync。</summary>
+    private const double DragStartThresholdDip = 8.0;
+
     private readonly DispatcherQueueTimer _resizeDebounceTimer;
+
+    // —— 命令式拖拽启动状态（2026-09-19 拖拽二次修复，详见 OnCardPointerPressed 注释）——
+    /// <summary>按压起点元素（位移判定只在同一元素上累计）。</summary>
+    private FrameworkElement? _dragPressElement;
+
+    /// <summary>按压起点（元素本地坐标，DIP）。</summary>
+    private Point _dragPressPoint;
+
+    /// <summary>是否处于"按压中、等待位移超阈值"的待拖拽态。</summary>
+    private bool _dragArmed;
+
+    /// <summary>卡片根元素的指针事件处理器组（AddHandler 挂接，ElementClearing 时成对 Remove）。</summary>
+    private readonly Dictionary<FrameworkElement, PointerEventHandler[]> _cardPointerHandlers = new();
 
     public MainViewModel ViewModel { get; }
 
@@ -204,8 +220,77 @@ public sealed partial class WaterfallView : UserControl
         {
             element.Tag = viewModel;
             viewModel.BeginLoadThumbnail();
+
+            // 命令式拖拽（2026-09-19 拖拽二次修复）：CanDrag 手势路径在"Button 子元素拉伸占满宿主"时
+            // 永远不触发（Button 捕获指针拦截手势识别，Q&A "Drag Grid with Streached elements" 实锤）——
+            // 改为 handledEventsToo 监听按压/移动，位移超阈值主动 StartDragAsync（官方命令式 API，
+            // 绕开手势识别）。Click/双击不受影响（小位移释放仍走 Button）。
+            var handlers = new[]
+            {
+                new PointerEventHandler(OnCardPointerPressed),
+                new PointerEventHandler(OnCardPointerMoved),
+                new PointerEventHandler(OnCardPointerReleased),
+                new PointerEventHandler(OnCardPointerCaptureLost),
+            };
+            element.AddHandler(UIElement.PointerPressedEvent, handlers[0], handledEventsToo: true);
+            element.AddHandler(UIElement.PointerMovedEvent, handlers[1], handledEventsToo: true);
+            element.AddHandler(UIElement.PointerReleasedEvent, handlers[2], handledEventsToo: true);
+            element.AddHandler(UIElement.PointerCaptureLostEvent, handlers[3], handledEventsToo: true);
+            _cardPointerHandlers[element] = handlers;
         }
     }
+
+    /// <summary>按压起点记录：左键按下进入待拖拽态（不捕获指针，Button 的 Click 交互照常）。</summary>
+    private void OnCardPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element)
+        {
+            return;
+        }
+
+        if (!e.GetCurrentPoint(element).Properties.IsLeftButtonPressed)
+        {
+            _dragArmed = false;
+            return;
+        }
+
+        _dragArmed = true;
+        _dragPressElement = element;
+        _dragPressPoint = e.GetCurrentPoint(element).Position;
+    }
+
+    /// <summary>位移超阈值即一次性主动启动拖拽会话（DragStarting 随后在本元素触发，走既有 OnCardDragStarting）。</summary>
+    private void OnCardPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_dragArmed || sender is not FrameworkElement element || !ReferenceEquals(element, _dragPressElement))
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(element);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            _dragArmed = false;
+            return;
+        }
+
+        var dx = point.Position.X - _dragPressPoint.X;
+        var dy = point.Position.Y - _dragPressPoint.Y;
+        if (dx * dx + dy * dy < DragStartThresholdDip * DragStartThresholdDip)
+        {
+            return;
+        }
+
+        _dragArmed = false; // 一次性：拖拽会话期间不再重复启动
+        e.Handled = true; // 吃掉本移动事件，避免 Button 继续按"按住"处理
+        _ = element.StartDragAsync(point);
+    }
+
+    /// <summary>释放/捕获丢失：解除待拖拽态。</summary>
+    private void OnCardPointerReleased(object sender, PointerRoutedEventArgs e) => _dragArmed = false;
+
+    /// <summary>捕获丢失（含拖拽会话接管）：解除待拖拽态。</summary>
+    private void OnCardPointerCaptureLost(object sender, PointerRoutedEventArgs e) => _dragArmed = false;
 
     private void OnElementClearing(ItemsRepeater sender, ItemsRepeaterElementClearingEventArgs args)
     {
@@ -215,6 +300,15 @@ public sealed partial class WaterfallView : UserControl
             // 仅取消加载会让视觉资源留在 VM 上累积；释放后重新 Realize 走 BeginLoadThumbnail 重载恢复。
             viewModel.ReleaseVisuals();
             element.Tag = null;
+
+            // 成对摘除命令式拖拽的指针处理器（防回收复用后重复挂接）。
+            if (_cardPointerHandlers.Remove(element, out var handlers))
+            {
+                element.RemoveHandler(UIElement.PointerPressedEvent, handlers[0]);
+                element.RemoveHandler(UIElement.PointerMovedEvent, handlers[1]);
+                element.RemoveHandler(UIElement.PointerReleasedEvent, handlers[2]);
+                element.RemoveHandler(UIElement.PointerCaptureLostEvent, handlers[3]);
+            }
         }
     }
 
