@@ -1,4 +1,4 @@
-// 职责：单图视图 code-behind——文件名 Inlines 组装（标签段高亮；底部文件名栏 + 右栏信息区两处同步）、
+// 职责：单图视图 code-behind——文件名 Inlines 组装（标签段高亮；右栏信息区，底部文件名栏已移除）、
 //       滚轮缩放/拖拽平移交互、右栏标签管理转发（chip ✕ 移除 → MainViewModel 单图 toggle 管线）。
 // 不变量：ViewModel 构造注入（先赋值后 InitializeComponent，沿用 SettingsPage 惯例）；
 //         仅响应三段属性变更重建 Inlines，其余绑定走 XAML x:Bind；
@@ -247,13 +247,12 @@ public sealed partial class SingleImageView : UserControl
     }
 
     /// <summary>
-    /// 按 VM 属性重建文件名显示（2026-09-19 统一口径）：两处显示（底部文件名栏 FileNameText
-    /// 与右栏信息区 InfoFileNameText）一律显示剥离标签段的显示名（与瀑布流卡片一致），
-    /// 标签信息由右栏 chips 与卡片角标承载；完整文件名挂 tooltip（CurrentFileFullName）。
+    /// 按 VM 属性重建文件名显示（2026-09-19 统一口径）：显示处仅右栏信息区 InfoFileNameText
+    ///（底部文件名栏 2026-09-19 用户拍板移除，文件名由右栏承载），显示剥离标签段的显示名
+    ///（与瀑布流卡片一致）；标签信息由右栏 chips 与卡片角标承载；完整文件名挂 tooltip。
     /// </summary>
     private void RebuildFileNameInlines()
     {
-        RebuildInlinesInto(FileNameText, trim: true);
         RebuildInlinesInto(InfoFileNameText, trim: false);
     }
 

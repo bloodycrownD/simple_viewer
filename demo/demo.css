@@ -238,11 +238,7 @@ select {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 12px 20px; color: #eee;
 }
-.viewer-file { min-width: 0; }
-#viewerFileName { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: "Cascadia Code", Consolas, monospace; }
-#viewerFileName .tseg { color: #ffd166; }
-.viewer-path { font-size: 11px; color: #999; margin-top: 2px; }
 .viewer-actions { display: flex; gap: 8px; }
 .viewer-actions .ghost-btn { color: #eee; border-color: #555; }
 .viewer-actions .ghost-btn:hover { background: rgba(255,255,255,.08); }

@@ -531,14 +531,9 @@ function renderViewer() {
   const list = filteredImages();
   const im = list[viewerIdx];
   if (!im) return closeViewer();
-  // 统一口径（2026-09-19）：单图模式文件名与列表卡片一致显示剥离标签段的显示名，
-  // 完整名挂 title（tooltip）；标签信息由右栏 chips 承载。
+  // 统一口径（2026-09-19）：文件名由右栏信息区承载（顶部文件名栏已随 WinUI 底部文件名栏一并移除）。
   const full = fileNameOf(im);
   const display = displayNameOf(im);
-  const nameEl = $("#viewerFileName");
-  nameEl.textContent = display;
-  nameEl.title = full;
-  $("#viewerPath").textContent = `D:\\Pics\\${im.folder}\\${full}`;
   $("#viewerImg").src = `https://picsum.photos/seed/${im.id}/1400/${Math.round(1400 * im.h / im.w)}`;
   // 详情右栏：结构化信息行（文件名与顶部一致；大小为演示模拟值，一次性生成）
   im.size ??= Math.round(3e5 + Math.random() * 8e6);
