@@ -249,6 +249,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedCardCount;
 
+    /// <summary>是否存在卡片选中（「清除选择」按钮的可用性）。</summary>
+    public bool HasSelection => SelectedCardCount > 0;
+
     /// <summary>批量打标 InfoBar 是否打开（D13：主窗口内嵌回执区；用户关闭经 TwoWay 写回）。</summary>
     [ObservableProperty]
     private bool _isTagFeedbackOpen;
@@ -793,31 +796,50 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 卡片点击入口（WaterfallView 转发，携带 Shift 状态；Step 10）：
-    /// Shift = 以锚点为起点的连选（当前呈现序列范围内全部加选，不清除已选）；
-    /// 无修饰/Ctrl = 选中切换（加选或取消，对齐 demo：Ctrl 与普通点击同为 toggle）；
-    /// 锚点随每次点击更新；锚点不在呈现集中时连选退化为切换。
+    /// 卡片点击入口（WaterfallView 转发，携带 Ctrl/Shift 修饰键状态；2026-09-19 Explorer 心智重构）：
+    /// 无修饰 = 单选重置（清空后仅选该卡；点已选中卡 = 清空后重选自己，保持选中）；
+    /// Ctrl = 加/减选切换（toggle）；
+    /// Shift = 范围重置（清空后选锚点到目标卡片的呈现序列范围）；
+    /// 锚点随每次点击更新；锚点或目标不在呈现集中时范围退化为切换。
     /// </summary>
-    public void HandleCardTapped(GalleryItemViewModel viewModel, bool shift)
+    public void HandleCardTapped(GalleryItemViewModel viewModel, bool ctrl, bool shift)
     {
         if (viewModel is null)
         {
             return;
         }
 
-        if (shift && _lastClickedCard is not null)
+        if (ctrl)
+        {
+            ToggleCardSelection(viewModel);
+        }
+        else if (shift && _lastClickedCard is not null)
         {
             SelectCardRange(_lastClickedCard, viewModel);
         }
         else
         {
-            ToggleCardSelection(viewModel);
+            SelectSingleCard(viewModel);
         }
 
         _lastClickedCard = viewModel;
     }
 
-    /// <summary>锚点到目标卡片之间（当前呈现序列索引范围）全部加选；范围不可解析时退化为切换。</summary>
+    /// <summary>
+    /// 无修饰点击的单选重置：清空已选后仅选中该卡（点已选中卡 = 清空后重选自己 = 保持选中）。
+    /// </summary>
+    private void SelectSingleCard(GalleryItemViewModel viewModel)
+    {
+        ClearCardSelection();
+        _selectedCards.Add(viewModel);
+        viewModel.IsSelected = true;
+        SelectedCardCount = _selectedCards.Count;
+    }
+
+    /// <summary>
+    /// Shift 范围重置：清空已选后选中锚点到目标卡片之间（当前呈现序列索引范围）的全部卡片；
+    /// 范围不可解析（锚点/目标不在呈现集中）时退化为切换。
+    /// </summary>
     private void SelectCardRange(GalleryItemViewModel anchor, GalleryItemViewModel target)
     {
         var items = _waterfall.Items;
@@ -842,12 +864,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 范围重置语义（2026-09-19 Explorer 心智）：先清空旧选中，再选整个范围
+        //（此前为纯加选不清旧，多选意图只能靠 Ctrl 逐张累积）。
+        ClearCardSelection();
         for (var i = Math.Min(anchorIndex, targetIndex); i <= Math.Max(anchorIndex, targetIndex); i++)
         {
-            if (_selectedCards.Add(items[i]))
-            {
-                items[i].IsSelected = true;
-            }
+            _selectedCards.Add(items[i]);
+            items[i].IsSelected = true;
         }
 
         SelectedCardCount = _selectedCards.Count;
@@ -867,7 +890,9 @@ public partial class MainViewModel : ObservableObject
         SelectedCardCount = _selectedCards.Count;
     }
 
-    /// <summary>卡片单击 = 选中/取消选中（WaterfallViewModel 转发；Ctrl/Shift 连选与 Ctrl+A 属 Step 10）。</summary>
+    /// <summary>
+    /// Ctrl+点击的加/减选切换（2026-09-19 Explorer 心智：无修饰点击已改为单选重置，toggle 仅归 Ctrl）。
+    /// </summary>
     public void ToggleCardSelection(GalleryItemViewModel viewModel)
     {
         if (viewModel is null)
@@ -888,7 +913,9 @@ public partial class MainViewModel : ObservableObject
         SelectedCardCount = _selectedCards.Count;
     }
 
-    /// <summary>清空卡片选中集（Esc 路由 / 筛切换 / 重开图库）。</summary>
+    /// <summary>
+    /// 清空卡片选中集（Esc 路由 / 筛切换 / 重开图库 / 状态行「清除选择」按钮）。
+    /// </summary>
     public void ClearCardSelection()
     {
         foreach (var viewModel in _selectedCards)
@@ -898,6 +925,16 @@ public partial class MainViewModel : ObservableObject
 
         _selectedCards.Clear();
         SelectedCardCount = 0;
+    }
+
+    /// <summary>
+    /// 状态行「清除选择」按钮命令（2026-09-19 Explorer 心智：多选入口收窄后补显式清除）：
+    /// 转发 <see cref="ClearCardSelection"/>；无选中时禁用（常显灰态，非隐藏）。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void ClearSelection()
+    {
+        ClearCardSelection();
     }
 
     // ==================== 打标入口与标签筛选（2026-09-19 交互重构） ====================
@@ -2397,6 +2434,9 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedCardCountChanged(int value)
     {
         OnPropertyChanged(nameof(GalleryStatusText));
+
+        // 选中数变化联动「清除选择」按钮可用性（无选中时禁用灰态）。
+        ClearSelectionCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsTagOperationInProgressChanged(bool value)

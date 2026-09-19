@@ -318,7 +318,7 @@ function renderStatus() {
   $("#statusLeft").textContent = `已选 ${state.selection.size} 张 · 命中 ${hit} / ${state.discovered} 张`;
   $("#statusHint").textContent = state.selection.size
     ? "拖拽图片到左侧标签行 = 打标（整集） · Esc 取消选择"
-    : "单击选择 · Shift 连选 · Ctrl+A 全选 · 双击看大图 · 拖到标签行 = 打标 · Esc 取消选择";
+    : "单击选择 · Ctrl+点击加减选 · Shift 连选 · Ctrl+A 全选 · 双击看大图 · 拖到标签行 = 打标 · Esc 取消选择";
 }
 
 function refreshAll() { renderSidebar(); renderWaterfallAll(); renderFilterBar(); renderStatus(); saveState(); }
@@ -328,17 +328,23 @@ function refreshLight() { renderSidebar(); renderFilterBar(); renderStatus(); sa
  * 交互
  * ========================================================= */
 
-/* ---- 卡片选择 ---- */
+/* ---- 卡片选择（2026-09-19 Explorer 心智：无修饰单选重置 / Ctrl 加减选 / Shift 范围重置） ---- */
 function onCardClick(id, e) {
   const list = filteredImages();
-  if (e.shiftKey && state.lastClickId) {
+  if (e.ctrlKey || e.metaKey) {
+    state.selection.has(id) ? state.selection.delete(id) : state.selection.add(id);
+  } else if (e.shiftKey && state.lastClickId) {
     const a = list.findIndex(im => im.id === state.lastClickId);
     const b = list.findIndex(im => im.id === id);
     if (a >= 0 && b >= 0) {
+      state.selection.clear();
       for (let i = Math.min(a, b); i <= Math.max(a, b); i++) state.selection.add(list[i].id);
+    } else {
+      state.selection.has(id) ? state.selection.delete(id) : state.selection.add(id);
     }
   } else {
-    state.selection.has(id) ? state.selection.delete(id) : state.selection.add(id);
+    state.selection.clear();
+    state.selection.add(id);
   }
   state.lastClickId = id;
   syncSelectionClass();
