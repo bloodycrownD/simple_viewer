@@ -86,3 +86,9 @@ user:
 
 assistant:
 补删完成（06b8811，trivial 豁免主代理直接实现，build 一次过 + 71/71 绿 + 实机走查通过）：SingleImageView 删 FileNameOverlay 底部浮层，RebuildFileNameInlines 仅重建右栏 InfoFileNameText（文件名由右栏信息区承载，完整名 tooltip 保留）；demo 顶部 viewer-file 区（fileName+path 行）与 CSS 同步删除。实机：单图底部无文件名栏、右栏文件名正常、画布居中不变。补记入 back-button-and-chrome-simplify 的 prd/spec。至此单图模式底部 chrome 全清（状态栏+文件名栏均无），信息呈现收敛于右栏。
+
+user:
+还有一个问题，一个标签处于"未分组"，我理解这是脏数据？不应该这样兜底——直接忽略没有分组的标签，因为理论上标签一定有分组（UI 操作逻辑限制的）。
+
+assistant:
+敏捷项 ungrouped-tags-ignore（f87767b+9440d8c，71/71 绿，主代理实机走查通过），推翻 4679a12"曾见即留"与 spec Step 9 虚拟组设计。拍板口径：①聚合类 UI 完全忽略无组标签——侧栏"未分组"虚拟组（含曾见即留/ForgetUngroupedTag/未分组行✎✕）、卡片角标（对齐 demo 只遍历组内，+N 按过滤后）、筛选回退全部删除；②右栏 chips 保留显示无组标签且 ✕ 可移除——唯一清理出口（有意偏差 demo），移除管线本就按名落盘（FindGroupByTagName 兜底组保留仅满足签名，remove 不消费组）；③归组途径=配置组内新建同名标签自然收编；④互斥语义层"组外保留"（2 项测试覆盖）与 Services/索引层零改动。探索要点：目录选择器天然只遍历配置组（零改动）；打标入口全携带配置组不可能产出无组标签；TagSidebarControl 未分组视觉 x:Bind 分支删字段时被编译期强制清零。实机走查：造 photo_99[神秘标签].jpg → 图库侧栏无"未分组"组；CLI 直开 → 右栏 chips 显示"神秘标签" → ✕ → 磁盘改名 photo_99.jpg 落盘实证；产物已清理。留痕 features/ungrouped-tags-ignore prd+spec。
