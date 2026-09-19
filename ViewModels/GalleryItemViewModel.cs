@@ -78,9 +78,6 @@ public partial class GalleryItemViewModel : ObservableObject
     /// <summary>拖拽跟随小图的只读访问（WaterfallView.OnCardDragStarting 消费；null = 走回退链）。</summary>
     internal SoftwareBitmap? DragVisual => _dragVisual;
 
-    /// <summary>未映射到配置组的标签角标色相（灰蓝 200，视觉对齐 demo 未分组语义）。</summary>
-    private const int UngroupedBadgeHue = 200;
-
     /// <summary>「+N」折叠角标的哨兵色相（转换器特判为黑色半透明底）。</summary>
     private const int MoreBadgeHue = -1;
 
@@ -128,59 +125,66 @@ public partial class GalleryItemViewModel : ObservableObject
     /// 组色相索引更新后的角标重算通知（由 MainViewModel.RebuildTagSidebar 在
     /// <see cref="UpdateTagHues"/> 返回变化后对已呈现卡片补发）：Badges 是按需计算的派生属性，
     /// 静态索引替换不触发 INPC——打标时序为 UpdateFrom（先）→ Rebuild 更新索引（后），
-    /// UpdateFrom 时通知的 Badges 用的是旧索引，已呈现卡片的角标底色会滞后一轮
-    ///（新标签映射不到组，误显示未分组灰蓝底）。
+    /// UpdateFrom 时通知的 Badges 用的是旧索引，已呈现卡片的角标集合/底色会滞后一轮
+    ///（新标签尚未映射到组，按忽略口径被过滤掉，须待补发后才出角标）。
     /// </summary>
     internal void NotifyBadgeHuesChanged() => OnPropertyChanged(nameof(Badges));
 
     /// <summary>
-    /// 缩略图左下角标签角标展示模型（前 3 个标签药丸 + 第 4 个起「+N」；
-    /// 每个角标取其所属组色相，未分组标签灰蓝 200——对齐 demo .badge）。
+    /// 缩略图左下角标签角标展示模型（前 3 个标签药丸 + 第 4 个起「+N」；每个角标取其所属组色相）。
+    /// 2026-09-19 用户拍板：聚合类 UI 完全忽略无组标签——仅 _tagHues 命中（已映射到配置组）的标签
+    /// 出角标（对齐 demo badgesHtml 只遍历配置组），「+N」溢出计数按过滤后的剩余数（过滤只减不加，
+    /// 角标 hue 静态索引更新的既有联动不受影响）；无组标签的清理出口 = 单图右栏 chips ✕，
+    /// 或在配置组内新建同名标签自然「收编」文件名中的同名脏标签（按名匹配配置）。
     /// </summary>
     public IReadOnlyList<TagBadgeViewModel> Badges
     {
         get
         {
-            var tags = Item.Tags;
-            if (tags.Count == 0)
+            var list = new List<TagBadgeViewModel>(MaxVisibleTagBadges + 1);
+            var matched = 0;
+            foreach (var name in Item.Tags)
             {
-                return [];
+                if (!_tagHues.TryGetValue(name, out var hue))
+                {
+                    continue; // 无组标签：不出角标（忽略口径，见上注释）。
+                }
+
+                if (matched < MaxVisibleTagBadges)
+                {
+                    list.Add(new TagBadgeViewModel(name, hue));
+                }
+
+                matched++;
             }
 
-            var shown = Math.Min(tags.Count, MaxVisibleTagBadges);
-            var list = new List<TagBadgeViewModel>(shown + 1);
-            for (var i = 0; i < shown; i++)
+            if (matched > MaxVisibleTagBadges)
             {
-                var name = tags[i];
-                list.Add(new TagBadgeViewModel(
-                    name,
-                    _tagHues.TryGetValue(name, out var hue) ? hue : UngroupedBadgeHue));
-            }
-
-            if (tags.Count > shown)
-            {
-                list.Add(new TagBadgeViewModel("+" + (tags.Count - shown), MoreBadgeHue));
+                list.Add(new TagBadgeViewModel("+" + (matched - MaxVisibleTagBadges), MoreBadgeHue));
             }
 
             return list;
         }
     }
 
-    /// <summary>标签角标文本行：每图标签前 3 个 + "+N"（组色调简化为统一强调色，由模板前景色呈现）。</summary>
+    /// <summary>
+    /// 标签角标文本行：每图标签前 3 个 + "+N"（组色调简化为统一强调色，由模板前景色呈现）；
+    /// 与 <see cref="Badges"/> 同步过滤无组标签（2026-09-19 忽略口径）。
+    /// </summary>
     public string BadgeLine
     {
         get
         {
-            var tags = Item.Tags;
-            if (tags.Count == 0)
+            // 仅统计映射到配置组的标签（与 Badges 同口径——demo tagsLine 同样只遍历组内）。
+            var matched = Item.Tags.Where(t => _tagHues.ContainsKey(t)).ToList();
+            if (matched.Count == 0)
             {
                 return string.Empty;
             }
 
-            var shown = tags.Count <= MaxVisibleTagBadges
-                ? string.Join(" · ", tags)
-                : string.Join(" · ", tags.Take(MaxVisibleTagBadges)) + " +" + (tags.Count - MaxVisibleTagBadges);
-            return shown;
+            return matched.Count <= MaxVisibleTagBadges
+                ? string.Join(" · ", matched)
+                : string.Join(" · ", matched.Take(MaxVisibleTagBadges)) + " +" + (matched.Count - MaxVisibleTagBadges);
         }
     }
 
