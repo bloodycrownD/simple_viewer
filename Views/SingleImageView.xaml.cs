@@ -2,8 +2,9 @@
 //       滚轮缩放/拖拽平移交互、右栏标签管理转发（chip ✕ 移除 → MainViewModel 单图 toggle 管线）。
 // 不变量：ViewModel 构造注入（先赋值后 InitializeComponent，沿用 SettingsPage 惯例）；
 //         仅响应三段属性变更重建 Inlines，其余绑定走 XAML x:Bind；
-//         右栏（280 展开/36 折叠）在 UserControl 内部——图库模式随宿主 SingleVisibility 整体隐藏，
-//         右栏收展改变 ImageHost 显示区自动触发重解码（尺寸源即 ImageHost.SizeChanged）；
+//         遮盖式布局（2026-09-19）：ImageHost 画布铺满整根（几何=整窗恒定），右栏（280/36）与
+//         文件名栏为浮层——收展右栏只改变遮盖范围，画布几何不变、不触发重解码；
+//         ImageHost.SizeChanged 仍是解码尺寸源（仅窗口 resize 触发）；
 //         缩放/平移是纯视图交互态（不入 VM）：切图（ImageSource 变化）与双击复位；
 //         CompositeTransform 应用顺序 Scale→Rotate→Translate——平移在最外层，
 //         拖拽按屏幕 delta 直接累加；光标锚点缩放需按旋转角变换指针向量。
@@ -59,8 +60,9 @@ public sealed partial class SingleImageView : UserControl
         ViewModel.CurrentImageRenamed += OnCurrentImageRenamed;
         RebuildFileNameInlines();
 
-        // 视口尺寸源（2026-09-19 修复二次缩放锯齿）：解码尺寸贴合实际显示区（含侧栏占位），
-        // 显示层 1:1 无重采样；折叠/展开侧栏与窗口 resize 都经 SizeChanged 驱动重解码。
+        // 视口尺寸源（2026-09-19 修复二次缩放锯齿 + 遮盖式布局）：解码尺寸贴合画布实际区，
+        // 显示层 1:1 无重采样。画布铺满整窗且几何恒定——仅窗口 resize 触发 SizeChanged；
+        // 侧栏/右栏收展是 chrome 遮盖层显隐，不再改变画布（图片位置不动、不重解码）。
         // 隐藏（切回图库）时 ActualSize 归零，忽略避免触发全尺寸解码。
         ImageHost.SizeChanged += (_, e) =>
         {
@@ -211,15 +213,15 @@ public sealed partial class SingleImageView : UserControl
     }
 
     /// <summary>
-    /// 放大置顶（2026-09-19 层级走查）：scale &gt; 1（浮点容差）时把图片区 ZIndex 提到最高，
-    /// 放大图片溢出显示区时遮盖右栏（同父兄弟，Grid 默认不裁剪溢出）；并写
-    /// <see cref="MainViewModel.IsCurrentImageZoomed"/> 让宿主把内容区整体提到工具栏/
-    /// 状态栏之上（遮盖左栏与上下 chrome）。复位/切图/回图库时还原（侧栏恢复可交互）。
+    /// 放大置顶（2026-09-19 遮盖式布局）：scale &gt; 1（浮点容差）时把画布 ImageHost 自身 ZIndex
+    /// 提到 2——盖过文件名栏/右栏浮层（同父兄弟，Grid 默认不裁剪溢出）；并写
+    /// <see cref="MainViewModel.IsCurrentImageZoomed"/> 让宿主把整个画布层提到 chrome 层之上
+    ///（遮盖工具栏/左栏/状态栏）。复位/切图/回图库时还原（侧栏恢复可交互）。
     /// </summary>
     private void UpdateZoomLayering()
     {
         var zoomed = ViewerTransform.ScaleX > 1.05 || ViewerTransform.ScaleY > 1.05;
-        Canvas.SetZIndex(ImageArea, zoomed ? 100 : 0);
+        Canvas.SetZIndex(ImageHost, zoomed ? 2 : 0);
         ViewModel.IsCurrentImageZoomed = zoomed;
     }
 

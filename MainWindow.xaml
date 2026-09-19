@@ -4,12 +4,26 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:SimpleViewer.ViewModels"
     xmlns:views="using:SimpleViewer.Views">
-    <!-- 职责：主窗口壳（D14 双模式）——工具栏 / 批量打标进度回执区（D13 InfoBar + ProgressBar）/
-         Row2 双栏（左栏可折叠 + 内容区互斥视图）/ 状态栏。
-         内容区：SingleImageView（ContentControl 宿主，Visibility 由 VM 切换）与图库区占位（扫描状态 + 空态引导）互斥。
+    <!-- 职责：主窗口壳（D14 双模式；2026-09-19 遮盖式布局重排）——画布层（最底、整窗恒定几何，
+         承载单图 SingleImageView）+ chrome 遮盖层（工具栏 / 批量打标进度回执区 D13 InfoBar + ProgressBar /
+         左栏 + 图库区 / 状态栏）。遮盖语义：收展侧栏/右栏只改变遮盖范围、画布几何不变——
+         图片位置不动、也不触发重解码（修“收展图片位移 + 首次闪”两问题；口径见 docs\apm\RULE.md 铁律②）。
          图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。 -->
 
     <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown" SizeChanged="OnRootGridSizeChanged">
+        <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大时 code-behind 把本层 ZIndex
+             提到 100 盖住全部 chrome（OnViewModelPropertyChangedForZoomLayering 单点控制）。 -->
+        <Grid x:Name="CanvasLayer" Canvas.ZIndex="0">
+            <ContentControl
+                x:Name="SingleImageHost"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Visibility="{x:Bind ViewModel.SingleVisibility, Mode=OneWay}" />
+        </Grid>
+
+        <!-- chrome 遮盖层（恒 ZIndex=1）：本层与其内 MainAreaGrid/ContentAreaGrid 均为无 Background 的
+             Grid（不吞指针）——未遮区域指针穿透到画布，单图手势正常（命中测试约束，勿补 Background）。 -->
+        <Grid x:Name="ChromeLayer" Canvas.ZIndex="1">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -181,16 +195,10 @@
                     ToolTipService.ToolTip="展开标签栏" />
             </Border>
 
-            <!-- 内容区：单图视图与瀑布流图库互斥（VM Visibility 计算属性，D14）。
-                 放大置顶（2026-09-19 层级走查）：IsCurrentImageZoomed 时 code-behind 把本区与
-                 MainAreaGrid 的 ZIndex 提到最高——放大图片溢出遮盖左栏/右栏/工具栏/状态栏。 -->
+            <!-- 内容区（遮盖式布局后仅承载图库视图；单图已移至画布层 CanvasLayer）。
+                 放大置顶（2026-09-19 遮盖式重排简化）：IsCurrentImageZoomed 时 code-behind 把
+                 CanvasLayer 整层 ZIndex 提到 100——放大图片溢出遮盖左栏/工具栏/状态栏。 -->
             <Grid x:Name="ContentAreaGrid" Grid.Column="1">
-                <ContentControl
-                    x:Name="SingleImageHost"
-                    HorizontalContentAlignment="Stretch"
-                    VerticalContentAlignment="Stretch"
-                    Visibility="{x:Bind ViewModel.SingleVisibility, Mode=OneWay}" />
-
                 <Grid Visibility="{x:Bind ViewModel.GalleryVisibility, Mode=OneWay}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -340,7 +348,8 @@
             </Grid>
         </Grid>
 
-        <!-- 状态栏（demo #statusBar）：12px 次要色 + 上边线分隔 -->
+        <!-- 状态栏（demo #statusBar）：12px 次要色 + 上边线分隔。
+             遮盖式布局：作为 chrome 覆盖在画布底部之上（画布整窗铺满，图片底部可能被其遮住属预期）。 -->
         <Border
             Grid.Row="3"
             Padding="16,7"
@@ -355,5 +364,6 @@
                 TextTrimming="CharacterEllipsis"
                 TextWrapping="NoWrap" />
         </Border>
+        </Grid>
     </Grid>
 </Window>
