@@ -1,8 +1,8 @@
 ---
-date: 2026-09-19 00:05
+date: 2026-09-19 10:08
 title: 打标签与瀑布流迭代：从需求到实机走查修复的全过程
-keywords: TagSpaces, 文件名标签, 瀑布流, WinUI3, PRD/SPEC, code-dev-loop, 卡死, 模糊, 走查, 选择bug, IME, Locked位, 删除bug
-abstract: 完整记录"图片打标签与瀑布流"迭代：需求澄清→PRD→原型→SPEC→14 phase 实现→三轮用户走查修复（启动崩溃/样式/卡死模糊/选择交互/删除假删/滚轮缩放与线条毛刺）。分支 feature/tagging-waterfall（HEAD 12bdd5d），63 测试绿，未合并。
+keywords: TagSpaces, 文件名标签, 瀑布流, WinUI3, PRD/SPEC, code-dev-loop, 卡死, 模糊, 走查, 选择bug, IME, Locked位, 删除bug, 滚轮缩放, 毛刺, Fant, 全分辨率重解码
+abstract: 完整记录"图片打标签与瀑布流"迭代：需求澄清→PRD→原型→SPEC→14 phase 实现→四轮用户走查修复（启动崩溃/样式/卡死模糊/选择交互与删除假删/滚轮缩放与线条毛刺/放大全分辨率重解码）。分支 feature/tagging-waterfall（HEAD 781131d，36 提交），63 测试绿，未合并。
 ---
 
 user:
@@ -52,3 +52,9 @@ user:
 
 assistant:
 落地（提交 0a2e985）：缩放跨 1.2x 阈值触发 MainViewModel.EnsureFullResolutionAsync——以 decodeSize=null 重解码原图、原地换 ImageSource（Uniform 布局渲染尺寸不变、合成器以高分辨率纹理采样）。关键设计：①以 CurrentImagePath 区分「切图」（复位缩放）与「同图分辨率升级」（保持缩放态）——否则换源会重置正在进行的放大；②每图一次+失败不重试，等待期切图丢弃结果；③LRU 以 decodeSize 为键 fit/全分辨率两档共存。实机验证：放大 2x 物理像素评估为高分辨率源采样（边缘锐利、无低分辨率位图拉伸痕迹）——证明 WinUI 的 RenderTransform 缩放作用于源纹理而非元素布局光栅，这条路成立。
+
+user:
+更新记忆。
+
+assistant:
+落盘收尾。当前状态：分支 feature/tagging-waterfall（HEAD 781131d，36 提交），63/63 单测绿，未合并 master。本迭代四轮用户走查全部闭环：①启动崩溃（ThemeResource 键）②样式/卡死/模糊（chip 双值主题、UiApplyGate 串行闸门、DPI 动态分桶）③选择交互（IME Locked 位×4 处）+删除假删+Ctrl+A 默认绑定冲突④滚轮缩放+毛刺双根因（Fant 插值、显示区贴合解码）+放大全分辨率重解码。全功能实机走查方法论沉淀在 RULE.md。待办：用户实测确认本轮缩放/毛刺/全分辨率体验；合并回 master；用户本机 settings.json 仍是旧默认（Ctrl+A=左旋），想用全选需改绑或删配置重生成；可选：publish.ps1 重试、Defender 排除（需用户拍板）。

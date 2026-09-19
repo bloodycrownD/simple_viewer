@@ -27,6 +27,7 @@
 - 索引（SQLite）与缩略图缓存是可丢弃缓存，事实源永远是文件名（TagSpaces 文件名协议 `base[tag1 tag2].ext`）；打开图库 = 清表重扫（`ClearAllItemsAsync`，防孤儿行污染候选集）。
 - 缩略图 UI 应用必须走 `GalleryItemViewModel.UiApplyGate` 串行闸门（并发 SetSourceAsync 在首帧渲染期死锁过 UI）。
 - 打标/重命名后的同步阶段用"宽松预测 + 磁盘事实判定"（`TryComposeNewPath`），不要用 BuildNewPath 的目标冲突预检（改名后目标必存在，会误判失败跳过同步）。
+- **图像解码管线两铁律（2026-09-19 修线条毛刺确立）**：① WIC 缩小插值必须 `BitmapInterpolationMode.Fant`（默认 Linear 大倍率缩小丢高频细节生锯齿；单图 ImageLoaderService 与缩略图 ThumbnailService 两处 CreateTransform）；② 解码尺寸 = SingleImageView.ImageHost 实际显示区（含侧栏占位），禁止按整窗 RootGrid——显示层二次缩小会重新引入锯齿。放大 ≥1.2× 经 EnsureFullResolutionAsync 按需换全分辨率源（每图一次）；WinUI 的 RenderTransform 缩放作用于源纹理而非布局光栅（实测），故换源即得高分辨率采样。
 
 ## 诊断
 
