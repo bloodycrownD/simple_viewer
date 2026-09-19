@@ -51,12 +51,12 @@
 
         <!-- 完整文件名：底部浮层（chrome 遮盖语义；不透明背景 LayerFillColorDefaultBrush）。
              前缀 + 高亮标签段 + 后缀（等宽字体 14px，对齐 demo #viewerFileName；Inlines 由 code-behind 组装）。
-             底部 Margin 由 code-behind 按 VM.BottomChromeHeight（状态栏实际高度）避让（34 为首帧前初值）；
+             底部状态栏已移除（2026-09-19）：Margin 恒 0、直接贴到窗口底；
              左右端被左栏/右栏浮层遮住属遮盖式布局预期（可见宽度 = 未遮画布区）。 -->
         <Border
             x:Name="FileNameOverlay"
             Canvas.ZIndex="1"
-            Margin="0,0,0,34"
+            Margin="0,0,0,0"
             Padding="20,8"
             VerticalAlignment="Bottom"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
@@ -73,8 +73,8 @@
         </Border>
 
         <!-- 右栏展开态（280，右缘浮层遮盖画布；标题行 + 信息区 + 标签管理）。
-             顶/底 Margin 由 code-behind 按 VM.TopChromeHeight/BottomChromeHeight 避让
-             （chrome 层工具栏横跨整行、状态栏占底部，浮层可点区必须让出这两段高度）。 -->
+             顶部 Margin 由 code-behind 按 VM.TopChromeHeight 避让（chrome 层工具栏横跨整行，
+             浮层可点区必须让出这段高度；底部状态栏已移除，底部恒 0）。 -->
         <Border
             x:Name="InfoPanelOverlay"
             Canvas.ZIndex="1"
@@ -243,7 +243,7 @@
         </Border>
 
         <!-- 右栏折叠态（36 窄条，右缘浮层，仅展开按钮 ◀ 指向展开方向；对照左栏折叠条先例；
-             顶/底避让同展开态——折叠条 ◀ 按钮曾因顶到窗口顶被工具栏遮盖点不到） -->
+             顶部避让同展开态——折叠条 ◀ 按钮曾因顶到窗口顶被工具栏遮盖点不到） -->
         <Border
             x:Name="InfoPanelCollapsedBar"
             Canvas.ZIndex="1"

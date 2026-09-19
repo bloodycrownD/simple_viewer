@@ -188,9 +188,6 @@ public partial class MainViewModel : ObservableObject
     private ImageSource? _imageSource;
 
     [ObservableProperty]
-    private string _statusText = string.Empty;
-
-    [ObservableProperty]
     private bool _hasImage;
 
     [ObservableProperty]
@@ -207,16 +204,10 @@ public partial class MainViewModel : ObservableObject
     /// chrome 遮盖层顶部行总高（工具栏 + InfoBar，含 InfoBar 上下 Margin；2026-09-19 遮挡修复）：
     /// MainWindow 依各行 SizeChanged 写入。画布层浮层（右栏/折叠条）位于 chrome 层之下，
     /// 顶部可点区必须让出这段高度（右栏收起按钮曾被工具栏横行遮盖、鼠标点不到）。
+    /// 底部状态栏已移除（2026-09-19），底部避让链（BottomChromeHeight）随之整体删除。
     /// </summary>
     [ObservableProperty]
     private double _topChromeHeight;
-
-    /// <summary>
-    /// chrome 遮盖层底部行总高（状态栏）：同 <see cref="TopChromeHeight"/>，浮层底部避让用
-    ///（原文件名栏硬编码 34 的动态替代）。
-    /// </summary>
-    [ObservableProperty]
-    private double _bottomChromeHeight;
 
 
     /// <summary>是否已打开图库（选定根目录并启动过扫描）。</summary>
@@ -301,7 +292,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 当前图显示名（剥离方括号标签段的 base 名 + 扩展名；解析失败回退完整文件名）。
-    /// 2026-09-19 统一口径：单图模式（底部文件名栏/右栏信息区/状态行）与瀑布流卡片
+    /// 2026-09-19 统一口径：单图模式（底部文件名栏/右栏信息区）与瀑布流卡片
     /// 一律显示剥离名，标签信息由右栏 chips 与卡片角标承载；完整文件名见
     /// <see cref="CurrentFileFullName"/>（tooltip 用）。
     /// </summary>
@@ -1158,7 +1149,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 单图模式当前图打标（toggle 语义，对齐 demo viewerTags）：
     /// 已含该标签 → 移除；未含 → 打标（互斥组先剔除同组再追加）。
-    /// 成功后同图改名不重载：保持 ImageSource/解码缓存与缩放态，仅按新路径重算文件名分段/状态行
+    /// 成功后同图改名不重载：保持 ImageSource/解码缓存与缩放态，仅按新路径重算文件名分段与右栏信息行
     ///（GIF 按 UriSource 特性完整重载一次；见 RefreshCurrentAfterRenameAsync）。
     /// </summary>
     public async Task ToggleTagOnCurrentImageAsync(TagGroup group, string tagName)
@@ -1217,7 +1208,7 @@ public partial class MainViewModel : ObservableObject
 
             // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
             //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
-            // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算状态行与文件名分段；
+            // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算文件名分段与右栏信息行；
             // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
             if (sync.Synced > 0)
             {
@@ -1291,7 +1282,7 @@ public partial class MainViewModel : ObservableObject
         => await ToggleTagOnCurrentImageAsync(group, tagName);
 
     /// <summary>
-    /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算状态行与文件名分段
+    /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算文件名分段与右栏信息行
     /// （CurrentImagePath 已被 ReplaceGalleryItemState 就地替换为新路径；改名事件已先行通知视图
     /// 保持缩放/平移态）。GIF 例外：其 ImageSource 以 UriSource 指向文件路径，改名后旧 Uri 失效
     /// 且 BitmapImage 无法用内存字节重建动画源——按旧策略完整重载一次（换源时视图路径对比
@@ -1412,7 +1403,11 @@ public partial class MainViewModel : ObservableObject
         IsTagFeedbackOpen = true;
     }
 
-    /// <summary>即时回执（单张失败前置校验等，不经过批量管线）。</summary>
+    /// <summary>
+    /// 即时回执（不经过批量管线）：单张失败前置校验、标签目录解析失败等 tag 场景；
+    /// 状态栏移除后（2026-09-19）也承载非 tag 场景的即时错误提示——
+    /// 删除/移动/加载失败与标签编辑批量部分失败（原 StatusText 写入点的迁移归宿）。
+    /// </summary>
     private void ShowInstantTagFeedback(
         InfoBarSeverity severity, string title, string message, IReadOnlyList<string> details)
     {
@@ -1658,7 +1653,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 执行标签/组编辑（TagEditDialog.TrySaveAsync 的委托目标）。
     /// 返回 null 表示成功（对话框关闭）；返回错误消息表示拒绝（显示于对话框且不关闭）。
-    /// 批量文件操作的部分失败不视为拒绝：成功项生效（不回滚），失败明细写入状态栏。
+    /// 批量文件操作的部分失败不视为拒绝：成功项生效（不回滚），失败回执弹 InfoBar（Warning）。
     /// </summary>
     public async Task<string?> ExecuteTagEditAsync(TagEditRequest request, TagEditInput input)
     {
@@ -1893,10 +1888,11 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// 统一的重命名落盘管线：索引取候选 → TagService 批量执行（成功不回滚）→
-    /// 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ 状态栏回执。
-    /// 返回 null = 已执行（含部分失败，明细进状态栏）；非 null = 整体拒绝（对话框内显示）。
+    /// 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ InfoBar 回执
+    ///（全成功静默、有失败弹 Warning；原状态栏回执已随状态栏移除迁移至此，2026-09-19）。
+    /// 返回 null = 已执行（含部分失败，回执进 InfoBar）；非 null = 整体拒绝（对话框内显示）。
     /// </summary>
-    /// <param name="statusPrefix">状态栏回执前缀。</param>
+    /// <param name="statusPrefix">InfoBar 回执前缀（操作名）。</param>
     /// <param name="candidateTagNames">候选集的标签（OR 命中）。</param>
     /// <param name="executeAsync">批量执行委托（调用对应 TagService 方法）。</param>
     /// <param name="transform">当前标签集合 → 新标签集合（预测新路径用，语义对齐 TagService 内部纯函数）。</param>
@@ -1926,11 +1922,18 @@ public partial class MainViewModel : ObservableObject
 
         // 索引与瀑布流就地同步：仅当旧路径消失且预测新路径存在（该文件实际改名成功）。
         var sync = await SyncRenamedItemsAsync(candidates, transform);
-        var failures = sync.Failed;
 
-        StatusText = result.SucceededCount > 0 || failures > 0
-            ? $"{statusPrefix}：成功 {result.SucceededCount} 张，失败 {failures} 张（失败项可重试）"
-            : string.Empty;
+        // 状态栏已移除（2026-09-19 用户实测反馈）：回执迁 InfoBar——全成功静默（8874d93 口径，
+        // 重命名结果就地可见：卡片角标/侧栏计数均已刷新），有失败才弹 Warning。
+        var failedCount = Math.Max(result.Failures.Count, sync.Failed);
+        if (failedCount > 0)
+        {
+            ShowInstantTagFeedback(
+                InfoBarSeverity.Warning,
+                statusPrefix,
+                $"成功 {result.SucceededCount} 张，失败 {failedCount} 张（成功项不回滚，失败项可重试）。",
+                []);
+        }
 
         // 索引已同步：刷新计数快照并重建侧栏（后续配置保存路径的 Rebuild 复用新快照）。
         await RefreshTagDataAsync();
@@ -2245,7 +2248,8 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"删除失败：{ex.Message}";
+            // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar（单张操作失败无成功项，用 Error）。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, "删除失败", ex.Message, []);
             return;
         }
 
@@ -2278,7 +2282,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
-            StatusText = "移动到文件夹：未配置目标路径。";
+            ShowInstantTagFeedback(InfoBarSeverity.Warning, "移动到文件夹", "未配置目标路径。", []);
             return;
         }
 
@@ -2295,7 +2299,8 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"移动失败：{ex.Message}";
+            // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, "移动失败", ex.Message, []);
         }
     }
 
@@ -2503,7 +2508,7 @@ public partial class MainViewModel : ObservableObject
         // 按旧路径打开会抛"文件不存在"。竞态自愈——仅当当前索引指向的路径已变化时按新路径
         // 重试一次（路径变化是改名落盘的强信号，避免无意义重试）；重试仍失败走通用失败分支。
         // 2026-09-19 走查实锤：无此兜底时，竞态会把 HasImage 置 false、清空 ImageSource
-        //（图片消失/空态出现/删除旋转禁用），且随后打标链路的状态行刷新会掩盖"加载失败"文案。
+        //（图片消失/空态出现/删除旋转禁用），且随后打标链路的信息刷新会掩盖"加载失败"提示。
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -2569,7 +2574,8 @@ public partial class MainViewModel : ObservableObject
                 ImageSource = null;
                 HasImage = false;
                 ClearFileNameSegments();
-                StatusText = $"加载失败：{ex.Message}";
+                // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar。
+                ShowInstantTagFeedback(InfoBarSeverity.Error, "加载失败", ex.Message, []);
                 return;
             }
         }
@@ -2649,21 +2655,25 @@ public partial class MainViewModel : ObservableObject
         await LoadCurrentAsync();
     }
 
+    /// <summary>
+    /// 刷新当前图信息（原状态栏拼接串已随状态栏移除而删，2026-09-19）：负责文件名分段/chips 重建
+    /// 与单图详情右栏三个结构化信息行的写入。
+    /// </summary>
+    /// <param name="loaded">当前解码结果。</param>
+    /// <param name="displayPath">
+    /// 文件名分段与信息行的取值路径。同图改名后 loaded.Path 停留旧路径
+    ///（复用已解码结果不重建 LoadedImage），显示信息须按新路径计算（2026-09-19 管线修复）。
+    /// </param>
     private void UpdateStatusText(LoadedImage loaded, string? displayPath = null)
     {
-        // displayPath：状态行与文件名分段的取值路径。同图改名后 loaded.Path 停留旧路径
-        //（复用已解码结果不重建 LoadedImage），显示信息须按新路径计算（2026-09-19 管线修复）。
         var path = displayPath ?? loaded.Path;
 
-        // 先算文件名分段（2026-09-19 统一口径）：状态行“名称”用剥离标签段的显示名，
+        // 先算文件名分段（2026-09-19 统一口径）：显示名用剥离标签段的基名，
         // 与瀑布流卡片一致；完整名只在 tooltip（CurrentFileFullName）。
         UpdateFileNameSegments(path);
-        var displayName = CurrentImageDisplayName.Length > 0 ? CurrentImageDisplayName : Path.GetFileName(path);
 
         var sizeText = FormatFileSize(loaded.FileSizeBytes);
-        var dimensions = $"{loaded.PixelWidth}x{loaded.PixelHeight}";
-        var indexInfo = $"{_currentIndex + 1}/{_imageFiles.Count}";
-        StatusText = $"名称：{displayName} | 大小：{sizeText} | 尺寸：{dimensions} | 序号：{indexInfo}";
+
         // 单图详情右栏的结构化信息行（2026-09-19）：独立字段（非拼接串），OneWay 绑定各自刷新；
         // 值为纯文本（行标签「文件大小/像素尺寸/序号」由视图承担）。
         CurrentImageFileSizeText = sizeText;
@@ -2752,7 +2762,6 @@ public partial class MainViewModel : ObservableObject
         _currentLoaded = null;
         _fullResLoadedForCurrent = false;
         ClearFileNameSegments();
-        StatusText = string.Empty;
         RotationAngle = 0;
         _currentIndex = -1;
         _imageFiles.Clear();

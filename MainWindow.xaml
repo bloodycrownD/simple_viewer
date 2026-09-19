@@ -6,9 +6,11 @@
     xmlns:views="using:SimpleViewer.Views">
     <!-- 职责：主窗口壳（D14 双模式；2026-09-19 遮盖式布局重排）——画布层（最底、整窗恒定几何，
          承载单图 SingleImageView）+ chrome 遮盖层（工具栏 / 批量打标进度回执区 D13 InfoBar + ProgressBar /
-         左栏 + 图库区 / 状态栏）。遮盖语义：收展侧栏/右栏只改变遮盖范围、画布几何不变——
+         左栏 + 图库区）。遮盖语义：收展侧栏/右栏只改变遮盖范围、画布几何不变——
          图片位置不动、也不触发重解码（修“收展图片位移 + 首次闪”两问题；口径见 docs\apm\RULE.md 铁律②）。
-         图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。 -->
+         图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。
+         底部状态栏已整体移除（2026-09-19 用户实测反馈）：单图信息由右栏结构化行承载，
+         操作回执统一走 InfoBar（成功静默、失败弹出）。 -->
 
     <Grid x:Name="RootGrid" PreviewKeyDown="OnPreviewKeyDown" SizeChanged="OnRootGridSizeChanged">
         <!-- 画布层（最底、整窗）：几何恒定，仅窗口 resize 变化。放大保持画布层置底——
@@ -28,7 +30,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 工具栏（2026-09-19 左对齐重做：原 CommandBar 主命令默认右对齐，左上留出大块空白
@@ -116,44 +117,6 @@
             </ScrollViewer>
         </Border>
 
-        <!-- 批量打标进度/回执区（D13：主窗口内嵌 InfoBar，非 ContentDialog）：
-             批量进行中显示 ProgressBar 分批推进；成功一律静默不弹（2026-09-19 拍板——就地反馈已充分，
-             仅失败/警告弹终态回执，失败明细可滚动展开）；用户关闭经 TwoWay 写回 VM（下次操作重新打开） -->
-        <InfoBar
-            x:Name="MainInfoBar"
-            Grid.Row="1"
-            Margin="12,4"
-            IsClosable="True"
-            IsOpen="{x:Bind ViewModel.IsTagFeedbackOpen, Mode=TwoWay}"
-            Message="{x:Bind ViewModel.TagFeedbackMessage, Mode=OneWay}"
-            Severity="{x:Bind ViewModel.TagFeedbackSeverity, Mode=OneWay}"
-            Title="{x:Bind ViewModel.TagFeedbackTitle, Mode=OneWay}">
-            <StackPanel Spacing="4">
-                <ProgressBar
-                    Height="4"
-                    Maximum="1"
-                    Value="{x:Bind ViewModel.TagOperationProgress, Mode=OneWay}"
-                    Visibility="{x:Bind ViewModel.TagOperationProgressVisibility, Mode=OneWay}" />
-                <ScrollViewer
-                    MaxHeight="96"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto"
-                    Visibility="{x:Bind ViewModel.TagFeedbackDetailsVisibility, Mode=OneWay}">
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.TagFeedbackDetails, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
-                                <TextBlock
-                                    FontSize="12"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                    Text="{x:Bind}"
-                                    TextWrapping="Wrap" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-            </StackPanel>
-        </InfoBar>
-
         <Grid x:Name="MainAreaGrid" Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -199,7 +162,7 @@
 
             <!-- 内容区（遮盖式布局后仅承载图库视图；单图已移至画布层 CanvasLayer）。
                  放大置底（2026-09-19 用户拍板）：画布层恒置底，放大图片溢出被
-                 左栏/工具栏/状态栏等 chrome 遮盖属预期，不再整体提层。 -->
+                 左栏/工具栏等 chrome 遮盖属预期，不再整体提层。 -->
             <Grid x:Name="ContentAreaGrid" Grid.Column="1">
                 <Grid Visibility="{x:Bind ViewModel.GalleryVisibility, Mode=OneWay}">
                     <Grid.RowDefinitions>
@@ -365,23 +328,47 @@
             </Grid>
         </Grid>
 
-        <!-- 状态栏（demo #statusBar）：12px 次要色 + 上边线分隔。
-             遮盖式布局：作为 chrome 覆盖在画布底部之上（画布整窗铺满，图片底部可能被其遮住属预期）。 -->
-        <Border
-            x:Name="StatusBarRow"
-            Grid.Row="3"
-            Padding="16,7"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="0,1,0,0">
-            <TextBlock
-                FontSize="12"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                IsTextSelectionEnabled="True"
-                Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                TextTrimming="CharacterEllipsis"
-                TextWrapping="NoWrap" />
-        </Border>
+        <!-- 批量打标进度/回执区（D13：主窗口内嵌 InfoBar，非 ContentDialog）：
+             批量进行中显示 ProgressBar 分批推进；成功一律静默不弹（2026-09-19 拍板——就地反馈已充分，
+             仅失败/警告弹终态回执，失败明细可滚动展开）；用户关闭经 TwoWay 写回 VM（下次操作重新打开）。
+             位置注意（XamlCompiler bug 规避）：本块须位于 MainAreaGrid 之后——状态栏移除后若 MainAreaGrid
+             成为 ChromeLayer 最后一个子元素，WinAppSDK 1.6.240923002 的 XamlCompiler Pass1 会沉默崩溃
+             （退出码 1 无输出，MSB3073）；Grid 布局按 Grid.Row 定位，子元素顺序不影响布局，仅 z 序叠加
+             （InfoBar 在 Row1、MainAreaGrid 在 Row2，互不重叠，无视觉差异）。 -->
+        <InfoBar
+            x:Name="MainInfoBar"
+            Grid.Row="1"
+            Margin="12,4"
+            IsClosable="True"
+            IsOpen="{x:Bind ViewModel.IsTagFeedbackOpen, Mode=TwoWay}"
+            Message="{x:Bind ViewModel.TagFeedbackMessage, Mode=OneWay}"
+            Severity="{x:Bind ViewModel.TagFeedbackSeverity, Mode=OneWay}"
+            Title="{x:Bind ViewModel.TagFeedbackTitle, Mode=OneWay}">
+            <StackPanel Spacing="4">
+                <ProgressBar
+                    Height="4"
+                    Maximum="1"
+                    Value="{x:Bind ViewModel.TagOperationProgress, Mode=OneWay}"
+                    Visibility="{x:Bind ViewModel.TagOperationProgressVisibility, Mode=OneWay}" />
+                <ScrollViewer
+                    MaxHeight="96"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto"
+                    Visibility="{x:Bind ViewModel.TagFeedbackDetailsVisibility, Mode=OneWay}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.TagFeedbackDetails, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock
+                                    FontSize="12"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Text="{x:Bind}"
+                                    TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </InfoBar>
         </Grid>
     </Grid>
 </Window>

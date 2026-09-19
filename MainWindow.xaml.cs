@@ -68,12 +68,12 @@ public sealed partial class MainWindow : Window
         TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
         _ = ViewModel.InitializeTagSidebarAsync();
 
-        // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条/文件名栏）在 chrome 层
-        // 之下，顶部/底部可点区须让出工具栏+InfoBar/状态栏的实际行高（右栏收起按钮曾被工具栏
+        // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条）在 chrome 层
+        // 之下，顶部可点区须让出工具栏+InfoBar 的实际行高（右栏收起按钮曾被工具栏
         // 横行遮盖点不到）。各行 SizeChanged 汇总写入 VM，SingleImageView 订阅后调整浮层 Margin。
+        // 底部状态栏已移除（2026-09-19），底部避让链（BottomChromeHeight）随之整体删除。
         ToolBarRow.SizeChanged += OnChromeRowSizeChanged;
         MainInfoBar.SizeChanged += OnChromeRowSizeChanged;
-        StatusBarRow.SizeChanged += OnChromeRowSizeChanged;
 
         ConfigureWindowChrome();
         ApplySystemBackdrop();
@@ -82,13 +82,12 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// chrome 顶/底行尺寸变化（工具栏/InfoBar/状态栏）：汇总实际占位高度写入 VM，
-    /// 驱动画布层浮层的避让 Margin。InfoBar 行高含其上下 Margin（XAML 为 12,4 → 竖向共 8）。
+    /// chrome 顶行尺寸变化（工具栏/InfoBar）：汇总实际占位高度写入 VM，
+    /// 驱动画布层浮层的顶部避让 Margin。InfoBar 行高含其上下 Margin（XAML 为 12,4 → 竖向共 8）。
     /// </summary>
     private void OnChromeRowSizeChanged(object sender, SizeChangedEventArgs e)
     {
         ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + MainInfoBar.ActualHeight + 8;
-        ViewModel.BottomChromeHeight = StatusBarRow.ActualHeight;
     }
 
     /// <summary>
