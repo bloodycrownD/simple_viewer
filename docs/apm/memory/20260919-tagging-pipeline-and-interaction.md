@@ -104,3 +104,9 @@ user:
 
 assistant:
 敏捷项 tag-filter-select-model（a6f9274，trivial 豁免主代理直接实现，74/74 绿，实机走查三步通过）：侧栏标签筛选对齐卡片 Explorer 心智——无修饰=单选重置（Clear+Add，多选集下点击也替换）、**保留既有习惯**（当前唯一选中的标签再点=取消回全量——用户在移除清空筛选按钮时明确依赖二次点击取消，与图片"点已选卡保持"是刻意差异：筛选是状态可取消、选择集用于批量）、Ctrl+点击=加减选（原 toggle 收窄到 Ctrl）。实现：TagSidebarControl 补 IsControlKeyDown（照抄 WaterfallView 模式只判 Down）经 HandleChipTappedAsync 转发；ToggleTagFilterAsync 三分支；demo onChipClick 同语义。走查注意：CLI 直开无索引时筛选无处执行（ApplyTagFilterAsync 依赖 _indexService），须先开图库；侧栏行按钮 UIA 索引与标签文本有一格错位（点按钮落在下一行标签），按错位规律反推目标行。留痕 features/tag-filter-select-model prd+spec。
+
+user:
+合并到 master，然后我们对整个项目做一个完整的 CR。
+
+assistant:
+合并 b6b3e7c（--no-ff，92 文件 +14925 行）后执行 code-review-loop full：round1 三并行 review-scope（vm/views/services readonly 子代理），round2 review-full 全局维度（D/E/F/H-K）+fix-spec 逐条校验，末轮 trivial 豁免主代理直接增补。产出 cr-fix-spec.md（3854309，fix-spec-ready）：P0=0/P1=8/P2=17。P1 要点：扫描中重开图库竞态（ODE+状态覆盖+List 并发）、扫描中激活筛选渐进追加重复卡片、三段高亮死代码链、PRD 回车进单图未实现、卡片回收不释放缩略图/拖拽小图（5 万张内存无界）、卡片 Tapped 违反 RULE 硬约束（键盘/UIA 不可达）、EXIF 方向未计入宽高比（竖拍卡片比例错——高价值发现）、自然排序双实现无 parity 测试。P2 要点：OpenLibrary 错误处理/死代码清理×6/筛选状态机与 MasonryLayout 下沉 Core 补测/RebuildAsync Task.Run/SettingsService 迁移容错/260 边界>=/索引 Dispose 竞态/LIKE 转义测试/标签名非法字符校验/英文注释中文化。spec_deviations 7 项全闭合（AskUserQuestion 用户拍板：批量移除接受收窄、LastLibraryRoot 保留补记文档；其余有敏捷留痕）。C-orch 正面结论：打标四入口收敛两管线单点落盘、筛选单一事实源、计数单一源。open_questions 9 项待拍板（重命名部分失败口径/缓存键稳定性/thumbcache 容量等）。**fix-spec-ready 已达成待用户确认是否开工执行**（skill 终点是修复说明书，未改实现代码）。
