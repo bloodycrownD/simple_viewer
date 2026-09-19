@@ -83,8 +83,9 @@ public class TagFilenameServiceTests
     [Fact]
     public void T_TF_05_BuildNewPath_TooLongPath_ReturnsExplicitFailure()
     {
-        // 构造新路径必然超过 260 字符的源路径；无需真实文件（长度校验先于任何存在性检查），且不抛异常
-        var oldPath = @"C:\sv-tests\" + new string('长', 300) + ".jpg";
+        // Windows 260 字符口径单命中（2026-09-19 起与 Linux 255 字节口径双预检）：
+        // 目录用 ASCII 拼超长、组件名字节数控制在 255 以内（不先触发 Linux 口径，该口径见 T_TF_10）。
+        var oldPath = @"C:\sv-tests\" + new string('d', 250) + @"\photo.jpg";
 
         var result = _service.BuildNewPath(oldPath, new[] { "标签" });
 
@@ -92,6 +93,7 @@ public class TagFilenameServiceTests
         Assert.Null(result.NewFullPath);
         Assert.NotNull(result.Error);
         Assert.Contains("260", result.Error);
+        Assert.DoesNotContain("255", result.Error);
     }
 
     [Fact]
@@ -123,6 +125,77 @@ public class TagFilenameServiceTests
         Assert.True(result.Success);
         Assert.Null(result.Error);
         Assert.Equal(Path.Combine(temp.Path, "photo[风景].jpg"), result.NewFullPath);
+    }
+
+    // ------------------------------------------------- 文件名标签预算纯函数（Linux 255 UTF-8 字节口径，2026-09-19）
+
+    [Fact]
+    public void T_TF_08_TagFilenameBudget_ByteBudgetsForAsciiCjkAndMixed()
+    {
+        // 纯 ASCII：photo[ab].jpg = 13 字节，剩余预算 242
+        Assert.Equal("photo[ab].jpg", TagFilenameBudget.ComposeFileName("photo", ".jpg", new[] { "ab" }));
+        Assert.Equal(13, TagFilenameBudget.GetFileNameByteCount("photo", ".jpg", new[] { "ab" }));
+        Assert.Equal(242, TagFilenameBudget.GetRemainingBytes("photo", ".jpg", new[] { "ab" }));
+
+        // 中文标签（UTF-8 汉字 3 字节）：照片[风景].jpg = 6+1+6+1+4 = 18 字节，剩余 237
+        Assert.Equal(18, TagFilenameBudget.GetFileNameByteCount("照片", ".jpg", new[] { "风景" }));
+        Assert.Equal(237, TagFilenameBudget.GetRemainingBytes("照片", ".jpg", new[] { "风景" }));
+
+        // 混合：无标签时组件 = base + ext（照片.jpg = 6+4 = 10 字节）
+        Assert.Equal("照片.jpg", TagFilenameBudget.ComposeFileName("照片", ".jpg", Array.Empty<string>()));
+        Assert.Equal(10, TagFilenameBudget.GetFileNameByteCount("照片", ".jpg", Array.Empty<string>()));
+
+        // 多标签以单空格连接（与 Compose 同拼接规则，口径唯一来源）
+        Assert.Equal("a[b c].jpg", TagFilenameBudget.ComposeFileName("a", ".jpg", new[] { "b", "c" }));
+        Assert.Equal(10, TagFilenameBudget.GetFileNameByteCount("a", ".jpg", new[] { "b", "c" }));
+
+        // 预算内预检通过（返回 null）
+        Assert.Null(TagFilenameBudget.CheckFileNameBudget("photo", ".jpg", new[] { "ab" }));
+    }
+
+    [Fact]
+    public void T_TF_09_TagFilenameBudget_BoundaryAtExactly255Bytes()
+    {
+        // 恰好达界：方括号 2 字节 + 单标签 253 个 ASCII = 255 字节 → 剩余 0，预检通过
+        var exact = new string('a', 253);
+        Assert.Equal(255, TagFilenameBudget.GetFileNameByteCount("", "", new[] { exact }));
+        Assert.Equal(0, TagFilenameBudget.GetRemainingBytes("", "", new[] { exact }));
+        Assert.Null(TagFilenameBudget.CheckFileNameBudget("", "", new[] { exact }));
+
+        // 超界 1 字节：方括号 2 字节 + 254 个 ASCII = 256 字节 → 剩余 -1，预检拒绝并附超出字节数
+        var over = new string('a', 254);
+        Assert.Equal(-1, TagFilenameBudget.GetRemainingBytes("", "", new[] { over }));
+        var error = TagFilenameBudget.CheckFileNameBudget("", "", new[] { over });
+        Assert.NotNull(error);
+        Assert.Contains("255", error);
+        Assert.Contains("超出 1 字节", error);
+    }
+
+    [Fact]
+    public void T_TF_10_BuildNewPath_FileNameOver255Bytes_ReturnsExplicitFailure()
+    {
+        // Linux 255 字节口径单命中：组件名用汉字拼超 255 UTF-8 字节（图×90 = 270 字节），
+        // 全路径 UTF-16 字符数控制在 260 以内（Windows 口径不触发）——与 T_TF_05 双口径独立断言。
+        using var temp = new TempDirectory();
+        var oldPath = Path.Combine(temp.Path, new string('图', 90) + ".jpg");
+
+        var result = _service.BuildNewPath(oldPath, new[] { "标" });
+
+        Assert.False(result.Success);
+        Assert.Null(result.NewFullPath);
+        Assert.NotNull(result.Error);
+        Assert.Contains("255", result.Error);
+        Assert.DoesNotContain("260", result.Error);
+    }
+
+    [Fact]
+    public void T_TF_11_Compose_AndBudgetComposeFileName_ShareSingleRule()
+    {
+        // 拼接规则唯一来源回归：服务实例 Compose 与预算纯函数 ComposeFileName 输出一致
+        var tags = new[] { "风景", "已修" };
+        Assert.Equal(
+            _service.Compose("photo", ".jpg", tags),
+            TagFilenameBudget.ComposeFileName("photo", ".jpg", tags));
     }
 
     private sealed class TempDirectory : IDisposable

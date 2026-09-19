@@ -994,6 +994,24 @@ public partial class MainViewModel : ObservableObject
 
         var remove = tags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
 
+        // 打标方向预检文件名预算（即时拒绝，不进批量管线）：按互斥语义计算打标后的真实新标签集合，
+        // 组件名超 Linux 255 UTF-8 字节即拒绝并附超出字节数（批量入口由 BuildNewPath 双口径预检
+        // 拦截、失败明细自然带新文案；移除方向只减不加，天然不超，无需预检）。
+        if (!remove)
+        {
+            var newTags = TagSemantics.Apply(tags, group, tagName);
+            var budgetError = TagFilenameBudget.CheckFileNameBudget(baseName, extension, newTags);
+            if (budgetError is not null)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    "打标失败",
+                    budgetError + "可缩短标签名或改用更短的基名后重试。",
+                    []);
+                return;
+            }
+        }
+
         // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
         // 不在呈现集（如 CLI 直开）时构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
         var candidate = FindPresentedItemByPath(path) ?? new GalleryItem

@@ -168,12 +168,13 @@ public class TagServiceTests
     public async Task T_TG_07_TooLongNewPath_FailureAggregated()
     {
         using var temp = new TempDirectory();
-        // 源路径长度控制在 235 左右（< 260 可真实创建），打 30 字标签后新路径必然超 260
-        var nameLength = Math.Max(10, 235 - temp.Path.Length - ".jpg".Length);
-        var path = Path.Combine(temp.Path, new string('图', nameLength) + ".jpg");
+        // Windows 260 字符口径（2026-09-19 起与 Linux 255 字节口径双预检）：ASCII 文件名动态适配
+        // 临时目录深度——源路径可真实创建（< 260），打短标签后全路径必超 260，组件名 UTF-8 字节
+        // 控制在 255 以内（不先触发 Linux 口径，该口径见 T_TG_12）。
+        var nameLength = Math.Max(10, 254 - temp.Path.Length);
+        var path = Path.Combine(temp.Path, new string('a', nameLength) + ".jpg");
         File.WriteAllText(path, "x");
-        var longTag = new string('标', 30);
-        var group = MakeGroup(exclusive: false, longTag);
+        var group = MakeGroup(exclusive: false, "t");
 
         var result = await _service.ApplyTagAsync([path], group.Tags[0], group);
 
@@ -181,6 +182,31 @@ public class TagServiceTests
         var failure = Assert.Single(result.Failures);
         Assert.Equal(path, failure.Path);
         Assert.Contains("260", failure.Reason);
+        Assert.DoesNotContain("255", failure.Reason);
+        // 原文件原样保留
+        Assert.True(File.Exists(path));
+        Assert.Single(GetOnlyFileNames(temp.Path));
+    }
+
+    // ---------------------------------------------------------------- T-TG12：组件名超 Linux 255 字节拒绝（2026-09-19 标签预算）
+
+    [Fact]
+    public async Task T_TG_12_TooLongFileNameBytes_FailureAggregated()
+    {
+        using var temp = new TempDirectory();
+        // 组件名用汉字拼超 255 UTF-8 字节（图×90 = 270 字节 + .jpg = 274），全路径字符数
+        // 控制在 260 以内（Windows 口径不触发）——与 T_TG_07 双口径独立断言。
+        var path = Path.Combine(temp.Path, new string('图', 90) + ".jpg");
+        File.WriteAllText(path, "x");
+        var group = MakeGroup(exclusive: false, "标");
+
+        var result = await _service.ApplyTagAsync([path], group.Tags[0], group);
+
+        Assert.Equal(0, result.SucceededCount);
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(path, failure.Path);
+        Assert.Contains("255", failure.Reason);
+        Assert.DoesNotContain("260", failure.Reason);
         // 原文件原样保留
         Assert.True(File.Exists(path));
         Assert.Single(GetOnlyFileNames(temp.Path));

@@ -1,5 +1,6 @@
 // Responsibility: TagSpaces 文件名标签协议（base[t1 t2].ext）的解析/合成/标签名校验与重命名目标路径预检。
-// Invariants: 仅基名尾部完整方括号段视为标签；标签名不含任何空白字符与方括号；BuildNewPath 对可预期失败返回结果而非抛异常。
+// Invariants: 仅基名尾部完整方括号段视为标签；标签名不含任何空白字符与方括号；BuildNewPath 对可预期失败返回结果而非抛异常；
+//             长度双口径预检——Linux 组件名 255 UTF-8 字节（最严格平台）+ Windows 全路径 260 字符，拼接规则唯一来源在 TagFilenameBudget。
 // Call chain: TagService（Step 3 打标重命名）→ TryParse/Compose/BuildNewPath；ValidateTagName 规则与 SettingsService 标签组校验共用口径。
 
 namespace SimpleViewer.Services;
@@ -74,8 +75,8 @@ public sealed class TagFilenameService : ITagFilenameService
             }
         }
 
-        var tagSegment = tags.Count == 0 ? string.Empty : $"[{string.Join(' ', tags)}]";
-        return baseName + tagSegment + extension;
+        // 拼接规则唯一来源在 TagFilenameBudget.ComposeFileName（预算计算与实际合成共用同一口径）。
+        return TagFilenameBudget.ComposeFileName(baseName, extension, tags);
     }
 
     /// <inheritdoc />
@@ -125,7 +126,19 @@ public sealed class TagFilenameService : ITagFilenameService
         var newFileName = Compose(baseName, extension, newTags);
         var newFullPath = string.IsNullOrEmpty(directory) ? newFileName : Path.Combine(directory, newFileName);
 
-        // 长度校验先于存在性检查：超长路径无需也无法做可靠的存在性探测。
+        // 双口径长度预检（2026-09-19 标签预算），先于存在性检查：超长路径无需也无法做可靠的存在性探测。
+        // ① Linux 组件名 255 UTF-8 字节（最严格平台——UTF-8 汉字 3 字节，Windows 可创建的中文长名
+        //    无法向 Linux 同步/挂载；组件名 = base+[tags]+ext，不含目录）；
+        // ② Windows 全路径 260 UTF-16 字符（既有口径，保留）。双超限先报组件级（Linux 字节）。
+        var fileNameBytes = TagFilenameBudget.GetFileNameByteCount(baseName, extension, newTags);
+        if (fileNameBytes > TagFilenameBudget.MaxFileNameComponentBytes)
+        {
+            var exceededBytes = fileNameBytes - TagFilenameBudget.MaxFileNameComponentBytes;
+            return TagFilenamePathResult.Fail(
+                $"新文件名 {fileNameBytes} 字节超过 Linux 兼容上限 " +
+                $"{TagFilenameBudget.MaxFileNameComponentBytes} 字节（超出 {exceededBytes} 字节）。");
+        }
+
         if (newFullPath.Length > MaxPathLength)
         {
             return TagFilenamePathResult.Fail(
