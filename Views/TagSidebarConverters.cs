@@ -1,6 +1,7 @@
 // 职责：标签栏模板的 x:Bind 函数转换器（可复用静态函数绑定，cr/P2-8 从 TagSidebarControl.xaml.cs 拆出）——
 //       画刷随主题惰性初始化，仅 UI 线程访问；供 TagSidebarControl / TagCatalogDialog /
-//       MainWindow 筛选条 / SingleImageView 空态等多处 XAML 引用。
+//       MainWindow 筛选条 / TagFilterPanelControl（tag-filter-tree Step 5 筛选面板）/
+//       SingleImageView 空态等多处 XAML 引用。
 // 不变量：代码侧颜色一律走 IsDarkTheme 明暗双值（Application.Current.Resources 的 ThemeResource
 //         查找不认 RootGrid.RequestedTheme 运行时覆盖，深色模式会取回浅色主题画刷——RULE 主题约束）；
 //         IsDarkTheme 由 MainWindow.ApplyTheme 写入并触发侧栏/筛选条重建使 x:Bind 函数重新求值。
@@ -250,6 +251,122 @@ public static class TagSidebarConverters
         return new SolidColorBrush(
             Windows.UI.Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
     }
+
+    // ==================== 筛选面板配色（tag-filter-tree Step 5：demo filter.css 面板系列同构，IsDarkTheme 双值） ====================
+    // 色值基准 demo filter.css：深色 panel #2C2C2C / panel-2 #333333 / bg-2 #272727 / border #3D3D3D /
+    // text #F1F1F1 / text-2 #A8A8A8；浅色 panel #FFFFFF / panel-2 #F7F7F5 / bg-2 #FBFBFA /
+    // border #E2E1DF / text #1B1B1B / text-2 #5F5E5C。强调/红沿用系统强调色与 DangerColor。
+
+    /// <summary>筛选面板底色（demo --panel：面板本体与条件行 / 嵌套偶数层组卡片共用）。</summary>
+    public static Brush FilterPanelBackground()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            IsDarkTheme ? (byte)0x2C : (byte)0xFF,
+            IsDarkTheme ? (byte)0x2C : (byte)0xFF,
+            IsDarkTheme ? (byte)0x2C : (byte)0xFF));
+
+    /// <summary>面板次级底色（demo --panel-2：表达式预览区底）。</summary>
+    public static Brush FilterPanelSubtleBackground()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            IsDarkTheme ? (byte)0x33 : (byte)0xF7,
+            IsDarkTheme ? (byte)0x33 : (byte)0xF7,
+            IsDarkTheme ? (byte)0x33 : (byte)0xF5));
+
+    /// <summary>
+    /// 面板组卡片底色（demo .f-group-box 嵌套交替）：奇数层（根 / 第 3 层）= bg-2 感、
+    /// 偶数层（第 2 层）= panel 感——层级由底色交替增强，与左侧 accent 竖线共同分层。
+    /// </summary>
+    public static Brush FilterPanelGroupBackground(int depth)
+    {
+        var odd = depth % 2 == 1;
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFB : 0xFF)),
+            (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFB : 0xFF)),
+            (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFA : 0xFF))));
+    }
+
+    /// <summary>面板组卡片描边（demo --border）。</summary>
+    public static Brush FilterPanelGroupBorderBrush()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            IsDarkTheme ? (byte)0x3D : (byte)0xE2,
+            IsDarkTheme ? (byte)0x3D : (byte)0xE1,
+            IsDarkTheme ? (byte)0x3D : (byte)0xDF));
+
+    /// <summary>组卡片左侧 accent 竖线与标题强调（demo border-left 3px accent）。</summary>
+    public static Brush FilterPanelAccentBrush()
+    {
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(accent);
+    }
+
+    /// <summary>面板主文字色（demo --text）。</summary>
+    public static Brush FilterPanelTextForeground()
+        => TagRowNameForeground(isActive: true);
+
+    /// <summary>面板次要文字色（demo --text-2：组头前后缀 / 空态提示 / 计数）。</summary>
+    public static Brush FilterPanelSecondaryForeground()
+        => TagRowNameForeground(isActive: false);
+
+    /// <summary>面板强调淡底（demo --accent-soft：选中的全部/任一项 / 勾选行底）。</summary>
+    public static Brush FilterPanelAccentSoftBackground()
+    {
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            IsDarkTheme ? (byte)0x26 : (byte)0x1F, accent.R, accent.G, accent.B));
+    }
+
+    /// <summary>条件值 chip 底色（demo .val-chip）：普通 = accent 淡底；否定行（NotIn）= 红淡底。</summary>
+    public static Brush FilterPanelValueChipBackground(bool negated)
+    {
+        if (negated)
+        {
+            var danger = DangerColor();
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B));
+        }
+
+        return FilterPanelAccentSoftBackground();
+    }
+
+    /// <summary>条件值 chip 字色：普通 = accent；否定行 = 红。</summary>
+    public static Brush FilterPanelValueChipForeground(bool negated)
+        => negated ? DangerBrush() : FilterPanelAccentBrush();
+
+    /// <summary>面板中性淡底（demo .f-select / .val-add 的 panel-2 观感：未选中选项 / ＋ 标签按钮底）。</summary>
+    public static Brush FilterPanelChoiceRowBackground(bool isSelected)
+        => isSelected ? FilterPanelAccentSoftBackground() : TransparentBrush;
+
+    /// <summary>值选择行字色：勾选 = accent；未勾选 = 面板主文字。</summary>
+    public static Brush FilterPanelChoiceRowForeground(bool isSelected)
+        => isSelected ? FilterPanelAccentBrush() : FilterPanelTextForeground();
+
+    /// <summary>工具栏筛选按钮徽章底色（demo .cond-badge：accent 实底白字）。</summary>
+    public static Brush FilterToggleBadgeBackground() => FilterPanelAccentBrush();
+
+    /// <summary>工具栏筛选按钮徽章字色：白（accent 实底上恒白，双主题一致）。</summary>
+    public static Brush FilterToggleBadgeForeground() => WhiteBrush;
+
+    /// <summary>工具栏筛选按钮徽章可见性：有条件（&gt;0）才显示数字。</summary>
+    public static Visibility FilterBadgeVisibility(int count)
+        => count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 工具栏筛选按钮底色（demo .filter-toggle.active = accent-soft）：有条件 = 强调淡底；无 = 透明
+    /// （hover 反馈交还 GhostButtonStyle 模板叠加层）。
+    /// </summary>
+    public static Brush FilterToggleBackground(int count)
+        => count > 0 ? FilterPanelAccentSoftBackground() : TransparentBrush;
+
+    /// <summary>工具栏筛选按钮字色：有条件 = accent；无 = 面板主文字。</summary>
+    public static Brush FilterToggleForeground(int count)
+        => count > 0 ? FilterPanelAccentBrush() : FilterPanelTextForeground();
+
+    /// <summary>工具栏筛选按钮描边：有条件 = accent；无 = 透明（GhostButtonStyle 本无边框常态）。</summary>
+    public static Brush FilterToggleBorderBrush(int count)
+        => count > 0 ? FilterPanelAccentBrush() : TransparentBrush;
 
     /// <summary>
     /// 侧栏标题行「∅ 无标签」按钮底色（untagged-filter-entry）：激活 = 系统强调色淡底

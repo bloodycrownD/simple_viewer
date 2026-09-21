@@ -2,7 +2,8 @@
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
 //       打标管线（快捷键 / 拖拽卡片到标签行 / 单图详情右栏；2026-09-19 交互重构后侧栏点击不再打标）
 //       与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（tag-filter-tree：条件树单一内存求值 + 筛选条表达式段 chips/单删/命中统计/清空）、
+//       标签筛选（tag-filter-tree：条件树单一内存求值 + 筛选条表达式段 chips/单删/命中统计/清空 +
+//       筛选面板编辑入口 EditFilter——树编辑→互斥清 untagged→重应用集中一处管线，Step 5）、
 //       无标签筛选（与条件树互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
 //       单图详情右栏数据（结构化信息行 + 当前图标签 chips）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
@@ -1665,6 +1666,39 @@ public partial class MainViewModel : ObservableObject
             ApplyTagFilter();
         }
     }
+
+    // ==================== 筛选面板编辑入口（tag-filter-tree Step 5：薄包装集中一处，不动既有筛选逻辑） ====================
+
+    /// <summary>
+    /// 筛选面板树编辑统一管线（Step 5 集中入口，demo refreshAll 同构）：
+    /// <paramref name="editAction"/> 收到根组引用，在其闭包内完成本次树编辑
+    /// （TagFilterState 编辑函数 + 面板持有的节点引用定位目标）；
+    /// 编辑后统一互斥清无标签位（spec D4 反方向互斥）并 <see cref="ApplyTagFilter"/>
+    /// （chips / 侧栏 / 瀑布流 / 命中数一次到位，条件实时生效无应用按钮）。
+    /// 面板不得缓存根组引用绕过本管线改树（只读读取走 <see cref="ReadFilter"/>）。
+    /// </summary>
+    /// <param name="editAction">本次树编辑动作（参数 = 根组引用，仅闭包内使用）。</param>
+    public void EditFilter(Action<FilterGroupNode> editAction)
+    {
+        editAction(_filterRoot);
+        IsUntaggedFilterActive = false;
+        ApplyTagFilter();
+    }
+
+    /// <summary>
+    /// 筛选面板只读快照构建入口（面板 Rebuild 用）：<paramref name="readFunc"/> 收到根组引用
+    /// 仅做遍历读取（构建不可变渲染快照 / 判空）；树修改一律经 <see cref="EditFilter"/>。
+    /// </summary>
+    /// <typeparam name="T">读取结果类型。</typeparam>
+    /// <param name="readFunc">只读函数（参数 = 根组引用）。</param>
+    public T ReadFilter<T>(Func<FilterGroupNode, T> readFunc) => readFunc(_filterRoot);
+
+    /// <summary>
+    /// 筛选面板值选择候选快照（与侧栏 RebuildTagSidebar / TagCatalogDialog 同源）：
+    /// 配置组序列（组名 / 互斥标记 / 组内标签）+ 最近一次索引标签计数（_latestTagCounts）。
+    /// </summary>
+    public (IReadOnlyList<TagGroup> Groups, IReadOnlyDictionary<string, int> Counts) GetFilterTagChoices()
+        => (_settingsService?.Load().TagGroups ?? [], _latestTagCounts);
 
     /// <summary>
     /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
