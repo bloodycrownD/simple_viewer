@@ -81,3 +81,9 @@ user:
 assistant:
 两个都是真问题，已修复并实机验证（c92f9a8）：①**面板宽度**：根因是 WinUI Flyout 默认 FlyoutThemeMaxWidth=456（generic.xaml 实锤）把 UserControl Width=620 硬夹成 456 逻辑宽——Width 设了也没用；修法=Flyout.FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle（键已核实存在）覆盖 Min/MaxWidth=660（620+左右 FlyoutContentPadding 16×2+边框），UIA 实测 990 物理=660 逻辑@150% ✓；②**添加条件即"刷新页面"**：每次编辑无条件 ResetFrom 全量重建卡片 VM（缩略图重载）整墙闪跳+清选中集，加空条件（未选值恒真）也闪；修法=WaterfallViewModel.PresentsExactly 逐项路径比对，ApplyTagFilter 命中序列与当前呈现一致时跳过重置与清选。教训：dev-loop 的 verify 只覆盖编译+Core 单测，UI 实机层（spec qa:manual_user）没验就交付——**以后 UI 改动交付前至少用 UIA+截屏（scripts/filter-panel-verify.ps1 模式：AppActivate 绕前台锁开面板、UIA 量 bounds、CopyFromScreen 采证）做一轮实机自检**。走查方法论新坑：①code-behind 构造按钮 UIA Name 为空，定位用 AutomationId 或截图目检；②`-d` 是单图模式不触发扫描（复现图库要走 LastLibraryRoot 自动恢复：备份改 settings.json 启动后还原）；③SetForegroundWindow 有前台锁，WScript.Shell AppActivate 稳。遗留：用户走查日志有两条"UI 无响应≥15s"心跳告警（扫 F:\Pictures 245 张 + thumb:decode 后），疑似缩略图解码期 UI 忙碌，待用户确认是否可感卡顿再定是否修。
 
+user:
+二轮走查："宽度还得调整，scroll 遮挡住数字了"（附截图：矮窗口下垂直滚动条压住底部命中数字）。
+
+assistant:
+二轮修复并实机验证（7e677a4）：遮挡根因=**FlyoutPresenter 自带 ScrollViewer**——面板高于按钮下方可用空间时它给出贯穿面板全高的滚动条贴右缘，压住底部「命中 N/已发现 N」；修法三件套：①外层 ScrollViewer.VerticalScroll 禁用（FlyoutPresenterStyle Setter），滚动收进面板内部 TreeScroll（UserControl MaxHeight 640→520 收紧总高）；②面板加宽 660→700（底部操作行与条件行留裕）；③底部行右侧 Padding 让位双保险。顺带给 code-behind 关键按钮补 AutomationId（FilterAddCondButton/FilterAddGroupButton/FilterAddValueButton）解决 UIA 定位。矮窗口（900×520 逻辑，MoveWindow 模拟用户环境）实机验证：宽 1050 物理=700 逻辑 ✓、高度夹至可用空间、无贯穿滚动条、命中数字完整、值选择展开正常。WinUI Flyout 坑总结入 commit：MaxWidth 默认 456 夹宽 + 外层滚动条贯穿两坑都靠 FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle 解决。
+
