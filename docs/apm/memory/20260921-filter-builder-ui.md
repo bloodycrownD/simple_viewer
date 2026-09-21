@@ -93,3 +93,9 @@ user:
 assistant:
 三轮修复（3884de6）：①**✕ 大小丑**：MakeIconButton 用了 GhostButtonStyle（工具栏按钮样式 Padding 10,5），单字符 ✕ 被撑成 ~32x30 逻辑大块带默认底色——改 GhostIconButtonStyle（面板头部 ✕ 同款紧凑样式）+ FontSize 11/Padding 4,2，条件行尾/非根组头/值胶囊三处 ✕ 统一；UIA 实测 30x32 物理（≈20x21 逻辑）与切换按钮同量级。②**左 padding**：条件行 Padding 左 8→10、TreeScroll 左 10→12（用户纠正二轮"宽度问题"实为内容贴左——加宽 700 保留但真正缺的是层次内边距）。验证经验：视觉模型 CDN 间歇故障（Unable to download image），fallback=UIA BoundingRectangle 量按钮尺寸分布（自动化比视觉可靠，RULE 已有同类结论）。
 
+user:
+四轮走查（打回三轮修复）："你这改的没用啊，✕ 外部还有方框，这不扯淡吗？然后纵向 scroll 遮挡数字，你看不见吗？前面说了，和宽度无关，很显然是 scroll 的层级在列之上，导致的遮盖。"
+
+assistant:
+四轮修复（870087b），两根因都实锤：①**✕ 外部方框**=WinUI Button 系统焦点框（UseSystemFocusVisuals 默认开，点击/程序聚焦必现矩形框）+可能残留默认描边——面板全部按钮（5 个 code-behind 工厂 + XAML 3 处）统一 UseSystemFocusVisuals=false，图标类显式 BorderThickness=0；②**overlay 滚动条**：用户点破本质——WinUI 3 ScrollViewer 滚动条是悬浮 overlay（叠在内容之上、不占布局位），加宽度治不了，必须给内容列让位：TreeScroll 右 Padding 18、值选择展开区计数列右让 14，滚动条落在留白带内。实机截图+视觉模型验证三项全过（✕ 无框、计数/描边/命中数字无遮挡）。**教训入库：WinUI 视觉问题先想「焦点框/overlay 滚动条/hover 底色」三个隐形层，再谈布局尺寸；用户连续两轮说同一问题（scroll 遮挡）时，先复现用户原场景再改，别按自己推断的场景修。**
+
