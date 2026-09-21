@@ -105,3 +105,9 @@ user:
 assistant:
 左栏代码宽度（Width=280 锚点）从未被改——"变窄"实为筛选面板悬浮遮挡：筛选按钮被放在工具栏左侧（第 4 位），700 宽面板从那弹出直接盖住左栏大部。demo 的筛选按钮在工具栏右侧、flyout 右上弹出。五轮修复（2257ade）：①按钮挪到工具栏尾部（设置前）对齐 demo 形态；②Opening 动态收窄：窄窗按 RootGrid.ActualWidth-400 收面板宽（Clamp 420~660）+ FlyoutPresenterStyle 改代码动态构建（Min/Max 同步），矮窗 900x520 下面板收至 525 逻辑、左缘 365>左栏 280——左栏零遮挡。新坑两个：WinUI Window 无 ActualWidth（不继承 FrameworkElement，用 RootGrid.ActualWidth）；build.ps1 的 sln 级 restore 踩双 csproj 竞写时按 RULE 定向串行还原（Core 先 -nr:false → 主工程 RestoreRecursive=false 压轴 → 校验 assets 含 /win-x64 与 WinAppSDK → build --no-restore）。
 
+user:
+六轮走查："没修好，删除组还是被遮挡了，我觉得不如改成一个三点吧，点击三点显示一个菜单。同理标签也是三点。这样就避免了按钮多的问题。"
+
+assistant:
+按用户方案收敛（65161b4）：左栏组行 ＋⇄✎✕ 四连管理按钮与标签行 ✎✕ 双按钮各改为单「⋯」（U+22EF）+ Button.Flyout=MenuFlyout（MenuFlyoutItem Command 绑定同款命令：＋新建标签/⇄切换互斥兼容/✎重命名组/✕删除组；标签行 ✎重命名/✕删除）——按钮多导致的行尾拥挤与被面板浮层遮挡随单按钮化消除；悬停浮现机制保留。实机 UIA 验证（verify 脚本临时改 LastLibraryRoot 启动，只弹菜单不执行命令防动用户标签库配置）：⋯ 可 Invoke、四菜单项齐全；像素采样确认菜单深色底正常——**视觉模型第三次深浅主题误判**（说浅底白字，像素实测 R39-59 深色），RULE「颜色断言用像素采样」再+1。
+
