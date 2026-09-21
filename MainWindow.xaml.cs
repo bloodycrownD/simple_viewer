@@ -210,8 +210,34 @@ public sealed partial class MainWindow : Window
             ViewModel.CurrentMode = ViewerMode.Gallery;
         }
 
+        // 动态收窄（五轮走查修复）：面板上限 700 逻辑，窄窗口（900 逻辑窗 - 700 面板 = 200 < 左栏
+        // 280）时左缘会压住左栏标签行右端的计数徽章——按窗口可用宽收窄面板（保左栏完整 + 余量），
+        // 宽窗恢复 700 上限。面板 UserControl 宽与 FlyoutPresenter 宽同步（外壳=内容+左右
+        // FlyoutContentPadding 16×2 + 边框余量 40）。窗口宽取内容根（WinUI Window 无 ActualWidth）。
+        var panelWidth = Math.Clamp((int)(RootGrid.ActualWidth - 400), 420, 660);
+        _filterPanel.Width = panelWidth;
+        TagFilterFlyout.FlyoutPresenterStyle = BuildFilterFlyoutStyle(panelWidth + 40);
+
         _filterPanel.RequestedTheme = RootGrid.RequestedTheme;
         _filterPanel.RebuildAll();
+    }
+
+    /// <summary>
+    /// 构建筛选 Flyout 的 FlyoutPresenterStyle（五轮：宽度动态化，Opening 时按窗口宽重建）。
+    /// BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板；外层垂直滚动
+    /// 禁用不变（二轮修复：防贯穿全高的滚动条压底部命中数字）。
+    /// </summary>
+    private static Style BuildFilterFlyoutStyle(double width)
+    {
+        var style = new Style(typeof(FlyoutPresenter))
+        {
+            BasedOn = (Style)Microsoft.UI.Xaml.Application.Current.Resources["DefaultFlyoutPresenterStyle"],
+        };
+        style.Setters.Add(new Setter(FlyoutPresenter.MinWidthProperty, width));
+        style.Setters.Add(new Setter(FlyoutPresenter.MaxWidthProperty, width));
+        style.Setters.Add(new Setter(ScrollViewer.VerticalScrollBarVisibilityProperty, "Disabled"));
+        style.Setters.Add(new Setter(ScrollViewer.VerticalScrollModeProperty, ScrollMode.Disabled));
+        return style;
     }
 
     /// <summary>
