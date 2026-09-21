@@ -1,8 +1,8 @@
 ---
-date: 2026-09-21 14:00
-title: 复杂筛选器：设计稿三轮收敛 + spec 生成（tag-filter-tree）
-keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree
-abstract: 复杂筛选器全流程：demo 设计稿三轮收敛（字段体系砍掉→纯标签 in/not in + and/or 卡片嵌套、根组卡片化）→ 用户确认 → spec-generate 四路探索 → spec 落盘 features\tag-filter-tree\spec.md（8 Step、14 条 T_FT 用例、6 风险）。核心拍板：单一内存求值器（索引层零改动）、条件值存标签名、左栏点击=QuickAdd（推翻旧契约与 7 测试）、untagged 保留独立互斥、Flyout 非模态宿主（零先例，降级链 ContentDialog 壳）、不落盘、深度≤3 状态层强制。待用户确认 spec。
+date: 2026-09-21 23:40
+title: 复杂筛选器：设计稿三轮收敛 → spec → code-dev-loop dev-ready（tag-filter-tree）
+keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree, code-dev-loop, dev-ready
+abstract: 复杂筛选器全流程闭环：demo 设计稿三轮收敛（纯标签 in/not in + and/or 卡片嵌套）→ spec（8 Step、14 用例）→ code-dev-loop 9 波次 dev-ready（分支 feature/tag-filter-tree，b8b2511→302e648，107 测试全绿）。实现含条件树 Core、内存求值管线、Flyout 非模态面板、快捷键局部抑制、扫描竞态修补。open deviation 一项（两态切换按钮组 vs demo select 下拉）留用户实机走查拍板；Step 8 走查清单在 spec 与 iteration-state。
 ---
 
 user:
@@ -68,4 +68,10 @@ user:
 
 assistant:
 spec 已落盘 `docs\iterations\图片打标签与瀑布流浏览\features\tag-filter-tree\spec.md`（需求来源=设计稿+口述，非标准 PRD，已在正文注明）。8 个 Step（core 树模型→测试重写→求值管线→左栏/筛选条→面板 UI→非模态集成→全量验证→实机走查）、14 条 T_FT 测试用例、6 项风险（R1 Flyout 零先例为最大，降级链=值选择内联展开→面板换 ContentDialog 壳）、显式推翻清单（左栏三分支语义/无清空按钮拍板/OR 徽章）与不变清单（untagged 入口/不落盘/索引层/遮盖布局）。待用户确认 spec 后进实现（建议分支 feature/tag-filter-tree）。
+
+user:
+确认 spec，发起 code-dev-loop 实现。
+
+assistant:
+code-dev-loop 完成，**dev-ready**（分支 feature/tag-filter-tree，base b8b2511 → HEAD 302e648，9 波次 DAG 全 done、双 cr-func 均 func-ready）：①impl-core：TagFilterState 条件树（Evaluate/BuildExpression/编辑原语/QuickAdd/联动/MaxDepth=3）+ 测试重写 T_FT1~14（107 测试全绿）；②impl-pipeline：_filterRoot 状态收敛、ApplyTagFilter 三分支全内存化（SortKey 排序，索引层零改动）、筛选条表达式 chips+清空按钮、左栏 QuickAdd 终态；③impl-entry（trivial 主代理）：修饰键收口；④impl-panel：TagFilterPanelControl 卡片嵌套面板+工具栏⧩筛选按钮+Flyout+主题对齐，值选择走 R1 预案行内展开（嵌套 Flyout 会触发父级 light-dismiss）；⑤impl-integration：快捷键局部抑制（_filterFlyoutOpen）+单图入口对齐+**发现并修补真实竞态**（扫描中 _galleryItems 后台 Add 与 UI 筛选枚举的 List 版本冲突崩溃→锁内快照）。每波次 build.ps1+test 107 绿，终检死代码/XAML 硬约束/Core 边界/csproj 零改动全过。**open deviation 一项**：组头/条件行"全部/任一""包含任一/不包含任一"实现为两态切换按钮组而非 demo 的 select 下拉（语义等价，动机=Flyout 内二级 popup 主题风险），留用户实机走查拍板（还原点集中 BuildTwoStateSwitch/MakeSwitchOption）。Step 8 用户走查清单：demo 形态还原度、双主题、快捷键抑制体感、扫描中面板实时性、10 万级体感、拖拽打标回归。RULE.md Flyout 先例待实机双主题实证后落录。
 
