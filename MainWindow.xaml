@@ -8,7 +8,8 @@
          承载单图 SingleImageView）+ chrome 遮盖层（工具栏 / 批量打标进度回执区 D13 InfoBar + ProgressBar /
          左栏 + 图库区）。遮盖语义：收展侧栏/右栏只改变遮盖范围、画布几何不变——
          图片位置不动、也不触发重解码（修“收展图片位移 + 首次闪”两问题；口径见 docs\apm\RULE.md 铁律②）。
-         图库区：状态行 / 筛选条（Step 11：激活标签 chip 单删、OR 徽章、命中统计、一键清空）/ 瀑布流。
+         图库区：状态行 / 筛选条（tag-filter-tree：条件树表达式段 chips——条件胶囊（否定红）+ 且/或/括号
+         轻量文本、✕ 单删条件、命中统计、清空按钮）/ 瀑布流。
          底部状态栏已整体移除（2026-09-19 用户实测反馈）：单图信息由右栏结构化行承载，
          操作回执统一走 InfoBar（成功静默、失败弹出）。 -->
 
@@ -192,9 +193,10 @@
                             TextWrapping="NoWrap" />
                     </Border>
 
-                    <!-- 筛选条（Step 11，视觉对齐 demo #filterBar）：强调色 12% 透明底一行；
-                         OR 徽章 = 虚线描边胶囊；筛选 chip = 「组名：标签名」胶囊（组 hue 描边 + 淡底）+ ✕ 单删；
-                         右侧命中统计 + 一键清空；任一筛选激活时显示 -->
+                    <!-- 筛选条（tag-filter-tree，视觉对齐 demo #filterBar）：强调色 12% 透明底一行；
+                         chips = 条件树人话表达式段（demo exprChips 同构）——条件段胶囊（强调色描边 +
+                         淡底 + ✕ 删节点；NotIn 否定段红前景 + 「非」前缀文本）、且/或/括号段轻量灰文本；
+                         右侧命中统计 + 清空按钮（demo 形态）；任一筛选激活时显示 -->
                     <Border
                         Grid.Row="1"
                         Padding="16,8"
@@ -208,69 +210,61 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <!-- 左侧：OR 虚线徽章 + chip 列表（横向滚动） -->
+                            <!-- 左侧：表达式段 chips 列表（横向滚动） -->
                             <ScrollViewer
                                 Grid.Column="0"
                                 HorizontalScrollBarVisibility="Hidden"
                                 HorizontalScrollMode="Auto"
                                 VerticalScrollBarVisibility="Disabled"
                                 VerticalScrollMode="Disabled">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <!-- OR 徽章：Border 不支持虚线描边，用 Rectangle StrokeDashArray 实现 -->
-                                    <Grid
-                                        Padding="10,2"
-                                        VerticalAlignment="Center"
-                                        Visibility="{x:Bind ViewModel.OrBadgeVisibility, Mode=OneWay}">
-                                        <Rectangle
-                                            RadiusX="11"
-                                            RadiusY="11"
-                                            Stretch="Fill"
-                                            Stroke="{ThemeResource CardStrokeColorDefaultBrush}"
-                                            StrokeDashArray="4 2"
-                                            StrokeThickness="1" />
-                                        <TextBlock
-                                            FontSize="11"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="任一命中（OR）" />
-                                    </Grid>
-                                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.FilterChips, Mode=OneWay}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Orientation="Horizontal" Spacing="6" />
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:FilterChipViewModel">
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.FilterChips, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="6" />
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FilterChipViewModel">
+                                            <StackPanel Orientation="Horizontal">
+                                                <!-- 条件/无标签段：胶囊 + ✕ 单删 -->
                                                 <Border
                                                     Padding="10,2"
                                                     VerticalAlignment="Center"
-                                                    Background="{x:Bind views:TagSidebarConverters.FilterChipBackground(GroupName)}"
-                                                    BorderBrush="{x:Bind views:TagSidebarConverters.FilterChipBorderBrush(GroupName)}"
+                                                    Background="{x:Bind views:TagSidebarConverters.FilterChipBackground(Kind, Negated)}"
+                                                    BorderBrush="{x:Bind views:TagSidebarConverters.FilterChipBorderBrush(Kind, Negated)}"
                                                     BorderThickness="1"
-                                                    CornerRadius="999">
+                                                    CornerRadius="999"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.FilterChipCapsuleVisibility(Kind)}">
                                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                                         <TextBlock
                                                             VerticalAlignment="Center"
                                                             FontSize="12"
-                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(GroupName)}"
-                                                            Text="{x:Bind views:TagSidebarConverters.FilterChipText(GroupName, TagName)}" />
+                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(Kind, Negated)}"
+                                                            Text="{x:Bind Text}" />
                                                         <Button
                                                             Padding="3,0"
-                                                            Command="{x:Bind RemoveFilterCommand}"
+                                                            Command="{x:Bind RemoveCommand}"
                                                             Content="✕"
                                                             FontSize="12"
-                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(GroupName)}"
+                                                            Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(Kind, Negated)}"
                                                             Style="{StaticResource GhostIconButtonStyle}"
-                                                            ToolTipService.ToolTip="取消该筛选" />
+                                                            ToolTipService.ToolTip="移除该条件" />
                                                     </StackPanel>
                                                 </Border>
-                                            </DataTemplate>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
-                                </StackPanel>
+                                                <!-- 连接词/括号段：轻量文本（无胶囊） -->
+                                                <TextBlock
+                                                    VerticalAlignment="Center"
+                                                    FontSize="12"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.FilterChipForeground(Kind, Negated)}"
+                                                    Text="{x:Bind Text}"
+                                                    Visibility="{x:Bind views:TagSidebarConverters.FilterChipSegmentVisibility(Kind)}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
                             </ScrollViewer>
 
-                            <!-- 右侧：命中统计（demo .filter-right；「清空筛选」按钮已移除——
-                                 untagged-filter-entry 拍板：取消筛选路径 = 二次点击标签 / chip ✕ /
-                                 无标签按钮二次点击） -->
+                            <!-- 右侧：命中统计 + 清空（demo .filter-right 形态——tag-filter-tree 恢复清空入口：
+                                 表达式复杂后逐条删除不现实，推翻 untagged-filter-entry 期“移除清空按钮”旧拍板） -->
                             <StackPanel
                                 Grid.Column="1"
                                 VerticalAlignment="Center"
@@ -281,6 +275,11 @@
                                     FontSize="12"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     Text="{x:Bind ViewModel.FilterStatsText, Mode=OneWay}" />
+                                <Button
+                                    Command="{x:Bind ViewModel.ClearTagFilterCommand}"
+                                    Content="清空"
+                                    FontSize="12"
+                                    Style="{StaticResource GhostButtonStyle}" />
                             </StackPanel>
                         </Grid>
                     </Border>

@@ -7,7 +7,7 @@
 //         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
 // 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
-//         → MainViewModel.HandleTagChipTappedAsync（切换筛选；单图模式额外回切图库）。
+//         → MainViewModel.HandleTagChipTapped（快捷追加筛选；单图模式额外回切图库）。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;

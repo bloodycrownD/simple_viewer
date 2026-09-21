@@ -2,9 +2,8 @@
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
 //       打标管线（快捷键 / 拖拽卡片到标签行 / 单图详情右栏；2026-09-19 交互重构后侧栏点击不再打标）
 //       与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（OR 语义）与筛选条状态（chip/单删/命中统计，Step 11；「清空筛选」按钮已移除——
-//       取消筛选路径 = 二次点击标签 / chip ✕ / 无标签按钮二次点击，untagged-filter-entry）、
-//       无标签筛选（与标签筛选互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
+//       标签筛选（tag-filter-tree：条件树单一内存求值 + 筛选条表达式段 chips/单删/命中统计/清空）、
+//       无标签筛选（与条件树互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
 //       单图详情右栏数据（结构化信息行 + 当前图标签 chips）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
 //         单图翻页列表 = 进入单图时的瀑布流呈现集快照（Step 11：筛选态翻页在命中集内环绕循环）；
@@ -14,11 +13,13 @@
 //         批量打标分批走 TagService（内部 Task.Run），批间回 UI 线程推进 InfoBar 进度（D13）；成功不回滚；
 //         打标后就地同步（索引 ReplacePath + 卡片 VM UpdateFrom + 单图列表路径替换）——卡片 VM 实例不变，
 //         选中集引用天然保持（Step 10：打标后选中集不丢，路径换新）；
-//         标签筛选集与命中数在本类：筛选变化 → 索引 QueryByTagsAsync / QueryUntaggedAsync → 瀑布流整体替换
-//         （筛选态不渐进追加），取消筛选恢复扫描全量（不清空索引）；筛选条 chip（组名：标签名；
-//         无标签模式为「无标签」chip）随侧栏重建同步重建；无标签筛选与标签筛选互斥（点标签自动退出、
-//         激活无标签清空标签集），untagged-filter-entry；
-//         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         标签筛选条件树与命中数在本类（tag-filter-tree spec D1/D4，单一内存求值器）：
+//         筛选变化 → TagFilterState.Evaluate/MatchesUntagged 对 _galleryItems 全量谓词过滤 →
+//         命中按 SortKey 自然序排序后瀑布流整体替换（对齐原索引查询分支口径；索引层零改动，
+//         QueryByTagsAsync 留给 RenameFilesAsync 编辑候选集）；取消筛选恢复扫描全量（发现序，不清空索引）；
+//         扫描期间追加的块经同一谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         筛选条 chips = BuildExpression 表达式段形态（条件/且或/括号；untagged 激活时为「无标签」chip，
+//         与条件树互斥——任一方向激活清另一方）；重开图库清树（会话态不落盘）；
 //         重开图库先 Cancel + await 旧扫描任务再清资源（cr/P1-1），旧扫描迟到的 UI 回投经代次校验丢弃；
 //         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
@@ -37,6 +38,7 @@ using SimpleViewer.Models;
 using SimpleViewer.Services;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Windows.Input;
 
 namespace SimpleViewer.ViewModels;
 
@@ -100,13 +102,15 @@ public partial class MainViewModel : ObservableObject
     private int _lastViewportHeight;
     private bool _pendingDecodeSizeRefresh;
 
-    // 标签筛选集（标签名，OR 语义；命中数与筛选条 UI 属 Step 11，本步最小反馈见 GalleryStatusText）。
-    private readonly HashSet<string> _activeFilterTags = new(StringComparer.OrdinalIgnoreCase);
+    // 标签筛选条件树（tag-filter-tree spec D4：会话态不落盘、重开图库清空；初始空根 And）。
+    // 单棵可变树 + 编辑后全量重应用/重建 UI（demo refreshAll 同构）；「有有效条件」以
+    // CollectReferencedTags 非空判定（空 Values 条件 = 未启用不约束，不贡献引用）。
+    private readonly FilterGroupNode _filterRoot = new();
 
     /// <summary>
-    /// 「无标签」筛选是否激活（untagged-filter-entry，2026-09-19，与标签筛选互斥）：
-    /// 激活时瀑布流只显示无任何标签的图片（索引 QueryUntaggedAsync 整体替换）；
-    /// 点任何标签筛选自动退出本模式（ToggleTagFilterAsync 开头清位）。
+    /// 「无标签」筛选是否激活（untagged-filter-entry，与条件树互斥——spec D4）：
+    /// 激活时瀑布流只显示无任何标签的图片（内存谓词 MatchesUntagged）；
+    /// 树任何编辑（QuickAdd 成功/面板编辑入口）自动清本位；激活即清树（ToggleUntagged）。
     /// </summary>
     [ObservableProperty]
     private bool _isUntaggedFilterActive;
@@ -646,15 +650,14 @@ public partial class MainViewModel : ObservableObject
 
         _galleryItems.Clear();
         ClearCardSelection();
-        _activeFilterTags.Clear();
-        IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐标签筛选清空口径）
+        TagFilterState.Clear(_filterRoot); // 筛选会话态：重开图库清空（spec D4，不落盘）
+        IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐条件树清空口径）
         _latestTagCounts = new Dictionary<string, int>();
         _waterfall.ResetFrom([]);
         WaterfallEmptyText = string.Empty;
         IsScanning = true;
         ScanStatusText = "扫描中 · 已发现 0 张";
         OnPropertyChanged(nameof(FilterBarVisibility));
-        OnPropertyChanged(nameof(OrBadgeVisibility));
         OnPropertyChanged(nameof(FilterStatsText));
 
         // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）；
@@ -1025,7 +1028,7 @@ public partial class MainViewModel : ObservableObject
     private const int MaxFailureDetails = 20;
 
     /// <summary>
-    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选）：
+    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选；tag-filter-tree：QuickAdd 追加）：
     /// 单图模式下额外切回图库让筛选结果可见
     /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
     /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）。
@@ -1033,8 +1036,8 @@ public partial class MainViewModel : ObservableObject
     /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    /// <param name="ctrl">Ctrl 按下 = 加/减选（多标签 OR）；否则单选筛选（见 <see cref="ToggleTagFilterAsync"/>）。</param>
-    public async Task HandleTagChipTappedAsync(string tagName, bool ctrl)
+    /// <param name="ctrl">已废弃：QuickAdd 语义不区分修饰键（保留参数避免本步改动扩散到侧栏控件）。</param>
+    public void HandleTagChipTapped(string tagName, bool ctrl)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
@@ -1046,7 +1049,7 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        await ToggleTagFilterAsync(tagName, ctrl);
+        ToggleTagFilter(tagName, ctrl);
     }
 
     /// <summary>
@@ -1564,56 +1567,66 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义；Step 11：筛选条 UI；untagged-filter-entry：无标签筛选） ====================
+    // ==================== 标签筛选（tag-filter-tree：条件树单一内存求值 + 表达式段筛选条；untagged ∅ 独立位互斥） ====================
 
-    /// <summary>任一筛选是否激活（标签集非空或无标签模式；筛选条可见性与扫描追加块过滤依据）。</summary>
-    public bool HasAnyFilter => _activeFilterTags.Count > 0 || IsUntaggedFilterActive;
+    /// <summary>任一筛选是否激活（条件树有有效条件或无标签模式；筛选条可见性与扫描追加块过滤依据）。
+    /// 「树有有效条件」= CollectReferencedTags 非空（空 Values 条件 = 未启用，不约束不计数）。</summary>
+    public bool HasAnyFilter
+        => TagFilterState.CollectReferencedTags(_filterRoot).Count > 0 || IsUntaggedFilterActive;
+
+    /// <summary>条件树当前条件行数（含未启用行；BuildExpression 条件段计数，工具栏徽章 Step 5 接线用）。</summary>
+    public int ActiveConditionCount
+        => TagFilterState.BuildExpression(_filterRoot).OfType<CondSegment>().Count();
 
     /// <summary>
-    /// 瀑布流追加块的筛选谓词（薄包装，状态机下沉 Core——cr/P2-3）：
-    /// 无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。
+    /// 瀑布流追加块的筛选谓词（spec D1 单一求值器：筛选应用与扫描追加块过滤共用同一树求值）：
+    /// 无标签态 = MatchesUntagged；否则条件树 Evaluate（无有效条件时树恒真 = 全过，等价不过滤）。
     /// </summary>
     public bool MatchesTagFilter(GalleryItem item)
-        => TagFilterState.Matches(item.Tags, _activeFilterTags, IsUntaggedFilterActive);
-
-    /// <summary>当前激活的筛选标签集快照（侧栏 chip 高亮依据）。</summary>
-    public IReadOnlyCollection<string> ActiveFilterTags => _activeFilterTags;
+        => IsUntaggedFilterActive
+            ? TagFilterState.MatchesUntagged(item.Tags)
+            : TagFilterState.Evaluate(_filterRoot, item.Tags);
 
     /// <summary>从最近一次计数快照取指定标签计数（编辑对话框影响张数）。</summary>
     public int GetTagCount(string tagName)
         => _latestTagCounts.TryGetValue(tagName, out var count) ? count : 0;
 
-    /// <summary>筛选条 chip 集合（激活标签；随筛选集/配置组变化全量重建，UI 线程）。</summary>
+    /// <summary>筛选条 chip 集合（表达式段形态；随筛选态/配置组变化全量重建，UI 线程）。</summary>
     public ObservableCollection<FilterChipViewModel> FilterChips { get; } = [];
 
-    /// <summary>筛选条可见性（任一筛选激活——标签或无标签；Step 11）。</summary>
+    /// <summary>筛选条可见性（任一筛选激活——条件树或无标签）。</summary>
     public Visibility FilterBarVisibility =>
         HasAnyFilter ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>多标签 OR 语义徽章可见性（两个及以上激活标签）。</summary>
-    public Visibility OrBadgeVisibility =>
-        _activeFilterTags.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>筛选统计文本：命中 X / 已发现 Y 张（命中 = 当前呈现数；已发现 = 扫描全量暂存数）。</summary>
     public string FilterStatsText =>
         $"命中 {_waterfall.Items.Count} / 已发现 {_galleryItems.Count} 张";
 
-    /// <summary>移除单个筛选标签（筛选条 chip 的 ✕；Step 11 单删）。</summary>
-    public async Task RemoveTagFilterAsync(string tagName)
+    /// <summary>删除单个条件行（筛选条条件 chip 的 ✕；按节点引用删除，RemoveNode）。</summary>
+    private void RemoveTagFilter(FilterConditionNode node)
     {
-        if (!string.IsNullOrWhiteSpace(tagName) && _activeFilterTags.Remove(tagName))
+        if (TagFilterState.RemoveNode(_filterRoot, node))
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
+    }
+
+    /// <summary>清空全部筛选（筛选条右侧「清空」按钮，demo 形态）：条件树清空 + 无标签位复位回全量。</summary>
+    [RelayCommand]
+    private void ClearTagFilter()
+    {
+        TagFilterState.Clear(_filterRoot);
+        IsUntaggedFilterActive = false;
+        ApplyTagFilter();
     }
 
     /// <summary>
     /// 切换「无标签」筛选（untagged-filter-entry；侧栏标题行 ∅ 按钮入口）：
-    /// 激活 = 清空标签筛选（互斥）并只显示无任何标签的图片；再点取消回全量。
-    /// 单图模式下先切回图库让筛选结果可见（对齐 HandleTagChipTappedAsync 行为）。
+    /// 激活 = 清空条件树（互斥）并只显示无任何标签的图片；再点取消回全量。
+    /// 单图模式下先切回图库让筛选结果可见（对齐 HandleTagChipTapped 行为）。
     /// </summary>
     [RelayCommand]
-    private async Task ToggleUntaggedFilterAsync()
+    private void ToggleUntaggedFilter()
     {
         if (_isTagOperationRunning)
         {
@@ -1625,75 +1638,66 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        // 状态机语义下沉 Core（cr/P2-3）：激活 = 清空标签筛选（互斥清集）；再点取消回全量。
-        var (untoggledTags, untagged) = TagFilterState.ToggleUntagged(_activeFilterTags, IsUntaggedFilterActive);
-        WriteFilterState(untoggledTags, untagged);
+        // 状态机语义（TagFilterState.ToggleUntagged）：未激活 → 激活 = 互斥清树；
+        // 已激活 → 再点关闭回全量（激活期间树恒被清空，无需恢复）。
+        IsUntaggedFilterActive = TagFilterState.ToggleUntagged(_filterRoot, IsUntaggedFilterActive);
 
-        await ApplyTagFilterAsync();
+        ApplyTagFilter();
     }
 
     /// <summary>
-    /// 点击侧栏标签 = 筛选（2026-09-19 对齐卡片 Explorer 心智）：
-    /// 无修饰 = 单选重置（替换为该标签；当前唯一选中就是它时再点 = 取消回全量，保留既有习惯）；
-    /// Ctrl+点击 = 加/减选切换（多标签 OR 语义）。
-    /// 与「无标签」筛选互斥（拍板）：点任何标签筛选自动退出无标签模式。
-    /// 筛选态下瀑布流只显示命中（索引 QueryByTags 全量命中集整体替换，不渐进追加）；
-    /// 命中数经筛选条反馈（Step 11）。
+    /// 点击侧栏标签 = 快捷追加筛选条件（tag-filter-tree，demo addQuickCond 拍板语义）：
+    /// 往根组追加一条单值 in 条件；根组 Or 且已有单值 in 行则合并进该行；
+    /// 已存在含该值的 in 条件（全树）则忽略（返回 false 静默——「已在筛选中」）。
+    /// 旧三分支语义（单选重置/Ctrl 加减选/唯一选中再点取消）随条件树化废弃，
+    /// ctrl 参数仅保签名兼容保留（Step 4 左栏接线时收口），一律不特殊处理。
     /// </summary>
-    public async Task ToggleTagFilterAsync(string tagName, bool ctrl = false)
+    /// <param name="tagName">标签名。</param>
+    /// <param name="ctrl">已废弃：不再区分修饰键（保留参数避免本步改动扩散到侧栏控件）。</param>
+    public void ToggleTagFilter(string tagName, bool ctrl = false)
     {
         if (string.IsNullOrWhiteSpace(tagName))
         {
             return;
         }
 
-        // 状态机语义下沉 Core（cr/P2-3，零行为变化）：互斥清位 / Ctrl 加减选 /
-        // 唯一选中再点取消 / 无修饰单选重置，语义详见 TagFilterState.Toggle。
-        var (tags, untagged) = TagFilterState.Toggle(_activeFilterTags, IsUntaggedFilterActive, tagName, ctrl);
-        WriteFilterState(tags, untagged);
-
-        await ApplyTagFilterAsync();
-    }
-
-    /// <summary>
-    /// 写回筛选状态机结果（cr/P2-3）：集合原位替换——_activeFilterTags 实例引用保持稳定
-    /// （侧栏重建 / chip 高亮持有同一 HashSet）；无标签位经属性 setter 走既有变更通知。
-    /// </summary>
-    private void WriteFilterState(IEnumerable<string> tags, bool untagged)
-    {
-        _activeFilterTags.Clear();
-        foreach (var tag in tags)
+        if (TagFilterState.QuickAdd(_filterRoot, tagName))
         {
-            _activeFilterTags.Add(tag);
+            // 树编辑成功：互斥清无标签位（spec D4 反方向互斥由本类持有该标志实现）。
+            IsUntaggedFilterActive = false;
+            ApplyTagFilter();
         }
-
-        IsUntaggedFilterActive = untagged;
     }
 
     /// <summary>
     /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
-    /// 三分流（untagged-filter-entry）：无标签 → QueryUntaggedAsync；标签集非空 → QueryByTagsAsync；否则全量。
+    /// 三分支全内存化（spec D1，索引层零改动）：无标签 → MatchesUntagged 谓词；
+    /// 树有有效条件 → Evaluate 谓词；否则全量（发现序）。命中结果按 SortKey 自然序排序
+    /// （对齐原索引查询分支口径；GalleryItemNaturalComparer 与索引查询同款）。
     /// </summary>
-    private async Task ApplyTagFilterAsync()
+    private void ApplyTagFilter()
     {
-        if (_indexService is not null && IsUntaggedFilterActive)
+        ClearCardSelection();
+
+        // 本地函数：命中集按自然序排序后整体替换（两筛选分支共用）。
+        void ResetWithHits(IEnumerable<GalleryItem> hits)
         {
-            var hits = await _indexService.QueryUntaggedAsync();
-            ClearCardSelection();
-            _waterfall.ResetFrom(hits);
-            WaterfallEmptyText = hits.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
+            var ordered = hits.OrderBy(static i => i, GalleryItemNaturalComparer.Instance).ToList();
+            _waterfall.ResetFrom(ordered);
+            WaterfallEmptyText = ordered.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
         }
-        else if (_indexService is not null && _activeFilterTags.Count > 0)
+
+        if (IsUntaggedFilterActive)
         {
-            var hits = await _indexService.QueryByTagsAsync([.. _activeFilterTags]);
-            ClearCardSelection();
-            _waterfall.ResetFrom(hits);
-            WaterfallEmptyText = hits.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
+            ResetWithHits(_galleryItems.Where(i => TagFilterState.MatchesUntagged(i.Tags)));
+        }
+        else if (TagFilterState.CollectReferencedTags(_filterRoot).Count > 0)
+        {
+            ResetWithHits(_galleryItems.Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags)));
         }
         else
         {
-            // 无筛选（或尚未建立索引）：回到扫描全量（发现顺序，D15）。
-            ClearCardSelection();
+            // 无有效条件：回到扫描全量（发现顺序，D15）。
             _waterfall.ResetFrom(_galleryItems);
             WaterfallEmptyText = HasGallery && _galleryItems.Count == 0 && !IsScanning
                 ? "未在所选目录发现图片"
@@ -1740,12 +1744,14 @@ public partial class MainViewModel : ObservableObject
     {
         var configGroups = _settingsService?.Load().TagGroups ?? [];
         var counts = _latestTagCounts;
-        var filters = _activeFilterTags;
+        // 侧栏高亮 = 条件树引用标签快照（spec D4：CollectReferencedTags，OrdinalIgnoreCase 集合，
+        // 侧栏 Rebuild 的 Contains 判定直接可用；全量重建惯例——不持有树内集合引用）。
+        var filters = TagFilterState.CollectReferencedTags(_filterRoot);
 
         void Rebuild()
         {
             var tagHuesChanged = TagSidebar.Rebuild(configGroups, counts, filters);
-            RebuildFilterChips(configGroups);
+            RebuildFilterChips();
 
             if (tagHuesChanged)
             {
@@ -1774,40 +1780,51 @@ public partial class MainViewModel : ObservableObject
     public void RefreshThemeDependentVisuals() => RebuildTagSidebar();
 
     /// <summary>
-    /// 重建筛选条 chip 集合（Step 11）：激活标签 → 「组名：标签名」chip + 单删命令；
-    /// 呈现顺序按组名 + 标签名稳定排序（筛选集为 HashSet，需确定序）。仅在 UI 线程调用。
-    /// 2026-09-19 口径：_activeFilterTags 不落盘且激活入口仅剩侧栏配置组行（未分组筛选入口
-    /// 已随虚拟组移除），标签必属配置组、组名恒可解析；查不到组（配置被外部修改的防御）时
-    /// 组名段为空串，chip 显示「：标签名」（理论不可达）。
-    /// untagged-filter-entry：无标签模式激活时在最前插入「无标签」chip（与标签筛选互斥，
-    /// 两者不同时存在），✕ = 再点取消（绑 ToggleUntaggedFilterCommand；组名空串，
-    /// 文本/颜色转换器按空组名特判——FilterChipText 只显示「无标签」、chip 颜色取中性灰）。
+    /// 重建筛选条 chip 集合（tag-filter-tree：表达式段形态，demo exprChips 同构）：
+    /// 条件段 = 「标签：a / b」胶囊（否定 NotIn 加「非」前缀 + 红前景，✕ 删该条件节点）；
+    /// 连接词段「且/或」与括号段「( )」为轻量文本；均在 UI 线程调用。
+    /// 空值条件仍产段（「标签：未选」——面板可见可再赋值，demo 同构）。
+    /// untagged：无标签模式激活时在最前插入「无标签」chip（与条件树互斥，两者不同时存在），
+    /// ✕ = 再点取消（绑 ToggleUntaggedFilterCommand）。
     /// </summary>
-    private void RebuildFilterChips(List<TagGroup> configGroups)
+    private void RebuildFilterChips()
     {
         FilterChips.Clear();
         if (IsUntaggedFilterActive)
         {
-            FilterChips.Add(new FilterChipViewModel(
-                string.Empty,
-                "无标签",
-                ToggleUntaggedFilterCommand));
+            FilterChips.Add(FilterChipViewModel.Untagged(ToggleUntaggedFilterCommand));
         }
 
-        foreach (var tagName in _activeFilterTags
-                     .OrderBy(t => t, StringComparer.CurrentCulture))
+        foreach (var segment in TagFilterState.BuildExpression(_filterRoot))
         {
-            var groupName = configGroups
-                .FirstOrDefault(g => g.Tags.Any(t =>
-                    string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
-                ?.Name ?? string.Empty;
-            FilterChips.Add(new FilterChipViewModel(
-                groupName,
-                tagName,
-                new AsyncRelayCommand(() => RemoveTagFilterAsync(tagName))));
+            switch (segment)
+            {
+                case CondSegment cond:
+                    FilterChips.Add(FilterChipViewModel.Condition(
+                        cond.Node,
+                        CondChipText(cond),
+                        cond.Negated,
+                        new RelayCommand(() => RemoveTagFilter(cond.Node))));
+                    break;
+                case OpSegment op:
+                    FilterChips.Add(FilterChipViewModel.Op(op.Op));
+                    break;
+                case ParenSegment paren:
+                    FilterChips.Add(FilterChipViewModel.Paren(paren.Open));
+                    break;
+            }
         }
 
-        OnPropertyChanged(nameof(OrBadgeVisibility));
+        OnPropertyChanged(nameof(ActiveConditionCount));
+    }
+
+    /// <summary>条件 chip 文本（demo chipLabel 同构）：「标签：a / b」，空值集显示「未选」，否定加「非」前缀。</summary>
+    private static string CondChipText(CondSegment segment)
+    {
+        var label = segment.Values.Count == 0
+            ? "标签：未选"
+            : $"标签：{string.Join(" / ", segment.Values)}";
+        return segment.Negated ? $"非 {label}" : label;
     }
 
     // ==================== 标签/组编辑执行（Step 9：TagEditDialog 的执行委托） ====================
@@ -1937,6 +1954,11 @@ public partial class MainViewModel : ObservableObject
             return renameResult; // 整体拒绝。
         }
 
+        // 筛选树联动（tag-filter-tree 新增能力）：树内旧名引用统一改新拼写，有改动则重应用筛选
+        // （旧 HashSet 时代无此联动——重命名后筛选集残留旧名静默失效，条件树化后按名联动收口）。
+        var filterChanged = TagFilterState.RenameTagReferences(
+            _filterRoot, request.TagName, input.Name);
+
         // 原「未分组标签重命名 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
         // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
         if (group is not null && tag is not null)
@@ -1946,6 +1968,11 @@ public partial class MainViewModel : ObservableObject
             {
                 return saveError;
             }
+        }
+
+        if (filterChanged)
+        {
+            ApplyTagFilter();
         }
 
         return null;
@@ -1971,8 +1998,9 @@ public partial class MainViewModel : ObservableObject
             return deleteResult; // 整体拒绝（如被快捷键绑定引用）。
         }
 
-        // 筛选集清理：已删除的标签不再可筛选（在筛选集中则重查）。
-        var filterChanged = _activeFilterTags.Remove(request.TagName);
+        // 筛选树联动：已删除的标签引用全树移除（被清空条件保留为未启用恒真行），
+        // 有改动则重应用筛选（命中集可能变化）。
+        var filterChanged = TagFilterState.RemoveTagReferences(_filterRoot, request.TagName);
 
         // 原「未分组标签显式删除 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
         // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
@@ -1988,7 +2016,7 @@ public partial class MainViewModel : ObservableObject
 
         if (filterChanged)
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         return null;
@@ -2017,10 +2045,11 @@ public partial class MainViewModel : ObservableObject
             return deleteResult;
         }
 
+        // 筛选树联动：组内全部标签的引用逐一移除（RemoveTagReferences 幂等，聚合有改动标记）。
         var filterChanged = false;
         foreach (var tagName in groupTagNames)
         {
-            filterChanged |= _activeFilterTags.Remove(tagName);
+            filterChanged |= TagFilterState.RemoveTagReferences(_filterRoot, tagName);
         }
 
         settings.TagGroups.Remove(group);
@@ -2032,7 +2061,7 @@ public partial class MainViewModel : ObservableObject
 
         if (filterChanged)
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         return null;
@@ -2417,10 +2446,10 @@ public partial class MainViewModel : ObservableObject
                 await _indexService.RemovePathAsync(path);
             }
 
-            // 扫描计数文案同步（ApplyTagFilterAsync 只重建瀑布流不刷新 ScanStatusText，
+            // 扫描计数文案同步（ApplyTagFilter 只重建瀑布流不刷新 ScanStatusText，
             // 否则状态栏残留删除前的"共 N 张"）。
             ScanStatusText = $"共 {_galleryItems.Count} 张";
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         await RemoveCurrentImageAfterFileOperationAsync();
@@ -2934,25 +2963,74 @@ public partial class MainViewModel : ObservableObject
     }
 }
 
+/// <summary>筛选条 chip 形态（tag-filter-tree）：条件段 / 连接词段 / 括号段 / 无标签独立 chip。</summary>
+public enum FilterChipKind
+{
+    /// <summary>无标签 chip（untagged ∅ 独立入口激活时插最前）。</summary>
+    Untagged,
+
+    /// <summary>条件段（人话表达式的一个条件行，✕ 删该节点）。</summary>
+    Condition,
+
+    /// <summary>连接词段（且 / 或）。</summary>
+    Op,
+
+    /// <summary>括号段（左 / 右，非根多部件组包裹）。</summary>
+    Paren,
+}
+
 /// <summary>
-/// 筛选条 chip 展示模型（spec Step 11）：「组名：标签名」+ 单删命令。
+/// 筛选条 chip 展示模型（tag-filter-tree，demo exprChips 同构）：BuildExpression 段序列的
 /// 不可变快照，经 MainViewModel.RebuildFilterChips 全量重建（对齐侧栏 chip 惯例）。
+/// 条件 chip 文本「标签：a / b」（否定 NotIn 加「非」前缀，UI 渲染红前景），✕ 按节点引用删除；
+/// 连接词/括号段为轻量文本（无 ✕、无胶囊底）。
 /// </summary>
 public sealed class FilterChipViewModel
 {
-    public FilterChipViewModel(string groupName, string tagName, IAsyncRelayCommand removeFilterCommand)
+    private FilterChipViewModel(FilterChipKind kind, string text, bool negated)
     {
-        GroupName = groupName;
-        TagName = tagName;
-        RemoveFilterCommand = removeFilterCommand;
+        Kind = kind;
+        Text = text;
+        Negated = negated;
     }
 
-    /// <summary>标签所属组显示名（激活筛选标签必属配置组；配置被外部修改的防御场景为空串）。</summary>
-    public string GroupName { get; }
+    /// <summary>「无标签」chip（untagged 激活时插最前；✕ = 再点取消）。</summary>
+    public static FilterChipViewModel Untagged(ICommand toggleCommand)
+        => new(FilterChipKind.Untagged, "无标签", negated: false)
+        {
+            RemoveCommand = toggleCommand,
+        };
 
-    /// <summary>标签名。</summary>
-    public string TagName { get; }
+    /// <summary>条件段 chip：文本「标签：a / b」（demo chipLabel 同构；空值集显示「标签：未选」），
+    /// 否定段加「非」前缀；✕ 删除 <paramref name="node"/> 引用的条件行。</summary>
+    public static FilterChipViewModel Condition(
+        FilterConditionNode node, string text, bool negated, ICommand removeCommand)
+        => new(FilterChipKind.Condition, text, negated)
+        {
+            Node = node,
+            RemoveCommand = removeCommand,
+        };
 
-    /// <summary>单删命令（从筛选集移除该标签并刷新瀑布流）。</summary>
-    public IAsyncRelayCommand RemoveFilterCommand { get; }
+    /// <summary>连接词段：And → 「且」、Or → 「或」。</summary>
+    public static FilterChipViewModel Op(FilterOp op)
+        => new(FilterChipKind.Op, op == FilterOp.And ? "且" : "或", negated: false);
+
+    /// <summary>括号段：左「(」/ 右「)」。</summary>
+    public static FilterChipViewModel Paren(bool open)
+        => new(FilterChipKind.Paren, open ? "(" : ")", negated: false);
+
+    /// <summary>chip 形态（决定 XAML 模板渲染分支：胶囊 + ✕ 或轻量文本）。</summary>
+    public FilterChipKind Kind { get; }
+
+    /// <summary>chip 文本（条件/无标签完整文本；且/或/括号单字符或双字）。</summary>
+    public string Text { get; }
+
+    /// <summary>否定段（条件 NotIn）：UI 渲染红前景。</summary>
+    public bool Negated { get; }
+
+    /// <summary>条件 chip 的源条件节点（快照渲染下编辑后整体重建，引用恒有效；其余形态为 null）。</summary>
+    public FilterConditionNode? Node { get; private init; }
+
+    /// <summary>条件 chip 的 ✕ 删除命令（无标签 chip 为取消命令；且/或/括号段为 null）。</summary>
+    public ICommand? RemoveCommand { get; private init; }
 }

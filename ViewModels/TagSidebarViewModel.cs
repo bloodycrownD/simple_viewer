@@ -10,7 +10,7 @@
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
 //         落盘/索引/配置持久化统一在 MainViewModel.ExecuteTagEditAsync。
 // 调用链：MainViewModel.RefreshTagDataAsync → TagSidebarViewModel.Rebuild → TagSidebarControl（绑定）；
-//         chip 点击 → TagSidebarControl.OnChipClicked → HandleChipTappedAsync → MainViewModel.HandleTagChipTappedAsync；
+//         chip 点击 → TagSidebarControl.OnChipClicked → HandleChipTappedAsync → MainViewModel.HandleTagChipTapped；
 //         chip/组命令 → TagEditRequest → MainWindow.ShowTagEditorAsync → TagEditDialog → MainViewModel.ExecuteTagEditAsync。
 
 using System.Collections.ObjectModel;
@@ -187,11 +187,15 @@ public partial class TagSidebarViewModel : ObservableObject
 
     /// <summary>
     /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发，2026-09-19 交互重构）：
-    /// 点击一律 = 筛选（单图模式下由 MainViewModel 额外切回图库）；打标走拖拽/详情页右栏/快捷键。
-    /// ctrl（2026-09-19 对齐卡片选择心智）：false = 单选筛选（唯一选中时再点 = 取消）；true = 加/减选（多标签 OR）。
+    /// 点击一律 = 筛选（tag-filter-tree：QuickAdd 追加条件；已引用则忽略）；打标走拖拽/详情页右栏/快捷键。
+    /// ctrl（旧 Ctrl 加减选语义已随条件树化废弃）：保留参数与 Task 返回签名仅为避免本步改动扩散到
+    /// 侧栏控件（TagSidebarControl 的 fire-and-forget 调用），MainViewModel 侧一律忽略。
     /// </summary>
     public Task HandleChipTappedAsync(TagChipViewModel chip, bool ctrl)
-        => _owner.HandleTagChipTappedAsync(chip.Name, ctrl);
+    {
+        _owner.HandleTagChipTapped(chip.Name, ctrl);
+        return Task.CompletedTask;
+    }
 
     /// <summary>配置组内标签的编辑命令集（重命名/删除）——侧栏标签行均属配置组
     /// （2026-09-19 口径：无组标签不经侧栏展示/编辑，清理走右栏 chips ✕ 或配置组同名收编）。</summary>

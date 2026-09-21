@@ -44,8 +44,9 @@ public partial class WaterfallViewModel : ObservableObject
 
     /// <summary>
     /// 追加一个扫描块（扫描渐进呈现；必须在 UI 线程调用——MainViewModel 经 Progress 回投）。
-    /// 任一筛选激活（标签 OR 或无标签，untagged-filter-entry）时块内项先经筛选谓词过滤
-    /// （Step 9：筛选态与渐进追加互不干扰）；过滤后再按已呈现路径集查重（cr/P1-2）。
+    /// 任一筛选激活（条件树或无标签，tag-filter-tree）时块内项先经筛选谓词过滤
+    /// （MainViewModel.MatchesTagFilter——与筛选应用共用同一树求值，spec D1 单一求值器）；
+    /// 过滤后再按已呈现路径集查重（cr/P1-2）。
     /// </summary>
     public void AppendChunkFromScan(IReadOnlyList<GalleryItem> chunk)
     {

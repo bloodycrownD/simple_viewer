@@ -17,7 +17,8 @@ namespace SimpleViewer.Views;
 /// 标签栏模板的 x:Bind 函数转换器（静态函数绑定；画刷随主题惰性初始化，仅 UI 线程访问）。
 /// 目录树行式节点（Eagle 风格，单色系）：行高亮/连接线/计数/名字色全部为 IsDarkTheme 明暗双值
 /// 半透明叠加（不硬编码明暗背景，深浅主题通用）；互斥徽章保留琥珀色系、单选圆点保留组 hue 描边。
-/// 筛选条（FilterChip*）与瀑布流角标（FromHsl）沿用组 hue 色彩，与侧栏树行无关。
+/// 筛选条（FilterChip*，tag-filter-tree 表达式段形态）：条件 = 强调色胶囊（否定 = 红），
+/// 且/或/括号段 = 次要灰轻量文本；瀑布流角标（FromHsl）沿用组 hue 色彩，与侧栏树行无关。
 /// </summary>
 public static class TagSidebarConverters
 {
@@ -144,11 +145,103 @@ public static class TagSidebarConverters
         => exclusive ? default : new Thickness(1);
 
     /// <summary>
-    /// 筛选 chip 文本：「组名：标签名」；空组名只显示标签名（untagged-filter-entry：
-    /// 无标签 chip 组名为空串，显示「无标签」而非「：无标签」）。
+    /// 筛选 chip 胶囊可见性（tag-filter-tree）：条件段/无标签 chip = 胶囊 + ✕；
+    /// 且/或/括号段 = 轻量文本（无胶囊）。
     /// </summary>
-    public static string FilterChipText(string groupName, string tagName)
-        => string.IsNullOrEmpty(groupName) ? tagName : $"{groupName}：{tagName}";
+    public static Visibility FilterChipCapsuleVisibility(FilterChipKind kind)
+        => kind is FilterChipKind.Condition or FilterChipKind.Untagged
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>筛选 chip 轻量文本可见性（且/或/括号段；与胶囊互斥）。</summary>
+    public static Visibility FilterChipSegmentVisibility(FilterChipKind kind)
+        => kind is FilterChipKind.Op or FilterChipKind.Paren
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>
+    /// 筛选 chip 字色（demo fx-cond/fx-op 同构，IsDarkTheme 双值）：
+    /// 否定条件 = 红（深 #FF7B72 / 浅 #D64545）；普通条件 = 系统强调色；
+    /// 无标签 chip = 中性次要灰；且/或/括号段 = 次要灰。
+    /// </summary>
+    public static Brush FilterChipForeground(FilterChipKind kind, bool negated)
+    {
+        if (kind == FilterChipKind.Condition && negated)
+        {
+            return DangerBrush();
+        }
+
+        if (kind == FilterChipKind.Condition)
+        {
+            var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+            return new SolidColorBrush(accent);
+        }
+
+        return SecondaryTextBrush();
+    }
+
+    /// <summary>
+    /// 筛选 chip 描边：否定条件 = 红 55%；普通条件 = 系统强调色 55%；
+    /// 无标签 chip = 中性灰描边（且/或/括号段无胶囊不消费）。
+    /// </summary>
+    public static Brush FilterChipBorderBrush(FilterChipKind kind, bool negated)
+    {
+        if (kind == FilterChipKind.Untagged)
+        {
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                AlphaBorder,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00,
+                IsDarkTheme ? (byte)0xFF : (byte)0x00));
+        }
+
+        if (negated)
+        {
+            var danger = DangerColor();
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                AlphaBorder, danger.R, danger.G, danger.B));
+        }
+
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            AlphaBorder, accent.R, accent.G, accent.B));
+    }
+
+    /// <summary>
+    /// 筛选 chip 底色：否定条件 = 红 12%/10% 淡底（demo danger-soft）；其余胶囊 = 中性 10% 淡底
+    /// （半透明不盖筛选条强调底；且/或/括号段无胶囊不消费）。
+    /// </summary>
+    public static Brush FilterChipBackground(FilterChipKind kind, bool negated)
+    {
+        if (kind == FilterChipKind.Condition && negated)
+        {
+            var danger = DangerColor();
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B));
+        }
+
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            AlphaFaint,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00,
+            IsDarkTheme ? (byte)0xFF : (byte)0x00));
+    }
+
+    /// <summary>否定条件红（demo --danger：深色 #FF7B72 / 浅色 #D64545，双值）。</summary>
+    private static Windows.UI.Color DangerColor()
+        => IsDarkTheme
+            ? Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x7B, 0x72)
+            : Windows.UI.Color.FromArgb(0xFF, 0xD6, 0x45, 0x45);
+
+    private static Brush DangerBrush() => new SolidColorBrush(DangerColor());
+
+    /// <summary>次要灰文本（且/或/括号段与无标签 chip；对齐 TreeCountForeground 色值）。</summary>
+    private static Brush SecondaryTextBrush()
+        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+            0xFF,
+            (byte)(IsDarkTheme ? 0xA0 : 0x6C),
+            (byte)(IsDarkTheme ? 0xA0 : 0x6B),
+            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
 
     /// <summary>筛选条底色：强调色 12% 透明叠加（demo #filterBar accent-soft）。</summary>
     public static Brush FilterBarBackground()
@@ -157,40 +250,6 @@ public static class TagSidebarConverters
         return new SolidColorBrush(
             Windows.UI.Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
     }
-
-    /// <summary>
-    /// 筛选 chip 边框：所属组 hue 55% 透明（2026-09-19 口径：激活筛选标签必属配置组，
-    /// 原「未分组」灰蓝特判已随筛选入口移除成死分支而删除）。空组名（无标签 chip，
-    /// untagged-filter-entry）取中性灰描边——无标签不属任何组，无组 hue 可言。
-    /// </summary>
-    public static Brush FilterChipBorderBrush(string groupName)
-        => string.IsNullOrEmpty(groupName)
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
-                AlphaBorder,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00))
-            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.45, 0.55, AlphaBorder);
-
-    /// <summary>筛选 chip 底色：所属组 hue 10% 淡底；空组名（无标签 chip）取中性 10% 淡底。</summary>
-    public static Brush FilterChipBackground(string groupName)
-        => string.IsNullOrEmpty(groupName)
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
-                AlphaFaint,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00))
-            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.50, 0.50, AlphaFaint);
-
-    /// <summary>筛选 chip 字色：所属组 hue 中亮度（深浅主题均可读）；空组名（无标签 chip）取中性次要灰。</summary>
-    public static Brush FilterChipForeground(string groupName)
-        => string.IsNullOrEmpty(groupName)
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
-                0xFF,
-                (byte)(IsDarkTheme ? 0xC8 : 0x44),
-                (byte)(IsDarkTheme ? 0xC8 : 0x44),
-                (byte)(IsDarkTheme ? 0xC8 : 0x44)))
-            : FromHsl(TagGroupViewModel.HueOfName(groupName), 0.55, 0.50, 0xFF);
 
     /// <summary>
     /// 侧栏标题行「∅ 无标签」按钮底色（untagged-filter-entry）：激活 = 系统强调色淡底
