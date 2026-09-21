@@ -61,7 +61,7 @@
         <ScrollViewer
             x:Name="TreeScroll"
             Grid.Row="1"
-            Padding="10,0,10,12"
+            Padding="12,0,10,12"
             VerticalScrollBarVisibility="Auto"
             VerticalScrollMode="Auto"
             ZoomMode="Disabled">

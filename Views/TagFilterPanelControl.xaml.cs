@@ -226,7 +226,7 @@ public sealed partial class TagFilterPanelControl : UserControl
             BorderBrush = TagSidebarConverters.FilterPanelGroupBorderBrush(),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(8, 6, 6, 6),
+            Padding = new Thickness(10, 6, 6, 6),
         };
 
         var grid = new Grid { ColumnSpacing = 8 };
@@ -588,7 +588,12 @@ public sealed partial class TagFilterPanelControl : UserControl
         var button = new Button
         {
             Content = glyph,
-            Style = GhostStyle(),
+            // 紧凑图标按钮（三轮走查修复：GhostButtonStyle 的 Padding 10,5 会把单字符 ✕ 撑成
+            // ~32x30 大块、带默认底色，在 24px 紧凑条件行里又大又丑）——改 GhostIconButtonStyle
+            // （面板头部 ✕ 同款，Padding 5,2 次要色），再收紧字号与内边距对齐 demo .icon-btn 26px 观感。
+            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["GhostIconButtonStyle"],
+            FontSize = 11,
+            Padding = new Thickness(4, 2, 4, 2),
             VerticalAlignment = VerticalAlignment.Center,
         };
         ToolTipService.SetToolTip(button, tooltip);
