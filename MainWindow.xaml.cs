@@ -2,8 +2,9 @@
 //       图库 Enter 进入单图 cr/P1-4）、对话框宿主
 //       （设置/标签编辑/标签目录选择器——均含 _shortcutsEnabled 屏蔽）、视图模型宿主回调注入、
 //       双模式壳装配与打标进度/回执区（D13 InfoBar，XAML 内嵌）、
-//       筛选面板 Flyout 宿主（tag-filter-tree Step 5：工具栏「⧩ 筛选 ▾」按钮挂 Flyout，
-//       Opening 时主题对齐 + 快照重建；非模态——Esc 关闭与全局快捷键共存细节属 Step 6）。
+//       筛选面板 Flyout 宿主（tag-filter-tree Step 5+6：工具栏「⧩ 筛选 ▾」按钮挂 Flyout，
+//       Opening 时主题对齐 + 快照重建 + 单图模式先切回图库；面板打开期间全局快捷键局部抑制
+//       ——_filterFlyoutOpen 非模态共存：快捷键不打扰图库、Esc 交 Flyout light-dismiss 关闭）。
 // 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
 //         Ctrl+A 仅在快捷键表未占用时接管（用户自定义绑定优先）；
 //         Enter 同口径（无修饰 + 图库模式 + 快捷键表未占用时接管进入单图，cr/P1-4）；
@@ -34,6 +35,14 @@ public sealed partial class MainWindow : Window
     private readonly IShortcutService _shortcutService;
     private readonly ISettingsService _settingsService;
     private bool _shortcutsEnabled = true;
+
+    /// <summary>筛选面板 Flyout 打开中（tag-filter-tree Step 6）：全局快捷键局部抑制标志。
+    /// 非模态共存语义——面板开着时快捷键不打扰图库（OnPreviewKeyDown 路径整体短路，含
+    /// Ctrl+A 全选 / Enter 进单图接管），与 <see cref="_shortcutsEnabled"/>（模态对话框才
+    /// 全局禁）正交：Opening 置位、Closed 复位（Esc / 点外 light-dismiss / 完成・✕ 的 Hide
+    /// 三条关闭路径都经 Closed）；Esc 不走本窗口快捷键表（ExitApp 路由），交 Flyout
+    /// light-dismiss 自身关闭——勿双向抢。</summary>
+    private bool _filterFlyoutOpen;
 
     /// <summary>筛选面板本体（tag-filter-tree Step 5，工具栏 Flyout 内容；构造注入一次、全量 Rebuild 复用）。</summary>
     private readonly TagFilterPanelControl _filterPanel;
@@ -85,6 +94,7 @@ public sealed partial class MainWindow : Window
         // Opening 时面板内容根对齐当前根主题，并拉最新快照全量重建（面板关闭期间左栏/筛选条
         // 等外部入口可能已改树或计数，demo openPanel 后 renderPanel 同构）。
         TagFilterFlyout.Opening += OnFilterFlyoutOpening;
+        TagFilterFlyout.Closed += OnFilterFlyoutClosed;
 
         // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条）在 chrome 层
         // 之下，顶部可点区须让出工具栏+InfoBar 的实际行高（右栏收起按钮曾被工具栏
@@ -184,15 +194,31 @@ public sealed partial class MainWindow : Window
         => dialog.RequestedTheme = RootGrid.RequestedTheme;
 
     /// <summary>
-    /// 筛选面板 Flyout 打开（tag-filter-tree Step 5）：面板内容根主题对齐（popup 层不认
-    /// RootGrid.RequestedTheme 运行时覆盖，ApplyDialogTheme 同款坑位）+ 拉最新快照全量重建
-    /// （面板关闭期间左栏 QuickAdd / 筛选条 ✕ / 标签删改名等外部入口可能已改树，打开即呈现现状）。
+    /// 筛选面板 Flyout 打开（tag-filter-tree Step 5+6）：进入快捷键局部抑制（Opening 先于
+    /// 显示，Esc/light-dismiss 可用前已生效）；单图模式下先切回图库让筛选结果可见（对齐
+    /// HandleTagChipTapped / ToggleUntaggedFilter 先例；CLI 直开无图库时保持单图——无命中集
+    /// 可看，切回只见空态）；面板内容根主题对齐（popup 层不认 RootGrid.RequestedTheme 运行时
+    /// 覆盖，ApplyDialogTheme 同款坑位）+ 拉最新快照全量重建（面板关闭期间左栏 QuickAdd /
+    /// 筛选条 ✕ / 标签删改名等外部入口可能已改树，打开即呈现现状）。
     /// </summary>
     private void OnFilterFlyoutOpening(object? sender, object e)
     {
+        _filterFlyoutOpen = true;
+
+        if (ViewModel.CurrentMode == ViewerMode.Single && ViewModel.HasGallery)
+        {
+            ViewModel.CurrentMode = ViewerMode.Gallery;
+        }
+
         _filterPanel.RequestedTheme = RootGrid.RequestedTheme;
         _filterPanel.RebuildAll();
     }
+
+    /// <summary>
+    /// 筛选面板 Flyout 关闭（tag-filter-tree Step 6）：退出快捷键局部抑制。Esc / 点外
+    /// light-dismiss / 完成・✕ 经 Hide 的三条关闭路径都汇聚到 Closed，统一在此复位。
+    /// </summary>
+    private void OnFilterFlyoutClosed(object? sender, object e) => _filterFlyoutOpen = false;
 
     /// <summary>工具栏「主题」按钮：三态循环并持久化（load-modify-save，保留其他字段）。</summary>
     private void OnThemeButtonClick(object sender, RoutedEventArgs e)
@@ -265,6 +291,14 @@ public sealed partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!_shortcutsEnabled)
+        {
+            return;
+        }
+
+        // 筛选面板 Flyout 打开期间局部抑制（tag-filter-tree Step 6，非模态共存）：
+        // 面板开着时快捷键不打扰图库——快捷键表命中与 Ctrl+A / Enter 接管一并短路；
+        // Esc 同被短路（不走 ExitApp 三态路由），交 Flyout light-dismiss 自身关闭（勿双向抢）。
+        if (_filterFlyoutOpen)
         {
             return;
         }
