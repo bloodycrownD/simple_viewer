@@ -1,7 +1,9 @@
 // 职责：主窗口 chrome——键盘路由（含 Esc 三态模式感知路由 D6、Ctrl+A 全选命中集 Step 10、
 //       图库 Enter 进入单图 cr/P1-4）、对话框宿主
 //       （设置/标签编辑/标签目录选择器——均含 _shortcutsEnabled 屏蔽）、视图模型宿主回调注入、
-//       双模式壳装配与打标进度/回执区（D13 InfoBar，XAML 内嵌）。
+//       双模式壳装配与打标进度/回执区（D13 InfoBar，XAML 内嵌）、
+//       筛选面板 Flyout 宿主（tag-filter-tree Step 5：工具栏「⧩ 筛选 ▾」按钮挂 Flyout，
+//       Opening 时主题对齐 + 快照重建；非模态——Esc 关闭与全局快捷键共存细节属 Step 6）。
 // 不变量：设置对话框打开期间全局快捷键整体屏蔽（_shortcutsEnabled）；命中的按键标记已处理；
 //         Ctrl+A 仅在快捷键表未占用时接管（用户自定义绑定优先）；
 //         Enter 同口径（无修饰 + 图库模式 + 快捷键表未占用时接管进入单图，cr/P1-4）；
@@ -32,6 +34,9 @@ public sealed partial class MainWindow : Window
     private readonly IShortcutService _shortcutService;
     private readonly ISettingsService _settingsService;
     private bool _shortcutsEnabled = true;
+
+    /// <summary>筛选面板本体（tag-filter-tree Step 5，工具栏 Flyout 内容；构造注入一次、全量 Rebuild 复用）。</summary>
+    private readonly TagFilterPanelControl _filterPanel;
 
     public MainViewModel ViewModel { get; }
 
@@ -69,6 +74,17 @@ public sealed partial class MainWindow : Window
         // 标签栏本体（Step 9）：配置组初始呈现（计数随扫描/编辑刷新）。
         TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
         _ = ViewModel.InitializeTagSidebarAsync();
+
+        // 筛选面板本体（tag-filter-tree Step 5）：Flyout 宿主注入（构造注入惯例，XAML 占位
+        // FilterPanelHost）；面板编辑入口集中在 MainViewModel.EditFilter（树编辑→互斥清
+        // untagged→ApplyTagFilter 一次到位），完成/✕ 经 CloseRequested 回本窗口 Hide Flyout。
+        _filterPanel = new TagFilterPanelControl(ViewModel, new TagFilterPanelViewModel(ViewModel));
+        _filterPanel.CloseRequested += (_, _) => TagFilterFlyout.Hide();
+        FilterPanelHost.Content = _filterPanel;
+        // Flyout 处于 popup 层不认 RootGrid.RequestedTheme（ApplyDialogTheme 同款坑位）：
+        // Opening 时面板内容根对齐当前根主题，并拉最新快照全量重建（面板关闭期间左栏/筛选条
+        // 等外部入口可能已改树或计数，demo openPanel 后 renderPanel 同构）。
+        TagFilterFlyout.Opening += OnFilterFlyoutOpening;
 
         // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条）在 chrome 层
         // 之下，顶部可点区须让出工具栏+InfoBar 的实际行高（右栏收起按钮曾被工具栏
@@ -166,6 +182,17 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyDialogTheme(ContentDialog dialog)
         => dialog.RequestedTheme = RootGrid.RequestedTheme;
+
+    /// <summary>
+    /// 筛选面板 Flyout 打开（tag-filter-tree Step 5）：面板内容根主题对齐（popup 层不认
+    /// RootGrid.RequestedTheme 运行时覆盖，ApplyDialogTheme 同款坑位）+ 拉最新快照全量重建
+    /// （面板关闭期间左栏 QuickAdd / 筛选条 ✕ / 标签删改名等外部入口可能已改树，打开即呈现现状）。
+    /// </summary>
+    private void OnFilterFlyoutOpening(object? sender, object e)
+    {
+        _filterPanel.RequestedTheme = RootGrid.RequestedTheme;
+        _filterPanel.RebuildAll();
+    }
 
     /// <summary>工具栏「主题」按钮：三态循环并持久化（load-modify-save，保留其他字段）。</summary>
     private void OnThemeButtonClick(object sender, RoutedEventArgs e)

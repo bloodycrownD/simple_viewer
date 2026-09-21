@@ -67,6 +67,51 @@
                         Margin="6,0"
                         VerticalAlignment="Center"
                         Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                    <!-- 筛选按钮（tag-filter-tree Step 5，demo .filter-toggle 同构）：文本字符图标
+                         ⧩ 筛选 ▾（Click 挂 Flyout 自动开关）；有条件时强调态（accent 淡底/字/描边，
+                         ActiveConditionCount 经函数绑定驱动）+ 数字徽章（小圆角计数，demo .cond-badge）；
+                         面板宿主 Flyout 内容由 code-behind 注入（构造注入惯例，XAML 占位 ContentControl） -->
+                    <Button
+                        x:Name="FilterToggleButton"
+                        Background="{x:Bind views:TagSidebarConverters.FilterToggleBackground(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                        BorderBrush="{x:Bind views:TagSidebarConverters.FilterToggleBorderBrush(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                        BorderThickness="1"
+                        Foreground="{x:Bind views:TagSidebarConverters.FilterToggleForeground(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                        Style="{StaticResource GhostButtonStyle}"
+                        ToolTipService.ToolTip="标签筛选（条件实时生效）">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock VerticalAlignment="Center" Text="⧩ 筛选" />
+                            <Border
+                                MinWidth="16"
+                                Height="16"
+                                Padding="3,0"
+                                VerticalAlignment="Center"
+                                Background="{x:Bind views:TagSidebarConverters.FilterToggleBadgeBackground(), Mode=OneWay}"
+                                CornerRadius="8"
+                                Visibility="{x:Bind views:TagSidebarConverters.FilterBadgeVisibility(ViewModel.ActiveConditionCount), Mode=OneWay}">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{x:Bind views:TagSidebarConverters.FilterToggleBadgeForeground(), Mode=OneWay}"
+                                    Text="{x:Bind ViewModel.ActiveConditionCount, Mode=OneWay}" />
+                            </Border>
+                            <TextBlock VerticalAlignment="Center" Text="▾" />
+                        </StackPanel>
+                        <Button.Flyout>
+                            <!-- 面板本体 code-behind 构造注入（TagFilterPanelControl(Main, vm) 构造签名，
+                                 对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs） -->
+                            <Flyout x:Name="TagFilterFlyout" Placement="Bottom">
+                                <ContentControl x:Name="FilterPanelHost" />
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Rectangle
+                        Width="1"
+                        Height="16"
+                        Margin="6,0"
+                        VerticalAlignment="Center"
+                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
                     <Button
                         Command="{x:Bind ViewModel.PrevCommand}"
                         Content="上一张"
