@@ -1036,8 +1036,7 @@ public partial class MainViewModel : ObservableObject
     /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    /// <param name="ctrl">已废弃：QuickAdd 语义不区分修饰键（保留参数避免本步改动扩散到侧栏控件）。</param>
-    public void HandleTagChipTapped(string tagName, bool ctrl)
+    public void HandleTagChipTapped(string tagName)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
@@ -1049,7 +1048,7 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        ToggleTagFilter(tagName, ctrl);
+        ToggleTagFilter(tagName);
     }
 
     /// <summary>
@@ -1649,12 +1648,10 @@ public partial class MainViewModel : ObservableObject
     /// 点击侧栏标签 = 快捷追加筛选条件（tag-filter-tree，demo addQuickCond 拍板语义）：
     /// 往根组追加一条单值 in 条件；根组 Or 且已有单值 in 行则合并进该行；
     /// 已存在含该值的 in 条件（全树）则忽略（返回 false 静默——「已在筛选中」）。
-    /// 旧三分支语义（单选重置/Ctrl 加减选/唯一选中再点取消）随条件树化废弃，
-    /// ctrl 参数仅保签名兼容保留（Step 4 左栏接线时收口），一律不特殊处理。
+    /// 旧三分支语义（单选重置/Ctrl 加减选/唯一选中再点取消）随条件树化废弃，不再读修饰键。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    /// <param name="ctrl">已废弃：不再区分修饰键（保留参数避免本步改动扩散到侧栏控件）。</param>
-    public void ToggleTagFilter(string tagName, bool ctrl = false)
+    public void ToggleTagFilter(string tagName)
     {
         if (string.IsNullOrWhiteSpace(tagName))
         {

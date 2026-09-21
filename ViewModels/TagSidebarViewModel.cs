@@ -188,12 +188,11 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <summary>
     /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发，2026-09-19 交互重构）：
     /// 点击一律 = 筛选（tag-filter-tree：QuickAdd 追加条件；已引用则忽略）；打标走拖拽/详情页右栏/快捷键。
-    /// ctrl（旧 Ctrl 加减选语义已随条件树化废弃）：保留参数与 Task 返回签名仅为避免本步改动扩散到
-    /// 侧栏控件（TagSidebarControl 的 fire-and-forget 调用），MainViewModel 侧一律忽略。
+    /// 旧 Ctrl 加减选语义已随条件树化废弃，不再读修饰键。
     /// </summary>
-    public Task HandleChipTappedAsync(TagChipViewModel chip, bool ctrl)
+    public Task HandleChipTappedAsync(TagChipViewModel chip)
     {
-        _owner.HandleTagChipTapped(chip.Name, ctrl);
+        _owner.HandleTagChipTapped(chip.Name);
         return Task.CompletedTask;
     }
 
