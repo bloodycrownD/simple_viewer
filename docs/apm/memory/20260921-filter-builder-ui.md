@@ -75,3 +75,9 @@ user:
 assistant:
 code-dev-loop 完成，**dev-ready**（分支 feature/tag-filter-tree，base b8b2511 → HEAD 302e648，9 波次 DAG 全 done、双 cr-func 均 func-ready）：①impl-core：TagFilterState 条件树（Evaluate/BuildExpression/编辑原语/QuickAdd/联动/MaxDepth=3）+ 测试重写 T_FT1~14（107 测试全绿）；②impl-pipeline：_filterRoot 状态收敛、ApplyTagFilter 三分支全内存化（SortKey 排序，索引层零改动）、筛选条表达式 chips+清空按钮、左栏 QuickAdd 终态；③impl-entry（trivial 主代理）：修饰键收口；④impl-panel：TagFilterPanelControl 卡片嵌套面板+工具栏⧩筛选按钮+Flyout+主题对齐，值选择走 R1 预案行内展开（嵌套 Flyout 会触发父级 light-dismiss）；⑤impl-integration：快捷键局部抑制（_filterFlyoutOpen）+单图入口对齐+**发现并修补真实竞态**（扫描中 _galleryItems 后台 Add 与 UI 筛选枚举的 List 版本冲突崩溃→锁内快照）。每波次 build.ps1+test 107 绿，终检死代码/XAML 硬约束/Core 边界/csproj 零改动全过。**open deviation 一项**：组头/条件行"全部/任一""包含任一/不包含任一"实现为两态切换按钮组而非 demo 的 select 下拉（语义等价，动机=Flyout 内二级 popup 主题风险），留用户实机走查拍板（还原点集中 BuildTwoStateSwitch/MakeSwitchOption）。Step 8 用户走查清单：demo 形态还原度、双主题、快捷键抑制体感、扫描中面板实时性、10 万级体感、拖拽打标回归。RULE.md Flyout 先例待实机双主题实证后落录。
 
+user:
+实机走查打回："你测试了吗？筛选宽度完全不够，而且一添加条件就刷新页面"（附截图：面板挤成竖排窄条）。
+
+assistant:
+两个都是真问题，已修复并实机验证（c92f9a8）：①**面板宽度**：根因是 WinUI Flyout 默认 FlyoutThemeMaxWidth=456（generic.xaml 实锤）把 UserControl Width=620 硬夹成 456 逻辑宽——Width 设了也没用；修法=Flyout.FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle（键已核实存在）覆盖 Min/MaxWidth=660（620+左右 FlyoutContentPadding 16×2+边框），UIA 实测 990 物理=660 逻辑@150% ✓；②**添加条件即"刷新页面"**：每次编辑无条件 ResetFrom 全量重建卡片 VM（缩略图重载）整墙闪跳+清选中集，加空条件（未选值恒真）也闪；修法=WaterfallViewModel.PresentsExactly 逐项路径比对，ApplyTagFilter 命中序列与当前呈现一致时跳过重置与清选。教训：dev-loop 的 verify 只覆盖编译+Core 单测，UI 实机层（spec qa:manual_user）没验就交付——**以后 UI 改动交付前至少用 UIA+截屏（scripts/filter-panel-verify.ps1 模式：AppActivate 绕前台锁开面板、UIA 量 bounds、CopyFromScreen 采证）做一轮实机自检**。走查方法论新坑：①code-behind 构造按钮 UIA Name 为空，定位用 AutomationId 或截图目检；②`-d` 是单图模式不触发扫描（复现图库要走 LastLibraryRoot 自动恢复：备份改 settings.json 启动后还原）；③SetForegroundWindow 有前台锁，WScript.Shell AppActivate 稳。遗留：用户走查日志有两条"UI 无响应≥15s"心跳告警（扫 F:\Pictures 245 张 + thumb:decode 后），疑似缩略图解码期 UI 忙碌，待用户确认是否可感卡顿再定是否修。
+
