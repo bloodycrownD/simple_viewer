@@ -111,3 +111,9 @@ user:
 assistant:
 按用户方案收敛（65161b4）：左栏组行 ＋⇄✎✕ 四连管理按钮与标签行 ✎✕ 双按钮各改为单「⋯」（U+22EF）+ Button.Flyout=MenuFlyout（MenuFlyoutItem Command 绑定同款命令：＋新建标签/⇄切换互斥兼容/✎重命名组/✕删除组；标签行 ✎重命名/✕删除）——按钮多导致的行尾拥挤与被面板浮层遮挡随单按钮化消除；悬停浮现机制保留。实机 UIA 验证（verify 脚本临时改 LastLibraryRoot 启动，只弹菜单不执行命令防动用户标签库配置）：⋯ 可 Invoke、四菜单项齐全；像素采样确认菜单深色底正常——**视觉模型第三次深浅主题误判**（说浅底白字，像素实测 R39-59 深色），RULE「颜色断言用像素采样」再+1。
 
+user:
+追加需求：工具栏增加一个「选择」项，可设置全选与取消全选——常用功能。
+
+assistant:
+实现（05cbdf5）：工具栏「选择」按钮置删除按钮前（卡片选择操作群），智能切换——未全选=SelectAllCards（与 Ctrl+A 同管线，选当前呈现集/命中集）、已全选=ClearCardSelection（与 Esc 同管线）；文案动态翻转「全选⇄取消全选」（SelectAllToggleText ObservableProperty，SelectedCardCountChanged 与 OnWaterfallItemsChanged 双钩子刷新）。2026-09-19 曾拍板移除图库状态行「清除选择」按钮（Esc 即清空），本工具栏常驻全选/取消一体入口由用户新决策覆盖（commit 注明）。实机 UIA 验证完整循环：点全选→状态行"共 10 张·已选 10 张"+文案翻转为取消全选→再点→清空+文案复原。
+
