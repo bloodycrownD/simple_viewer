@@ -99,3 +99,9 @@ user:
 assistant:
 四轮修复（870087b），两根因都实锤：①**✕ 外部方框**=WinUI Button 系统焦点框（UseSystemFocusVisuals 默认开，点击/程序聚焦必现矩形框）+可能残留默认描边——面板全部按钮（5 个 code-behind 工厂 + XAML 3 处）统一 UseSystemFocusVisuals=false，图标类显式 BorderThickness=0；②**overlay 滚动条**：用户点破本质——WinUI 3 ScrollViewer 滚动条是悬浮 overlay（叠在内容之上、不占布局位），加宽度治不了，必须给内容列让位：TreeScroll 右 Padding 18、值选择展开区计数列右让 14，滚动条落在留白带内。实机截图+视觉模型验证三项全过（✕ 无框、计数/描边/命中数字无遮挡）。**教训入库：WinUI 视觉问题先想「焦点框/overlay 滚动条/hover 底色」三个隐形层，再谈布局尺寸；用户连续两轮说同一问题（scroll 遮挡）时，先复现用户原场景再改，别按自己推断的场景修。**
 
+user:
+五轮走查："看图，UI 调整影响左侧的标签栏了，好像变窄了？"
+
+assistant:
+左栏代码宽度（Width=280 锚点）从未被改——"变窄"实为筛选面板悬浮遮挡：筛选按钮被放在工具栏左侧（第 4 位），700 宽面板从那弹出直接盖住左栏大部。demo 的筛选按钮在工具栏右侧、flyout 右上弹出。五轮修复（2257ade）：①按钮挪到工具栏尾部（设置前）对齐 demo 形态；②Opening 动态收窄：窄窗按 RootGrid.ActualWidth-400 收面板宽（Clamp 420~660）+ FlyoutPresenterStyle 改代码动态构建（Min/Max 同步），矮窗 900x520 下面板收至 525 逻辑、左缘 365>左栏 280——左栏零遮挡。新坑两个：WinUI Window 无 ActualWidth（不继承 FrameworkElement，用 RootGrid.ActualWidth）；build.ps1 的 sln 级 restore 踩双 csproj 竞写时按 RULE 定向串行还原（Core 先 -nr:false → 主工程 RestoreRecursive=false 压轴 → 校验 assets 含 /win-x64 与 WinAppSDK → build --no-restore）。
+
