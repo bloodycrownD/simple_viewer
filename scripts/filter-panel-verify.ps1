@@ -1,23 +1,37 @@
-﻿# end-to-end verify: library loads -> panel opens -> add empty condition -> no wall reset
+﻿# filter panel verify (round 2): short window + panel + expand values + screenshot
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class W3 {
+public class W4 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool repaint);
 }
 "@
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-[W3]::SetProcessDPIAware() | Out-Null
+[W4]::SetProcessDPIAware() | Out-Null
 
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
-$backup = $settings + '.bak'
+$backup = $settings + '.bak2'
 if (Test-Path $backup) { Remove-Item $backup -Force }
 Copy-Item $settings $backup -Force
+
+function FindId($win, $id) {
+  $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
+  return $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c)
+}
+function Shot($name) {
+  $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+  $bmp.Save('D:\Dev\Python\simple_viewer\docs\' + $name, [System.Drawing.Imaging.ImageFormat]::Png)
+  $g.Dispose(); $bmp.Dispose()
+}
 
 try {
   $json = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -29,10 +43,9 @@ try {
   Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
   Start-Sleep -Seconds 9
   $proc = Get-Process viewer -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-  [W3]::ShowWindow($proc.MainWindowHandle, 9) | Out-Null
-  # AppActivate carries foreground permission (raw SetForegroundWindow is denied by the
-  # foreground lock from a background console, and a Flyout on a non-foreground window
-  # light-dismisses immediately -- the previous run's panel failed to stay open).
+  # short window like user's screenshot: 1350x780 physical (~900x520 logical @150%)
+  [W4]::MoveWindow($proc.MainWindowHandle, 60, 60, 1350, 780, $true) | Out-Null
+  Start-Sleep -Milliseconds 400
   $wsh = New-Object -ComObject WScript.Shell
   $null = $wsh.AppActivate($proc.Id)
   Start-Sleep -Milliseconds 600
@@ -42,50 +55,35 @@ try {
   $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
   if (-not $win) { Write-Output 'NO-WINDOW'; exit 1 }
 
-  $btnCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-  $allBtns = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
-  $imgBtn = $null
-  foreach ($b in $allBtns) { if ($b.Current.Name -match '条件$' -and $b.Current.Name -match '^\+') { $imgBtn = $b; break } }
-  Write-Output ('ADD-COND-BTN: ' + $(if ($imgBtn) { $imgBtn.Current.Name } else { 'NOT-FOUND-(panel closed, expected)' }))
-
   # open panel
-  $idCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'FilterToggleButton')
-  $toggle = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $idCond)
+  $toggle = FindId $win 'FilterToggleButton'
   $toggle.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-  Start-Sleep -Milliseconds 1200
+  Start-Sleep -Milliseconds 1100
 
-  # count wall list items before
-  $listCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
-  $before = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $listCond).Count
-  Write-Output ('WALL-LISTITEMS-BEFORE: ' + $before)
-
-  # find "+ condition" button inside opened panel
-  $allBtns2 = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
-  $addBtn = $null
-  foreach ($b in $allBtns2) { if ($b.Current.Name -match '条件' -and $b.Current.Name -match '^\+') { $addBtn = $b; break } }
-  if (-not $addBtn) { Write-Output 'NO-ADD-BTN'; }
-
-  function Shot($name) {
-    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-    $bmp.Save('D:\Dev\Python\simple_viewer\docs\' + $name, [System.Drawing.Imaging.ImageFormat]::Png)
-    $g.Dispose(); $bmp.Dispose()
+  # add one condition (now with AutomationId)
+  $addCond = FindId $win 'FilterAddCondButton'
+  if (-not $addCond) { Write-Output 'NO-ADD-COND' } else {
+    $addCond.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 500
+    # expand value chooser
+    $addValue = FindId $win 'FilterAddValueButton'
+    if ($addValue) {
+      $addValue.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      Start-Sleep -Milliseconds 600
+      Write-Output 'VALUE-EXPANDED'
+    } else { Write-Output 'NO-ADD-VALUE' }
   }
+  # second condition row (to grow height further)
+  $addCond2 = FindId $win 'FilterAddCondButton'
+  if ($addCond2) { $addCond2.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 400 }
 
-  Shot 'verify-a-before-add.png'
-  if ($addBtn) {
-    $addBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Start-Sleep -Milliseconds 700
-    $after = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $listCond).Count
-    Write-Output ('WALL-LISTITEMS-AFTER-ADD: ' + $after)
-    Shot 'verify-b-after-add.png'
-    # find and click matcher toggle row exists (panel content grew)
-    $addBtn2 = $null
-    foreach ($b in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)) { if ($b.Current.Name -match '条件' -and $b.Current.Name -match '^\+') { $addBtn2 = $b; break } }
-    Write-Output ('SECOND-ADD-STILL-PRESENT: ' + [bool]$addBtn2)
+  # measure flyout
+  $fly = FindId $win 'TagFilterFlyout'
+  if ($fly) {
+    $r = $fly.Current.BoundingRectangle
+    Write-Output ('FLYOUT-RECT: ' + [int]$r.Width + 'x' + [int]$r.Height + ' @' + [int]$r.X + ',' + [int]$r.Y + ' (700dip@150% = 1050 wide)')
   }
+  Shot 'verify-c-panel-expanded.png'
   Write-Output 'DONE'
 }
 finally {

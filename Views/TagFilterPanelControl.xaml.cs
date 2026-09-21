@@ -156,19 +156,24 @@ public sealed partial class TagFilterPanelControl : UserControl
         }
 
         // 组底添加栏：「＋ 条件」恒显示；「＋ 条件组（括号）」仅深度 < MaxDepth（UI 与状态层双保险）。
+        // AutomationId 固定（UIA 走查定位——code-behind 构造按钮 Name 为空，见 RULE 实机走查节）。
         var addBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        addBar.Children.Add(MakeLinkButton("＋ 条件", () =>
+        var addCondButton = MakeLinkButton("＋ 条件", () =>
         {
             ViewModel.AddCondition(group.Node);
             RebuildAll();
-        }));
+        });
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(addCondButton, "FilterAddCondButton");
+        addBar.Children.Add(addCondButton);
         if (group.CanAddGroup)
         {
-            addBar.Children.Add(MakeLinkButton("＋ 条件组（括号）", () =>
+            var addGroupButton = MakeLinkButton("＋ 条件组（括号）", () =>
             {
                 ViewModel.AddGroup(group.Node);
                 RebuildAll();
-            }, subtle: true));
+            }, subtle: true);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(addGroupButton, "FilterAddGroupButton");
+            addBar.Children.Add(addGroupButton);
         }
 
         content.Children.Add(addBar);
@@ -308,7 +313,8 @@ public sealed partial class TagFilterPanelControl : UserControl
         return chip;
     }
 
-    /// <summary>「＋ 标签」按钮：切换该行的值选择行内展开（纯 UI 态；再次点击收起，单开语义）。</summary>
+    /// <summary>「＋ 标签」按钮：切换该行的值选择行内展开（纯 UI 态；再次点击收起，单开语义）。
+    /// AutomationId 固定 FilterAddValueButton（UIA 走查定位——code-behind 构造按钮 Name 为空，见 RULE 实机走查节）。</summary>
     private Button BuildAddValueButton(FilterPanelCondModel condition)
     {
         var expanded = ReferenceEquals(ViewModel.ExpandedValuesCond, condition.Node);
@@ -323,6 +329,7 @@ public sealed partial class TagFilterPanelControl : UserControl
             BorderBrush = TagSidebarConverters.FilterPanelGroupBorderBrush(),
             BorderThickness = new Thickness(1),
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(button, "FilterAddValueButton");
         ToolTipService.SetToolTip(button, "选择标签（展开分组勾选列表）");
         button.Click += (_, _) =>
         {

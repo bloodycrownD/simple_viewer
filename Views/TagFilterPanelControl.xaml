@@ -3,8 +3,8 @@
     x:Class="SimpleViewer.Views.TagFilterPanelControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Width="620"
-    MaxHeight="640">
+    Width="660"
+    MaxHeight="520">
     <!-- 职责：筛选面板内容控件（tag-filter-tree Step 5，宿主 = 工具栏「⧩ 筛选」按钮的 Button.Flyout）——
               头（标题 / 「条件实时生效」提示 / ✕ 关闭）+ 条件树滚动区（code-behind 递归构造：
               组 = 卡片全层统一含最外层根组、卡片嵌套卡片、嵌套层底色交替 + 左侧 accent 竖线；
@@ -68,8 +68,10 @@
             <StackPanel x:Name="TreeHost" Spacing="6" />
         </ScrollViewer>
 
-        <!-- 底（demo .flyout-foot：表达式预览 + 命中数 + 清空条件 + 完成） -->
-        <StackPanel Grid.Row="2" Spacing="8" Padding="14,10,14,12">
+        <!-- 底（demo .flyout-foot：表达式预览 + 命中数 + 清空条件 + 完成）。
+             右侧 Padding 20：给宿主极端矮窗口下可能出现的外层滚动条让位（外层已 Disabled，
+             此为双保险——勿把命中数字贴到面板右缘）。 -->
+        <StackPanel Grid.Row="2" Spacing="8" Padding="14,10,20,12">
             <!-- 表达式预览（demo .expr-preview：Inlines 由 code-behind 按 BuildExpression 段着色填充——
                  否定红 / 连接词与括号灰、条件主文字色） -->
             <Border
