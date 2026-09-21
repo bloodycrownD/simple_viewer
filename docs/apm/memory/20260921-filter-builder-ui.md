@@ -1,0 +1,71 @@
+---
+date: 2026-09-21 14:00
+title: 复杂筛选器：设计稿三轮收敛 + spec 生成（tag-filter-tree）
+keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree
+abstract: 复杂筛选器全流程：demo 设计稿三轮收敛（字段体系砍掉→纯标签 in/not in + and/or 卡片嵌套、根组卡片化）→ 用户确认 → spec-generate 四路探索 → spec 落盘 features\tag-filter-tree\spec.md（8 Step、14 条 T_FT 用例、6 风险）。核心拍板：单一内存求值器（索引层零改动）、条件值存标签名、左栏点击=QuickAdd（推翻旧契约与 7 测试）、untagged 保留独立互斥、Flyout 非模态宿主（零先例，降级链 ContentDialog 壳）、不落盘、深度≤3 状态层强制。待用户确认 spec。
+---
+
+user:
+需要一个复杂的筛选器，支持 in 和 not in、and 和 or，先在 demo html 上设计一个筛选器看 UI 设计。（随后按 APM 恢复记忆继续）
+
+assistant:
+恢复记忆后明确上下文：现有筛选是"点击标签 = 多标签 OR"（TagFilterState 已下沉 Core），交互原型约定在 demo\、改交互先对照原型。设计方案选了 Notion/Linear 式条件构建器，而不是全局 Match all/any 切换（表达力弱）或逐行连接词（语义易混）：
+
+- 条件行 = [字段▾][操作符▾][值]：标签（包含任一 in / 不包含任一 not in，多选 chips）、无标签、文件名（包含/不包含，演示字段扩展性）；
+- 嵌套条件组 = 组头「满足以下 [全部/任一] 条件」，最深 3 层 → 任意布尔组合；
+- 实时生效（无应用按钮）：命中数、图墙、人话表达式全实时；空值条件恒真（构造中不会瞬间清空图墙）；
+- 人话表达式双呈现：面板底纯文本 `(含(风景/街拍) 或 含(星标)) 且 不含(已修)` + 筛选条 chips（且/或/括号，否定=红 chip 带"非"字）；
+- 设计主张：复杂筛选器是简单点击筛选的超集——左栏点标签 = 往根组追加 in 条件，两套筛选合一。
+
+产出 demo/filter.html + filter.css + filter.js（纯前端、离线、双主题、140 张模拟渐变卡片、localStorage 持久化）。
+
+user:
+（自测过程中的发现与修复）
+
+assistant:
+浏览器 + 视觉模型双验收，修了 4 个真实 bug：
+1. `.flyout/.popover/.wall-empty` 设 display:flex 后覆盖 HTML hidden 属性 → 全局 `[hidden]{display:none!important}`;
+2. localStorage 恢复筛选树后 uid 计数器重置、新条件 id 与恢复节点撞车（findNode 命中错误节点、表达式乱套）→ loadState 时整树重编 id；
+3. 筛选条「编辑」按钮：openPanel 后事件冒泡到 document 委托被判"面板外点击"立即关闭 → 外部关闭检查排除触发器；
+4. popover 勾选标签整块重绘闪烁 → 改增量更新 cb 勾选态；renderPanel 保持滚动位置。
+
+视觉模型验收两轮（亮/暗）：嵌套组层级、红色否定语义、chips 可读性均过；按反馈微调：嵌套组左边框 3px accent 竖线、"＋条件组"弱化 11px、text-2 对比度提升。
+
+验证结论：`(含(风景/街拍) 或 含(星标)) 且 不含(已修)` → 命中 59/140 与图墙卡片数一致；筛选条括号结构 DOM 核对无误（视觉模型说过"星标在括号外"是误读）。
+
+user:
+下一步？
+
+assistant:
+用户实机看 UI（双击 demo\filter.html 即可，离线可用）。认可后走 prd-generate/spec-generate：TagFilterState 扩展为条件树（group{op,children}/cond{field,matcher,values}），求值与 demo 的 evalNode 同构下沉 Core；WinUI 实现注意 XAML 硬约束（图标用文本字符、Click 不用 Tapped、中文 XAML 带 BOM）。demo README 已补「复杂筛选器设计稿」一节。
+
+user:
+看 UI 后两轮反馈：①"支持嵌套条件组就行吧？现在有并行多个条件组，会让人疑惑第一层并行的条件组之间的关系"；②（我先做了显式连接词方案）"回滚，你没懂我意思，你看现在有多级卡片，我的意思是，只保留卡片嵌套就好了，最外层现在不是卡片，这很奇怪"（附截图）。
+
+assistant:
+两轮反馈才对准真意：用户要的是**组=卡片全层统一**——原设计最外层根组是裸组头（无边框）、下面嵌套组却是卡片，视觉层级不对称很奇怪；中间我做过的"并行元素间显式 ─且─/─或─ 连接词"方案被否（回滚掉）。最终改动：renderGroup 去掉 isRoot 特殊分支，所有组（含根）统一输出 .f-group-box 卡片（根组仍无删除按钮）；嵌套层背景色交替（bg-2 → panel → bg-2）+ 左侧 3px accent 竖线区分层级；flyout body padding 收紧；两个下拉框 min-width 88px 统一宽度。验证：构造两层嵌套状态（localStorage 注入 → loadState → renderPanel 真实渲染路径）→ 根组卡片化、嵌套卡片正常、表达式与命中自洽；视觉模型验收通过。教训：用户说"关系疑惑"时先确认指视觉结构还是逻辑语义，这轮我猜了逻辑显式化方向，实际痛点是视觉一致性。
+
+user:
+（本轮收尾）
+
+assistant:
+README 嵌套条件组行更新为"组一律渲染为卡片（含最外层根组），卡片嵌套卡片"。注意：驱动测试脚本不能拿位置索引/类名前缀定位面板元素（面板每次 refreshAll 全量重绘、行序会偏移）——要么每步重查 DOM，要么直接 localStorage 注入状态树再 reload 走 loadState 渲染路径（后者最干净）。
+
+user:
+第三轮反馈：标签/无标签/文件名字段下拉全部移除，不要这么复杂——高级筛选器只支持标签的添加和移除（in/not in）；"不包含所有标签不就是无标签吗"，且左栏本身已有无标签筛选能力，高级筛选器不用重复支持。
+
+assistant:
+按反馈砍掉字段体系：newCond 去掉 field/text，条件行只剩 [包含任一▾/不包含任一▾] + 标签 chips；FIELDS 删除（仅留 MATCHERS 常量）、evalCond/condText/chipLabel 只留标签分支、change 的 field 分支与 input（name-text）监听删除、countInFilter/addQuickCond 的 field 判断清理、CSS 的 .f-input/.f-static 删除。**loadState 加旧状态清洗**：localStorage 里带 field=name/untagged 的旧条件直接过滤掉（兼容已看过旧版的浏览器）。验证：注入含旧字段条件的状态树 → 清洗正确（表达式只剩标签条件）、面板无字段下拉、卡片嵌套正常，视觉模型验收通过。设计结论：高级筛选器 = 纯标签 in/not in + and/or 卡片嵌套；无标签走左栏既有按钮。
+
+user:
+UI 确认（"差不多"），要求生成 spec。
+
+assistant:
+spec-generate 四路并行探索完成（筛选状态与数据流 / 数据与索引层 / UI 呈现与 XAML 约束 / 测试与构建），关键现状：①TagFilterState 已在 Core（Services\ 白名单自动编入），纯静态 Toggle/ToggleUntagged/Matches（扁平 OR + untagged 位），7 测试 T_TF_S01~07 锁定；②双求值轨=索引 SQL（QueryByTagsAsync LIKE OR，被 RenameFilesAsync 复用不可破坏）+ 扫描追加块内存谓词；③项目弹层全部 ContentDialog 模态（ApplyDialogTheme + _shortcutsEnabled），Flyout 零先例、工具栏无筛选按钮（需新增）；④左栏点击契约（单选重置/二次取消/Ctrl 加减选）与 demo 的 QuickAdd 语义冲突，7 条测试需重写；⑤筛选不落盘（会话态，重开图库清空）；⑥条件树放 Services\ 零 csproj 改动，Core 无 MVVM 包须纯模型+静态函数；⑦性能口径 10 万级筛选首屏 ≤2s；SQLite LIKE 与 OrdinalIgnoreCase 对英文标签有大小写口径差。spec 拍板方向：单一内存求值器（弃双轨等价维护、索引层零改动）、条件值存标签名、左栏语义按 demo QuickAdd、untagged 保留独立互斥、Flyout 宿主 + 二级值选择浮层（不稳降级内联展开）、不落盘、深度 ≤3 状态层强制。
+
+user:
+（spec 落盘，待确认）
+
+assistant:
+spec 已落盘 `docs\iterations\图片打标签与瀑布流浏览\features\tag-filter-tree\spec.md`（需求来源=设计稿+口述，非标准 PRD，已在正文注明）。8 个 Step（core 树模型→测试重写→求值管线→左栏/筛选条→面板 UI→非模态集成→全量验证→实机走查）、14 条 T_FT 测试用例、6 项风险（R1 Flyout 零先例为最大，降级链=值选择内联展开→面板换 ContentDialog 壳）、显式推翻清单（左栏三分支语义/无清空按钮拍板/OR 徽章）与不变清单（untagged 入口/不落盘/索引层/遮盖布局）。待用户确认 spec 后进实现（建议分支 feature/tag-filter-tree）。
+
