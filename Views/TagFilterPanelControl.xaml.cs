@@ -325,6 +325,7 @@ public sealed partial class TagFilterPanelControl : UserControl
             Padding = new Thickness(8, 1, 8, 1),
             CornerRadius = new CornerRadius(999),
             Style = GhostStyle(),
+            UseSystemFocusVisuals = false,
             Foreground = TagSidebarConverters.FilterPanelSecondaryForeground(),
             BorderBrush = TagSidebarConverters.FilterPanelGroupBorderBrush(),
             BorderThickness = new Thickness(1),
@@ -347,7 +348,9 @@ public sealed partial class TagFilterPanelControl : UserControl
     /// </summary>
     private Border BuildValuesExpander(FilterPanelCondModel condition)
     {
-        var list = new StackPanel { Spacing = 2 };
+        // 右 Padding 14（四轮走查修复）：内层 ScrollViewer 滚动条为悬浮 overlay 叠在内容之上——
+        // 右对齐的计数列留出让位，防数字被滚动条压住。
+        var list = new StackPanel { Spacing = 2, Padding = new Thickness(0, 0, 14, 0) };
         if (ViewModel.ChoiceGroups.Count == 0)
         {
             list.Children.Add(new TextBlock
@@ -408,6 +411,7 @@ public sealed partial class TagFilterPanelControl : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
             FontSize = 13,
             MinHeight = 32,
+            UseSystemFocusVisuals = false,
             Background = TagSidebarConverters.FilterPanelChoiceRowBackground(isChecked),
             Foreground = TagSidebarConverters.FilterPanelChoiceRowForeground(isChecked),
         };
@@ -565,6 +569,8 @@ public sealed partial class TagFilterPanelControl : UserControl
             Padding = new Thickness(6, 2, 6, 2),
             CornerRadius = new CornerRadius(6),
             Style = GhostStyle(),
+            BorderThickness = new Thickness(0),
+            UseSystemFocusVisuals = false,
             Background = selected ? TagSidebarConverters.FilterPanelValueChipBackground(negated) : TagSidebarConverters.TransparentBrushValue,
             Foreground = selected
                 ? TagSidebarConverters.FilterPanelValueChipForeground(negated)
@@ -582,7 +588,9 @@ public sealed partial class TagFilterPanelControl : UserControl
         return button;
     }
 
-    /// <summary>行内小图标按钮（✕ 删除类；GhostIconButtonStyle）。</summary>
+    /// <summary>行内小图标按钮（✕ 删除类；GhostIconButtonStyle）。
+    /// 四轮走查修复：✕ 外部的方框=系统焦点框（UseSystemFocusVisuals 默认开）+ 可能残留的默认描边
+    /// ——显式禁焦点框并清零边框，demo .icon-btn 是无边框纯文字小按钮。</summary>
     private static Button MakeIconButton(string glyph, string tooltip, Action click)
     {
         var button = new Button
@@ -594,6 +602,8 @@ public sealed partial class TagFilterPanelControl : UserControl
             Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["GhostIconButtonStyle"],
             FontSize = 11,
             Padding = new Thickness(4, 2, 4, 2),
+            BorderThickness = new Thickness(0),
+            UseSystemFocusVisuals = false,
             VerticalAlignment = VerticalAlignment.Center,
         };
         ToolTipService.SetToolTip(button, tooltip);
@@ -610,6 +620,8 @@ public sealed partial class TagFilterPanelControl : UserControl
             FontSize = subtle ? 11 : 12,
             Padding = new Thickness(6, 3, 6, 3),
             Style = GhostStyle(),
+            BorderThickness = new Thickness(0),
+            UseSystemFocusVisuals = false,
             Foreground = subtle
                 ? TagSidebarConverters.FilterPanelSecondaryForeground()
                 : TagSidebarConverters.FilterPanelAccentBrush(),

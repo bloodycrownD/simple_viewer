@@ -54,6 +54,7 @@
                 Click="OnCloseClicked"
                 Content="✕"
                 Style="{StaticResource GhostIconButtonStyle}"
+                UseSystemFocusVisuals="False"
                 ToolTipService.ToolTip="关闭" />
         </Grid>
 
@@ -61,10 +62,12 @@
         <ScrollViewer
             x:Name="TreeScroll"
             Grid.Row="1"
-            Padding="12,0,10,12"
+            Padding="12,0,18,12"
             VerticalScrollBarVisibility="Auto"
             VerticalScrollMode="Auto"
             ZoomMode="Disabled">
+            <!-- 右 Padding 18（四轮走查修复）：WinUI 3 ScrollViewer 滚动条为悬浮 overlay（叠在内容
+                 之上、不占布局位）——右侧留出滚动条宽度，防组卡片右缘描边被压；与宽度无关。 -->
             <StackPanel x:Name="TreeHost" Spacing="6" />
         </ScrollViewer>
 
@@ -118,12 +121,14 @@
                     Content="清空条件"
                     FontSize="12"
                     Style="{StaticResource GhostButtonStyle}"
+                    UseSystemFocusVisuals="False"
                     ToolTipService.ToolTip="清空全部条件（重置为空根组）" />
                 <Button
                     Grid.Column="2"
                     Click="OnDoneClicked"
                     Content="完成"
                     FontSize="12"
+                    UseSystemFocusVisuals="False"
                     ToolTipService.ToolTip="关闭面板（条件保持生效）" />
             </Grid>
         </StackPanel>
