@@ -258,6 +258,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedCardCount;
 
+    /// <summary>工具栏「选择」按钮文案（全选 ⇄ 取消全选，随选中态与呈现集切换；六轮用户需求：常用功能入工具栏）。</summary>
+    [ObservableProperty]
+    private string _selectAllToggleText = "全选";
+
     /// <summary>批量打标 InfoBar 是否打开（D13：主窗口内嵌回执区；用户关闭经 TwoWay 写回）。</summary>
     [ObservableProperty]
     private bool _isTagFeedbackOpen;
@@ -971,6 +975,32 @@ public partial class MainViewModel : ObservableObject
 
         SelectedCardCount = _selectedCards.Count;
     }
+
+    /// <summary>当前呈现集是否已全部选中（全选态判定；呈现集为空恒 false）。</summary>
+    private bool IsAllCardsSelected
+        => _waterfall.Items.Count > 0 && SelectedCardCount >= _waterfall.Items.Count;
+
+    /// <summary>
+    /// 工具栏「选择」按钮（六轮用户需求，常用功能）：智能切换——未全选 → 全选当前呈现集
+    /// （与 Ctrl+A 同管线）；已全选 → 清空（与 Esc 同管线）。2026-09-19 拍板移除过的
+    /// 「清除选择」按钮是图库状态行内的一次性权衡，本按钮为工具栏常驻全选/取消一体入口，口径已由用户新决策覆盖。
+    /// </summary>
+    [RelayCommand]
+    private void ToggleSelectAll()
+    {
+        if (IsAllCardsSelected)
+        {
+            ClearCardSelection();
+        }
+        else
+        {
+            SelectAllCards();
+        }
+    }
+
+    /// <summary>按选中数与呈现集刷新「选择」按钮文案（全选 ⇄ 取消全选）。</summary>
+    private void UpdateSelectAllToggleText()
+        => SelectAllToggleText = IsAllCardsSelected ? "取消全选" : "全选";
 
     /// <summary>
     /// 回车进入单图（PRD 需求 4「双击或回车进入单图」；MainWindow PreviewKeyDown 仿 Ctrl+A 口径接线，
@@ -2702,8 +2732,9 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedCardCountChanged(int value)
     {
-        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）。
+        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）与工具栏「选择」按钮文案。
         OnPropertyChanged(nameof(GalleryStatusText));
+        UpdateSelectAllToggleText();
     }
 
     partial void OnIsTagOperationInProgressChanged(bool value)
@@ -2716,12 +2747,13 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
     }
 
-    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性、状态行与筛选统计。</summary>
+    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性、状态行、筛选统计与「选择」按钮文案。</summary>
     private void OnWaterfallItemsChanged()
     {
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
         OnPropertyChanged(nameof(GalleryStatusText));
         OnPropertyChanged(nameof(FilterStatsText));
+        UpdateSelectAllToggleText();
     }
 
     partial void OnHasImageChanged(bool value)
