@@ -101,6 +101,29 @@ public partial class WaterfallViewModel : ObservableObject
         ItemsChanged?.Invoke();
     }
 
+    /// <summary>
+    /// 当前呈现集是否与给定目标序列完全一致（逐项 Path 相等、顺序敏感）。
+    /// 供筛选应用前判断「命中结果没变」——面板添加空条件/未启用编辑等场景跳过整体
+    /// 重置（实机走查修复：无变化的重置会整墙闪跳 + 无谓清空选中集）。
+    /// </summary>
+    public bool PresentsExactly(IReadOnlyList<GalleryItem> items)
+    {
+        if (Items.Count != items.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (!string.Equals(Items[i].Item.Path, items[i].Path, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>卡片双击转发（以单图模式打开）。</summary>
     internal void RaiseCardDoubleTapped(GalleryItemViewModel viewModel) => _ = _owner.OpenImageAsSingle(viewModel.Item);
 }

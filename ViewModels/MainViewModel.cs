@@ -1730,42 +1730,50 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
-    /// 三分支全内存化（spec D1，索引层零改动）：无标签 → MatchesUntagged 谓词；
-    /// 树有有效条件 → Evaluate 谓词；否则全量（发现序）。命中结果按 SortKey 自然序排序
-    /// （对齐原索引查询分支口径；GalleryItemNaturalComparer 与索引查询同款）。
+    /// 按当前筛选态刷新瀑布流。三分支全内存化（spec D1，索引层零改动）：无标签 →
+    /// MatchesUntagged 谓词；树有有效条件 → Evaluate 谓词；否则全量（发现序）。命中结果按
+    /// SortKey 自然序排序（对齐原索引查询分支口径；GalleryItemNaturalComparer 与索引查询同款）。
     /// 枚举源统一为锁内快照（Step 6）：扫描进行中后台 Add 与本管线枚举的竞态收口。
+    /// 命中序列与当前呈现完全一致时跳过整体重置（实机走查修复）：无变化的重置会整墙
+    /// 闪跳（卡片 VM 全部重建、缩略图重新加载）+ 无谓清空选中集——面板添加空条件、
+    /// 切换未启用条件的操作符等编辑不应惊动图墙（demo renderWall 平滑重排同因：内容不变无感知）。
     /// </summary>
     private void ApplyTagFilter()
     {
-        ClearCardSelection();
-
         var gallery = SnapshotGalleryItems();
 
-        // 本地函数：命中集按自然序排序后整体替换（两筛选分支共用）。
-        void ResetWithHits(IEnumerable<GalleryItem> hits)
-        {
-            var ordered = hits.OrderBy(static i => i, GalleryItemNaturalComparer.Instance).ToList();
-            _waterfall.ResetFrom(ordered);
-            WaterfallEmptyText = ordered.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
-        }
-
+        List<GalleryItem> target;
         if (IsUntaggedFilterActive)
         {
-            ResetWithHits(gallery.Where(i => TagFilterState.MatchesUntagged(i.Tags)));
+            target = gallery
+                .Where(i => TagFilterState.MatchesUntagged(i.Tags))
+                .OrderBy(static i => i, GalleryItemNaturalComparer.Instance)
+                .ToList();
         }
         else if (TagFilterState.CollectReferencedTags(_filterRoot).Count > 0)
         {
-            ResetWithHits(gallery.Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags)));
+            target = gallery
+                .Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags))
+                .OrderBy(static i => i, GalleryItemNaturalComparer.Instance)
+                .ToList();
         }
         else
         {
             // 无有效条件：回到扫描全量（发现顺序，D15）。
-            _waterfall.ResetFrom(gallery);
-            WaterfallEmptyText = HasGallery && gallery.Count == 0 && !IsScanning
-                ? "未在所选目录发现图片"
-                : string.Empty;
+            target = gallery;
         }
+
+        if (!_waterfall.PresentsExactly(target))
+        {
+            ClearCardSelection();
+            _waterfall.ResetFrom(target);
+        }
+
+        WaterfallEmptyText = target.Count == 0
+            ? (IsUntaggedFilterActive || TagFilterState.CollectReferencedTags(_filterRoot).Count > 0
+                ? "当前筛选条件下没有命中图片"
+                : (HasGallery && !IsScanning ? "未在所选目录发现图片" : string.Empty))
+            : string.Empty;
 
         OnPropertyChanged(nameof(GalleryStatusText));
         OnPropertyChanged(nameof(FilterBarVisibility));

@@ -100,8 +100,18 @@
                         </StackPanel>
                         <Button.Flyout>
                             <!-- 面板本体 code-behind 构造注入（TagFilterPanelControl(Main, vm) 构造签名，
-                                 对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs） -->
+                                 对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs）。
+                                 FlyoutPresenterStyle（实机走查修复）：WinUI 默认 FlyoutThemeMaxWidth=456
+                                 会把面板（UserControl Width=620）硬夹成 456 逻辑宽导致内容竖排挤压，
+                                 覆盖为 660=620+左右 FlyoutContentPadding 16×2+边框余量；
+                                 BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板。 -->
                             <Flyout x:Name="TagFilterFlyout" Placement="Bottom">
+                                <Flyout.FlyoutPresenterStyle>
+                                    <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
+                                        <Setter Property="MinWidth" Value="660" />
+                                        <Setter Property="MaxWidth" Value="660" />
+                                    </Style>
+                                </Flyout.FlyoutPresenterStyle>
                                 <ContentControl x:Name="FilterPanelHost" />
                             </Flyout>
                         </Button.Flyout>
