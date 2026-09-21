@@ -87,3 +87,9 @@ user:
 assistant:
 二轮修复并实机验证（7e677a4）：遮挡根因=**FlyoutPresenter 自带 ScrollViewer**——面板高于按钮下方可用空间时它给出贯穿面板全高的滚动条贴右缘，压住底部「命中 N/已发现 N」；修法三件套：①外层 ScrollViewer.VerticalScroll 禁用（FlyoutPresenterStyle Setter），滚动收进面板内部 TreeScroll（UserControl MaxHeight 640→520 收紧总高）；②面板加宽 660→700（底部操作行与条件行留裕）；③底部行右侧 Padding 让位双保险。顺带给 code-behind 关键按钮补 AutomationId（FilterAddCondButton/FilterAddGroupButton/FilterAddValueButton）解决 UIA 定位。矮窗口（900×520 逻辑，MoveWindow 模拟用户环境）实机验证：宽 1050 物理=700 逻辑 ✓、高度夹至可用空间、无贯穿滚动条、命中数字完整、值选择展开正常。WinUI Flyout 坑总结入 commit：MaxWidth 默认 456 夹宽 + 外层滚动条贯穿两坑都靠 FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle 解决。
 
+user:
+三轮走查："不是宽度的问题，应该是缺少左侧 padding 的原因。另外这个 ✕ 不对吧？非常丑，而且明显大小不对"（附截图）。
+
+assistant:
+三轮修复（3884de6）：①**✕ 大小丑**：MakeIconButton 用了 GhostButtonStyle（工具栏按钮样式 Padding 10,5），单字符 ✕ 被撑成 ~32x30 逻辑大块带默认底色——改 GhostIconButtonStyle（面板头部 ✕ 同款紧凑样式）+ FontSize 11/Padding 4,2，条件行尾/非根组头/值胶囊三处 ✕ 统一；UIA 实测 30x32 物理（≈20x21 逻辑）与切换按钮同量级。②**左 padding**：条件行 Padding 左 8→10、TreeScroll 左 10→12（用户纠正二轮"宽度问题"实为内容贴左——加宽 700 保留但真正缺的是层次内边距）。验证经验：视觉模型 CDN 间歇故障（Unable to download image），fallback=UIA BoundingRectangle 量按钮尺寸分布（自动化比视觉可靠，RULE 已有同类结论）。
+
