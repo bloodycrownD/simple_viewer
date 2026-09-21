@@ -73,8 +73,12 @@ public partial class MainViewModel : ObservableObject
     private string? _currentDirectory;
     private CancellationTokenSource? _loadCts;
 
-    // 图库状态：_galleryItems 为扫描全量暂存（后台线程写，UI 消费走 Waterfall 渐进追加）。
+    // 图库状态：_galleryItems 为扫描全量暂存（后台扫描线程逐项 Add，cr/P1-1 单写者）。
+    // UI 侧消费：Waterfall 渐进追加（Progress 回投）与筛选管线——Step 6 后枚举点一律经
+    // _galleryItemsLock 锁内拷贝（SnapshotGalleryItems）防 List 枚举版本冲突；Count 单读
+    // 为原子引用读免锁（FilterStatsText 等高频绑定）。
     private readonly List<GalleryItem> _galleryItems = [];
+    private readonly object _galleryItemsLock = new();
     private CancellationTokenSource? _scanCts;
 
     // 扫描任务句柄与代次（cr/P1-1 重开图库竞态收口）：重开时先 Cancel + await 旧任务（吞异常）
@@ -649,7 +653,10 @@ public partial class MainViewModel : ObservableObject
         _indexService?.Dispose();
         _indexService = indexService;
 
-        _galleryItems.Clear();
+        lock (_galleryItemsLock)
+        {
+            _galleryItems.Clear();
+        }
         ClearCardSelection();
         TagFilterState.Clear(_filterRoot); // 筛选会话态：重开图库清空（spec D4，不落盘）
         IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐条件树清空口径）
@@ -722,7 +729,12 @@ public partial class MainViewModel : ObservableObject
                 await foreach (var item in _scanService.ScanAsync(root, progress, token))
                 {
                     // 全量暂存 List + 分块 upsert 索引；瀑布流经 chunkProgress 渐进追加（UI 线程）。
-                    _galleryItems.Add(item);
+                    // 后台线程写：与 UI 侧筛选管线快照读取（SnapshotGalleryItems）经锁互斥
+                    // （tag-filter-tree Step 6 扫描中面板编辑实时生效的竞态收口；无竞争锁纳秒级）。
+                    lock (_galleryItemsLock)
+                    {
+                        _galleryItems.Add(item);
+                    }
                     chunk.Add(item);
                     uiBuffer.Add(item);
                     if (chunk.Count >= LibraryScanService.ChunkSize)
@@ -1701,14 +1713,34 @@ public partial class MainViewModel : ObservableObject
         => (_settingsService?.Load().TagGroups ?? [], _latestTagCounts);
 
     /// <summary>
+    /// 取 <see cref="_galleryItems"/> 稳定快照（tag-filter-tree Step 6 扫描实时性收口）：
+    /// 扫描进行中后台线程仍在逐项 Add（面板编辑实时生效的前提是随时可重应用筛选），
+    /// UI 线程筛选管线直接枚举活集合会触发 List 枚举版本冲突（InvalidOperationException，
+    /// UI 线程未捕获即崩溃）；锁内拷贝后枚举快照——扫描中面板每次编辑（EditFilter →
+    /// ApplyTagFilter）即取一次，与后台 Add 短暂互斥（拷贝 10 万量级毫秒级，攒批投递
+    /// 300ms 粒度不受感）。WaterfallViewModel.ResetFrom 的「快照后复用」只保证自身两次
+    /// 枚举一致，不消除枚举中的并发修改，故收口在本层完成。
+    /// </summary>
+    private List<GalleryItem> SnapshotGalleryItems()
+    {
+        lock (_galleryItemsLock)
+        {
+            return [.. _galleryItems];
+        }
+    }
+
+    /// <summary>
     /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
     /// 三分支全内存化（spec D1，索引层零改动）：无标签 → MatchesUntagged 谓词；
     /// 树有有效条件 → Evaluate 谓词；否则全量（发现序）。命中结果按 SortKey 自然序排序
     /// （对齐原索引查询分支口径；GalleryItemNaturalComparer 与索引查询同款）。
+    /// 枚举源统一为锁内快照（Step 6）：扫描进行中后台 Add 与本管线枚举的竞态收口。
     /// </summary>
     private void ApplyTagFilter()
     {
         ClearCardSelection();
+
+        var gallery = SnapshotGalleryItems();
 
         // 本地函数：命中集按自然序排序后整体替换（两筛选分支共用）。
         void ResetWithHits(IEnumerable<GalleryItem> hits)
@@ -1720,17 +1752,17 @@ public partial class MainViewModel : ObservableObject
 
         if (IsUntaggedFilterActive)
         {
-            ResetWithHits(_galleryItems.Where(i => TagFilterState.MatchesUntagged(i.Tags)));
+            ResetWithHits(gallery.Where(i => TagFilterState.MatchesUntagged(i.Tags)));
         }
         else if (TagFilterState.CollectReferencedTags(_filterRoot).Count > 0)
         {
-            ResetWithHits(_galleryItems.Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags)));
+            ResetWithHits(gallery.Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags)));
         }
         else
         {
             // 无有效条件：回到扫描全量（发现顺序，D15）。
-            _waterfall.ResetFrom(_galleryItems);
-            WaterfallEmptyText = HasGallery && _galleryItems.Count == 0 && !IsScanning
+            _waterfall.ResetFrom(gallery);
+            WaterfallEmptyText = HasGallery && gallery.Count == 0 && !IsScanning
                 ? "未在所选目录发现图片"
                 : string.Empty;
         }
@@ -2360,12 +2392,17 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void ReplaceGalleryItemState(string oldPath, GalleryItem newItem)
     {
-        for (var i = 0; i < _galleryItems.Count; i++)
+        // 索引替换与后台扫描 Add 的数组扩容竞态经锁互斥（Step 6；扫描中打标/改名走本路径；
+        // for 索引访问虽无枚举版本检查，但与 Add 的内部数组重分配并发写会丢更新）。
+        lock (_galleryItemsLock)
         {
-            if (string.Equals(_galleryItems[i].Path, oldPath, StringComparison.OrdinalIgnoreCase))
+            for (var i = 0; i < _galleryItems.Count; i++)
             {
-                _galleryItems[i] = newItem;
-                break;
+                if (string.Equals(_galleryItems[i].Path, oldPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _galleryItems[i] = newItem;
+                    break;
+                }
             }
         }
 
@@ -2467,11 +2504,21 @@ public partial class MainViewModel : ObservableObject
 
         // 磁盘事实已变（2026-09-18 走查修复：旧实现只删内存列表，文件从未进回收站，
         // 重开图库"已删"图片复活）。图库打开时同步列表/索引/瀑布流呈现，事实源永远是磁盘。
-        var galleryIndex = _galleryItems.FindIndex(item =>
-            string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (galleryIndex >= 0)
+        // FindIndex + RemoveAt 为原子段：与后台扫描 Add 经锁互斥（Step 6，扫描中单图删除场景）。
+        bool removedFromGallery;
+        lock (_galleryItemsLock)
         {
-            _galleryItems.RemoveAt(galleryIndex);
+            var galleryIndex = _galleryItems.FindIndex(item =>
+                string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+            removedFromGallery = galleryIndex >= 0;
+            if (removedFromGallery)
+            {
+                _galleryItems.RemoveAt(galleryIndex);
+            }
+        }
+
+        if (removedFromGallery)
+        {
             if (_indexService is not null)
             {
                 await _indexService.RemovePathAsync(path);
