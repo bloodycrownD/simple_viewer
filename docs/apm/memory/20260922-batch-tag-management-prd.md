@@ -1,8 +1,8 @@
 ---
-date: 2026-09-22 12:00
+date: 2026-09-22 21:29
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
-abstract: 用户提出批量移除标签需求并洞察两层模型（配置层定义 vs 事实层文件名标签），六轮问答拍板全量口径：删除定义不连锁（含组，重命名保持连锁）、左栏新增【未定义标签】chip 流式区（删除=连锁真删/收纳）、图库常驻右栏（浮层收展、选中集并集+计数+✕批量移除+批量添加）、工具栏左右分组按模式显隐（图库删除=删选中集新能力）。prd-generate 三路探索（连锁管线/右栏与批量打标/工具栏计数）确认数据与管线现成、四项行为级缺口经 AskQuestion 拍板。PRD 落盘 features\batch-tag-management\prd.md，待用户确认。
+abstract: 用户提出批量移除标签需求并洞察两层模型（配置层定义 vs 事实层文件名标签），六轮问答拍板全量口径后 PRD 落盘并经 spec-generate 四路探索出技术规格：12 项拍板（D1~D12：绑定拒绝前移 VM、连锁删除走 RunTagOperationAsync(remove)、TagProjection 下沉 Core、右栏宿主 ContentAreaGrid 浮层、Ctrl+A 按现状仅图库等）、9 Step、T-PR/T-FO/T-IX 用例族。spec 待用户确认，确认后走 code-dev-loop（分支 feature/batch-tag-management，base=feature/tag-filter-tree@4d68321）。
 ---
 
 user:
@@ -16,3 +16,15 @@ user:
 
 assistant:
 PRD 已提交（27da0fc，分支 feature/tag-filter-tree）。当前会话全局状态备查：①tag-filter-tree 迭代 dev-ready + 七轮用户走查修复全部收口（面板宽度/滚动条遮挡/✕焦点框/按钮位置盖左栏/⋯三点菜单/选择按钮），HEAD=12cf426 后又有 27da0fc，分支未合并 master；②batch-tag-management PRD 待用户最终确认，确认后下一步= spec-generate（技术规格：未定义区/图库右栏/工具栏显隐/删选中集，Core 可测逻辑=两层语义分流与未定义集合计算）；③走查方法论已入 RULE（UI 交付前实机自检脚本模式、三个隐形层）。
+
+user:
+（上下文压缩恢复、记忆核对后）调用 spec-generate——PRD 视为确认，进入技术规格阶段。
+
+assistant:
+spec-generate 启动（21:17）：已读 PRD 与父 PRD（dependency），派四路探索——A 配置层 CRUD 与连锁/计数管线、B 图库右栏宿主与选中集/批量打标、C 工具栏模式切换与删除管线、D 测试构建约束与历史决策对齐。spec 将落盘 features\batch-tag-management\spec.md。
+
+user:
+（四路探索报告返回，spec 撰写落盘）
+
+assistant:
+探索关键结论：①绑定引用拒绝现状在 TagService.DeleteTagAsync（文件管线前置），删定义纯化后必须前移 VM，否则 ValidateBindings 会以「引用的标签不存在」错误文案拒绝悬空绑定；②分批 25 的是 RunTagOperationAsync（打标管线）而 RenameFilesAsync（编辑管线）不分批——未定义区连锁删除拍板「QueryByTagsAsync 取候选 + RunTagOperationAsync(remove:true)」，回执口径才与批量打标一致；③未定义集合/并集计算现状内联 TagSidebarViewModel.Rebuild（UI 层不可测），下沉新文件 Services\TagProjection.cs（T-PR 用例族）；④图库右栏宿主定 ContentAreaGrid 图库 Grid 右缘浮层（随 GalleryVisibility 单图天然隐藏、免 TopChromeHeight 避让、规避 XamlCompiler 顺序坑）；⑤PRD 风险节「Ctrl+A 单图仍全选」与现状不符（接管条件本含 CurrentMode==Gallery），按现状拍板 D11 并回写修正。spec 落盘 features\batch-tag-management\spec.md：D1~D12 拍板、9 Step（core-projection→config-delete-rework→undefined-zone→gallery-panel→catalog-batch→toolbar-mode→delete-selection→doc-sync→verify-full）、T-PR1~8/T-FO1~3/T-IX13 + 现有 T_TG_05/T_ST_05 口径调整、7 风险、不变清单与文档同步点（父 PRD 三处回写、ungrouped-tags-ignore 部分推翻标注——精确到聚合忽略，角标与右栏 chips 口径不推翻）。分支计划 feature/batch-tag-management，base=feature/tag-filter-tree@4d68321（依赖其 TagFilterState 树联动）。待用户确认 spec。
