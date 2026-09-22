@@ -17,12 +17,12 @@
 //         标签筛选条件树与命中数在本类（tag-filter-tree spec D1/D4，单一内存求值器）：
 //         筛选变化 → TagFilterState.Evaluate/MatchesUntagged 对 _galleryItems 全量谓词过滤 →
 //         命中按 SortKey 自然序排序后瀑布流整体替换（对齐原索引查询分支口径；索引层零改动，
-//         QueryByTagsAsync 留给 RenameFilesAsync 编辑候选集）；取消筛选恢复扫描全量（发现序，不清空索引）；
+//         QueryByTagsAsync 留给 RenameFilesAsync（重命名连锁专用）编辑候选集）；取消筛选恢复扫描全量（发现序，不清空索引）；
 //         扫描期间追加的块经同一谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
 //         筛选条 chips = BuildExpression 表达式段形态（条件/且或/括号；untagged 激活时为「无标签」chip，
 //         与条件树互斥——任一方向激活清另一方）；重开图库清树（会话态不落盘）；
 //         重开图库先 Cancel + await 旧扫描任务再清资源（cr/P1-1），旧扫描迟到的 UI 回投经代次校验丢弃；
-//         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
+//         标签/组编辑前置 ValidateTagGroups 预检（同口径）再动文件/保存配置，避免“文件已改、配置被拒”分裂（删除标签/组已纯化为配置操作、绑定引用前置拒绝，batch-tag-management Step 2）；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
 // 调用链：App → MainWindow → MainViewModel → FileBrowser / ImageLoader / FileOperation / TagFilename / TagService /
@@ -1951,8 +1951,8 @@ public partial class MainViewModel : ObservableObject
                 TagEditKind.RenameGroup => ExecuteRenameGroup(request, input),
                 TagEditKind.ToggleExclusive => ExecuteToggleExclusive(request),
                 TagEditKind.RenameTag => await ExecuteRenameTagAsync(request, input),
-                TagEditKind.DeleteTag => await ExecuteDeleteTagAsync(request),
-                TagEditKind.DeleteGroup => await ExecuteDeleteGroupAsync(request),
+                TagEditKind.DeleteTag => ExecuteDeleteTag(request),
+                TagEditKind.DeleteGroup => ExecuteDeleteGroup(request),
                 _ => "未知操作。",
             };
         }
@@ -2079,24 +2079,24 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    /// <summary>删除标签：候选（索引命中）→ TagService 落盘移除 → 同步索引/瀑布流/筛选集 → 配置移除保存。</summary>
-    private async Task<string?> ExecuteDeleteTagAsync(TagEditRequest request)
+    /// <summary>
+    /// 删除标签定义（batch-tag-management Step 2 纯化，D2）：纯配置操作、0 文件改名——
+    /// 文件上的该标签保留，之后出现在未定义标签区。前置快捷键绑定引用整体拒绝（A2 口径：
+    /// 文案沿用原 TagService.DeleteTagAsync 原文；不前移则 ValidateBindings 会在 Save 时以
+    /// 「引用的标签不存在」错误文案拒绝悬空绑定，口径不符）。
+    /// 通过后：筛选树引用摘除 → 配置移除标签定义 → 保存重建侧栏 → 筛选有变化则重应用。
+    /// </summary>
+    private string? ExecuteDeleteTag(TagEditRequest request)
     {
         var settings = _settingsService!.Load();
         var group = FindGroup(settings.TagGroups, request.GroupId);
         var tag = group?.Tags.FirstOrDefault(t =>
             string.Equals(t.Name, request.TagName, StringComparison.Ordinal));
 
-        var deleteResult = await RenameFilesAsync(
-            statusPrefix: $"删除标签「{request.TagName}」",
-            candidateTagNames: [request.TagName],
-            executeAsync: paths => _tagService.DeleteTagAsync(
-                paths, tag ?? new TagDefinition { Name = request.TagName }),
-            transform: tags => RemoveTag(tags, request.TagName));
-
-        if (deleteResult is not null)
+        // 前置绑定引用拒绝：整体拒绝（TagEditDialog 保持打开回显错误，不走任何文件管线）。
+        if (tag is not null && IsTagReferencedByBindings(settings, tag.Id))
         {
-            return deleteResult; // 整体拒绝（如被快捷键绑定引用）。
+            return $"标签“{tag.Name}”被快捷键绑定引用，请先修改或移除相关绑定再删除。";
         }
 
         // 筛选树联动：已删除的标签引用全树移除（被清空条件保留为未启用恒真行），
@@ -2123,8 +2123,13 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    /// <summary>删除标签组：候选（组内全部标签 OR 命中）→ 级联落盘移除 → 同步 → 配置移除组保存。</summary>
-    private async Task<string?> ExecuteDeleteGroupAsync(TagEditRequest request)
+    /// <summary>
+    /// 删除标签组定义（batch-tag-management Step 2 纯化，D2）：纯配置操作、0 文件改名——
+    /// 组内标签在文件上保留，之后出现在未定义标签区。组内任一标签被快捷键绑定引用即整体拒绝
+    /// （D2 新增：原 DeleteGroupAsync 无绑定校验，不前置将落进 ValidateBindings 悬空绑定错误文案）。
+    /// 通过后：逐标签摘筛选树引用（聚合 changed）→ 配置移除组 → 保存重建侧栏 → 筛选有变化则重应用。
+    /// </summary>
+    private string? ExecuteDeleteGroup(TagEditRequest request)
     {
         var settings = _settingsService!.Load();
         var group = FindGroup(settings.TagGroups, request.GroupId);
@@ -2133,22 +2138,16 @@ public partial class MainViewModel : ObservableObject
             return "目标标签组不存在（配置可能已被外部修改）。";
         }
 
-        var groupTagNames = group.Tags.Select(t => t.Name).ToList();
-        var groupSnapshot = group; // 执行时组标签名单快照（防迭代中被修改）。
-        var deleteResult = await RenameFilesAsync(
-            statusPrefix: $"删除标签组「{request.GroupName}」",
-            candidateTagNames: groupTagNames,
-            executeAsync: paths => _tagService.DeleteGroupAsync(paths, groupSnapshot),
-            transform: tags => tags.Where(t => !groupTagNames.Contains(t, StringComparer.OrdinalIgnoreCase)).ToArray());
-
-        if (deleteResult is not null)
+        // 前置绑定引用拒绝：组内任一标签被引用即整体拒绝（与删除标签同一文案口径）。
+        var referencedTag = group.Tags.FirstOrDefault(t => IsTagReferencedByBindings(settings, t.Id));
+        if (referencedTag is not null)
         {
-            return deleteResult;
+            return $"标签“{referencedTag.Name}”被快捷键绑定引用，请先修改或移除相关绑定再删除。";
         }
 
         // 筛选树联动：组内全部标签的引用逐一移除（RemoveTagReferences 幂等，聚合有改动标记）。
         var filterChanged = false;
-        foreach (var tagName in groupTagNames)
+        foreach (var tagName in group.Tags.Select(t => t.Name).ToList())
         {
             filterChanged |= TagFilterState.RemoveTagReferences(_filterRoot, tagName);
         }
@@ -2169,10 +2168,22 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 统一的重命名落盘管线：索引取候选 → TagService 批量执行（成功不回滚）→
-    /// 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ InfoBar 回执
+    /// 判定标签 Id 是否被快捷键绑定引用（ApplyTag + TagId 命中；原 TagService 构造注入的同名
+    /// 谓词随 DeleteTagAsync 删除迁此）。A2 口径：拒绝文案沿用原 DeleteTagAsync 原文；
+    /// 不前移则 ValidateBindings 以「引用的标签不存在」错误文案拒绝悬空绑定。
+    /// </summary>
+    private static bool IsTagReferencedByBindings(AppSettings settings, string tagId)
+        => settings.Shortcuts.Any(b =>
+            b.Command == ViewerCommand.ApplyTag
+            && string.Equals(b.TagId, tagId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// 统一的重命名落盘管线（batch-tag-management Step 2 起为重命名连锁专用——删除标签/组已纯化为
+    /// 配置删除、不再走文件管线，唯一调用方 ExecuteRenameTagAsync）：索引取候选 → TagService 批量执行
+    /// （成功不回滚）→ 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ InfoBar 回执
     ///（全成功静默、有失败弹 Warning；原状态栏回执已随状态栏移除迁移至此，2026-09-19）。
-    /// 返回 null = 已执行（含部分失败，回执进 InfoBar）；非 null = 整体拒绝（对话框内显示）。
+    /// 返回 null = 已执行（含部分失败，回执进 InfoBar）；非 null = 整体拒绝（对话框内显示；
+    /// 重命名管线现状不产生整体拒绝——Reject 语义已随 DeleteTagAsync 删除迁 VM，识别分支保留作防御）。
     /// </summary>
     /// <param name="statusPrefix">InfoBar 回执前缀（操作名）。</param>
     /// <param name="candidateTagNames">候选集的标签（OR 命中）。</param>
@@ -2199,7 +2210,7 @@ public partial class MainViewModel : ObservableObject
         var result = await executeAsync(paths);
         if (result.Failures.Count == 1 && result.Failures[0].Path.Length == 0)
         {
-            return result.Failures[0].Reason; // 整体拒绝（如标签被快捷键绑定引用）。
+            return result.Failures[0].Reason; // 整体拒绝（拒绝语义已随 DeleteTagAsync 迁 VM，重命名现状不产生；防御保留）。
         }
 
         // 索引与瀑布流就地同步：仅当旧路径消失且预测新路径存在（该文件实际改名成功）。

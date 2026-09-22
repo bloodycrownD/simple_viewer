@@ -139,8 +139,10 @@ public sealed partial class TagEditDialog : UserControl
         TagEditKind.AddTag => $"在「{request.GroupName}」中添加标签。{(request.GroupExclusive ? "该组为互斥组：打标时替换组内旧标签。" : "该组为兼容组：打标时共存叠加。")}",
         TagEditKind.RenameGroup => "重命名组名。组名仅用于左栏展示，不影响任何文件名。",
         TagEditKind.RenameTag => $"「{request.TagName}」被 {request.AffectedCount} 张图片引用。\n重命名将更新这些图片的文件名（打标即改名）。",
-        TagEditKind.DeleteTag => $"「{request.TagName}」被 {request.AffectedCount} 张图片引用。\n删除将从这些图片的文件名中移除该标签，不会删除图片本体。",
-        TagEditKind.DeleteGroup => $"该组标签共被 {request.AffectedCount} 处引用。\n删除将移除所有图片上的该组标签（文件名随之更新），不会删除图片。",
+        // 删除文案（batch-tag-management Step 2 新口径）：删除 = 仅移除定义（0 文件改名），
+        // 文件上的标签保留并落入未定义标签区（其清理出口为未定义区「删除」连锁，Step 3）。
+        TagEditKind.DeleteTag => $"仅移除标签定义，{request.AffectedCount} 张图片上的该标签将保留，并出现在未定义标签区。",
+        TagEditKind.DeleteGroup => "仅移除该组及组内全部标签定义，图片上的标签将保留，并出现在未定义标签区。",
         TagEditKind.ToggleExclusive => request.GroupExclusive
             ? $"将「{request.GroupName}」切换为兼容组。已打上的标签不变，仅影响后续打标交互。"
             : $"将「{request.GroupName}」切换为互斥组。已打上的标签不变，此后组内打标将替换同组旧标签。",

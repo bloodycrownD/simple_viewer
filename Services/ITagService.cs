@@ -3,10 +3,11 @@ using SimpleViewer.Models;
 namespace SimpleViewer.Services;
 
 /// <summary>
-/// 标签操作服务：打标/移除/重命名/删除标签均以同目录重命名文件落盘（TagSpaces 文件名标签协议），
+/// 标签操作服务：打标/移除/重命名标签均以同目录重命名文件落盘（TagSpaces 文件名标签协议），
 /// 含互斥语义 enforcement 与批量失败聚合。所有操作一律经
 /// <see cref="ITagFilenameService.BuildNewPath"/> 预检（260 长度/目标冲突/标签名合法）后再 <see cref="File.Move"/>，
 /// 绝不复用 FileOperationService.MoveToFolder 的"同名先删后移"覆盖语义（决策 D10）。
+/// 删除标签/组不在此列：batch-tag-management Step 2 起删除纯化为配置操作（MainViewModel，0 文件改名）。
 /// </summary>
 /// <remarks>
 /// 服务自身不扫描磁盘：所有方法的候选文件集合（paths）由调用方给出（如瀑布流选中集、全库路径集合），
@@ -40,22 +41,6 @@ public interface ITagService
     /// <param name="oldTagName">旧标签名。</param>
     /// <param name="newTagName">新标签名（合法性由重命名管线校验，非法时逐文件聚合失败原因）。</param>
     Task<BatchOperationResult> RenameTagAsync(IReadOnlyList<string> paths, string oldTagName, string newTagName);
-
-    /// <summary>
-    /// 删除标签：从给定文件集移除该标签。
-    /// 前置校验：标签被快捷键绑定引用时整体拒绝（提示先改绑定）——引用判断以可注入谓词实现
-    /// （入参为 <see cref="TagDefinition.Id"/>，与 Step 12 的 ShortcutBinding.TagId 契约对齐；null 谓词视为未引用）。
-    /// </summary>
-    /// <param name="paths">候选文件全路径集合。</param>
-    /// <param name="tag">要删除的标签。</param>
-    Task<BatchOperationResult> DeleteTagAsync(IReadOnlyList<string> paths, TagDefinition tag);
-
-    /// <summary>
-    /// 删除标签组：级联从给定文件集移除该组全部标签（组内标签以执行时组的标签名单为准）。
-    /// </summary>
-    /// <param name="paths">候选文件全路径集合。</param>
-    /// <param name="group">要删除的组。</param>
-    Task<BatchOperationResult> DeleteGroupAsync(IReadOnlyList<string> paths, TagGroup group);
 }
 
 /// <summary>

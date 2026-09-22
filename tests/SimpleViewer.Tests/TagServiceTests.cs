@@ -4,9 +4,12 @@ using SimpleViewer.Services;
 namespace SimpleViewer.Tests;
 
 /// <summary>
-/// TagService 标签操作测试（spec Step 3：T-TG1~10 与 T-ST5）。
+/// TagService 标签操作测试（spec Step 3：T-TG1~12；T_ST_05 已删——拒绝点随删除连锁迁 MainViewModel，
+/// 悬空绑定拒绝由 SettingsServiceTests T_ST_07~09 锁定）。
 /// 全部使用 TempDirectory 建立真实文件，以落盘文件名为事实源断言；
 /// TagSemantics 互斥语义另以纯函数级 Fact 直接覆盖。
+/// batch-tag-management Step 2：T_TG_05 语义随删除纯化变更为锁定 RemoveTagAsync 按名移除
+/// （未定义区连锁删除/右栏批量移除的服务层基础，spec D3）。
 /// </summary>
 public class TagServiceTests
 {
@@ -15,7 +18,6 @@ public class TagServiceTests
 
     public TagServiceTests()
     {
-        // 谓词缺省为 null（视为未引用），T-ST5 单独注入返回 true 的 stub。
         _service = new TagService(_tagFilenameService);
     }
 
@@ -112,22 +114,31 @@ public class TagServiceTests
         Assert.Equal("3[别的].jpg", names[2]);
     }
 
-    // ---------------------------------------------------------------- T-TG5：DeleteTag 清理
+    // ---------------------------------------------------------------- T-TG5：RemoveTag 按名移除
+    //（batch-tag-management Step 2：删除标签已纯化为配置操作、不再走文件管线；本用例语义随之变更为
+    //  锁定 RemoveTagAsync 按名移除——未定义区连锁删除（D3）/右栏批量移除的服务层基础。）
 
     [Fact]
-    public async Task T_TG_05_DeleteTag_RemovesTagFromFiles()
+    public async Task T_TG_05_RemoveTag_RemovesTagByNameFromFiles()
     {
         using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "keep[A B].jpg");
-        File.WriteAllText(path, "x");
-        var tagA = new TagDefinition { Id = "tag-A", Name = "A" };
+        var f1 = Path.Combine(temp.Path, "1[A B].jpg");
+        var f2 = Path.Combine(temp.Path, "2[a].jpg"); // 大小写变体同被移除
+        var f3 = Path.Combine(temp.Path, "3[C].jpg"); // 不含该标签：幂等命中计成功
+        foreach (var f in new[] { f1, f2, f3 })
+        {
+            File.WriteAllText(f, "x");
+        }
 
-        var result = await _service.DeleteTagAsync([path], tagA);
+        var result = await _service.RemoveTagAsync([f1, f2, f3], "A");
 
-        Assert.Equal(1, result.SucceededCount);
+        Assert.Equal(3, result.SucceededCount);
         Assert.False(result.HasFailures);
-        // 仅移除指定标签，其余标签保留
-        Assert.Equal("keep[B].jpg", GetOnlyFileNames(temp.Path).Single());
+        var names = GetOnlyFileNames(temp.Path);
+        // 仅移除指定标签（大小写不敏感全移除），其余标签保留；标签清空的文件回到无标签名形态
+        Assert.Equal("1[B].jpg", names[0]);
+        Assert.Equal("2.jpg", names[1]);
+        Assert.Equal("3[C].jpg", names[2]);
     }
 
     // ---------------------------------------------------------------- T-TG6：幂等打标（重复打同一标签文件名不变）
@@ -283,29 +294,9 @@ public class TagServiceTests
         Assert.Equal("photo[C].jpg", GetOnlyFileNames(temp.Path).Single());
     }
 
-    // ---------------------------------------------------------------- T-ST5：删除被快捷键绑定引用的标签被拒绝
-
-    [Fact]
-    public async Task T_ST_05_DeleteReferencedTag_RejectedAndFilesUntouched()
-    {
-        using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "keep[A B].jpg");
-        File.WriteAllText(path, "content");
-        var tagA = new TagDefinition { Id = "tag-A", Name = "A" };
-        // 谓词 stub：任何标签 Id 均视为被快捷键绑定引用
-        var service = new TagService(_tagFilenameService, _ => true);
-
-        var result = await service.DeleteTagAsync([path], tagA);
-
-        Assert.Equal(0, result.SucceededCount);
-        var failure = Assert.Single(result.Failures);
-        // 整体拒绝：Path 为空串，原因提示先改绑定
-        Assert.Equal(string.Empty, failure.Path);
-        Assert.Contains("绑定", failure.Reason);
-        // 文件未被改动（文件名与内容均保持原样）
-        Assert.Equal("keep[A B].jpg", GetOnlyFileNames(temp.Path).Single());
-        Assert.Equal("content", File.ReadAllText(path));
-    }
+    // ---------------------------------------------------------------- T-ST5：已删（batch-tag-management Step 2）
+    // 拒绝点迁 MainViewModel（VM 层不可单测，A2 由走查+代码审查覆盖）；
+    // 悬空绑定拒绝由 SettingsServiceTests T_ST_07~09 锁定。
 
     // ---------------------------------------------------------------- T-TG11：仅大小写差异的重命名按幂等跳过（口径统一）
 

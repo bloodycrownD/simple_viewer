@@ -1,12 +1,13 @@
 using System.IO;
 using SimpleViewer.Models;
 
-// Responsibility: 标签打标/移除/重命名/删除的落盘执行（同目录 File.Move 重命名），互斥语义由 TagSemantics 纯函数承担。
+// Responsibility: 标签打标/移除/重命名的落盘执行（同目录 File.Move 重命名），互斥语义由 TagSemantics 纯函数承担。
 // Invariants: 一律经 TagFilenameService.BuildNewPath 预检（260 长度/目标冲突/标签名合法）后再 File.Move，绝不复用
 //             FileOperationService.MoveToFolder 的"同名先删后移"覆盖语义（D10）；失败逐文件聚合、成功不回滚；
 //             幂等命中（新路径与原路径按 OrdinalIgnoreCase 相同——Windows 文件系统大小写不敏感口径）不执行任何实际 IO。
-// Call chain: MainViewModel/快捷键分派（Step 10/12）→ ApplyTagAsync/RemoveTagAsync/RenameTagAsync/DeleteTagAsync/DeleteGroupAsync
+// Call chain: MainViewModel/快捷键分派（Step 10/12）→ ApplyTagAsync/RemoveTagAsync/RenameTagAsync
 //             → RenameAll 统一管线 → TagSemantics.Apply → TagFilenameService.BuildNewPath → File.Move。
+//             （batch-tag-management Step 2 起删除标签/组的连锁语义迁 MainViewModel 纯配置删除，本服务不再承担删除。）
 
 namespace SimpleViewer.Services;
 
@@ -14,20 +15,14 @@ namespace SimpleViewer.Services;
 public sealed class TagService : ITagService
 {
     private readonly ITagFilenameService _tagFilenameService;
-    private readonly Func<string, bool>? _isTagReferencedByBindings;
 
     /// <summary>
     /// 构造标签操作服务。
     /// </summary>
     /// <param name="tagFilenameService">文件名标签协议服务（解析/合成/预检）。</param>
-    /// <param name="isTagReferencedByBindings">
-    /// "标签 Id 是否被快捷键绑定引用"谓词（入参为 <see cref="TagDefinition.Id"/>，与 Step 12 的
-    /// ShortcutBinding.TagId 契约对齐）；null 视为未引用（Step 12 之前的默认接线）。
-    /// </param>
-    public TagService(ITagFilenameService tagFilenameService, Func<string, bool>? isTagReferencedByBindings = null)
+    public TagService(ITagFilenameService tagFilenameService)
     {
         _tagFilenameService = tagFilenameService ?? throw new ArgumentNullException(nameof(tagFilenameService));
-        _isTagReferencedByBindings = isTagReferencedByBindings;
     }
 
     /// <inheritdoc />
@@ -64,35 +59,6 @@ public sealed class TagService : ITagService
             paths,
             currentTags => ReplaceTagCore(currentTags, oldTagName, newTagName),
             countNoOpAsSucceeded: false));
-    }
-
-    /// <inheritdoc />
-    public Task<BatchOperationResult> DeleteTagAsync(IReadOnlyList<string> paths, TagDefinition tag)
-    {
-        ArgumentNullException.ThrowIfNull(paths);
-        ArgumentNullException.ThrowIfNull(tag);
-
-        // 前置校验（spec T-ST5）：被快捷键绑定引用的标签整体拒绝删除，不触碰任何文件。
-        if (_isTagReferencedByBindings?.Invoke(tag.Id) == true)
-        {
-            return Task.FromResult(BatchOperationResult.Reject(
-                $"标签“{tag.Name}”被快捷键绑定引用，请先修改或移除相关绑定再删除。"));
-        }
-
-        return Task.Run(() => RenameAll(paths, currentTags => RemoveTagCore(currentTags, tag.Name)));
-    }
-
-    /// <inheritdoc />
-    public Task<BatchOperationResult> DeleteGroupAsync(IReadOnlyList<string> paths, TagGroup group)
-    {
-        ArgumentNullException.ThrowIfNull(paths);
-        ArgumentNullException.ThrowIfNull(group);
-
-        // 级联移除组内全部标签；以执行时组的标签名单为准（快照语义，避免迭代中被外部修改）。
-        var groupTagNames = TagSemantics.GetTagNames(group);
-        return Task.Run(() => RenameAll(
-            paths,
-            currentTags => currentTags.Where(t => !groupTagNames.Contains(t)).ToArray()));
     }
 
     /// <summary>
