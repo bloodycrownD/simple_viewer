@@ -1,0 +1,41 @@
+﻿# probe-strip-text.ps1 - 探查单图顶部横条与右栏文件名文本实际渲染
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+
+$settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
+$backup = $settings + '.bak-pr'
+Copy-Item $settings $backup -Force
+$libDir = Join-Path $env:TEMP 'sv-verify-lib4'
+
+try {
+  $json = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
+  $json.LastLibraryRoot = $libDir
+  $json.shortcuts = @()
+  $json.tagGroups = @()
+  $json | ConvertTo-Json -Depth 10 | Set-Content $settings -Encoding UTF8
+
+  taskkill /IM viewer.exe /F 2>$null | Out-Null
+  Start-Sleep -Milliseconds 900
+  Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe' -ArgumentList @('-d', $libDir, '-i', '1')
+  Start-Sleep -Seconds 8
+
+  $root = [System.Windows.Automation.AutomationElement]::RootElement
+  $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Simple Viewer')
+  $win = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+  $txtCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+  $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $txtCond)
+  Write-Output ('TEXT-ELEMENTS: ' + $all.Count)
+  foreach ($t in $all) {
+    $r = $t.Current.BoundingRectangle
+    if ($r.Height -gt 0) {
+      Write-Output ('  "' + $t.Current.Name + '" @ ' + [int]$r.X + ',' + [int]$r.Y + ' ' + [int]$r.Width + 'x' + [int]$r.Height)
+    }
+  }
+  Write-Output 'DONE'
+}
+finally {
+  taskkill /IM viewer.exe /F 2>$null | Out-Null
+  Start-Sleep -Milliseconds 500
+  Move-Item $backup $settings -Force
+  Write-Output 'RESTORED'
+}

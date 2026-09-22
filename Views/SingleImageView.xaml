@@ -50,6 +50,38 @@
                 Visibility="{x:Bind ViewModel.EmptyStateVisibility, Mode=OneWay}" />
         </Grid>
 
+        <!-- 顶部信息横条（走查 5，参考图库状态行形态拍板）：不透明 chrome 底接管工具栏与画布之间
+             的过渡带——亚像素缝隙不再透图；同时给返回图库浮层按钮一个清晰背板。左贴左栏右缘、
+             上叠 1px 入工具栏底边（Margin 由 ApplyChromeInsets 设置，杜绝透光线）；右侧延伸至
+             窗口右缘、被右栏浮层（后续兄弟元素、同色不透明）覆盖成连续无缝。内容：序号 i/N + 显示名。 -->
+        <Border
+            x:Name="TopStatusStrip"
+            Canvas.ZIndex="1"
+            VerticalAlignment="Top"
+            Padding="14,6"
+            Background="{ThemeResource ChromeBackgroundBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1"
+            Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{x:Bind ViewModel.CurrentImageIndexText, Mode=OneWay}" />
+                <TextBlock
+                    x:Name="TopStripFileNameText"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </Border>
+
         <!-- 右栏展开态（280，右缘浮层遮盖画布；标题行 + 信息区 + 标签管理）。
              顶部 Margin 由 code-behind 按 VM.TopChromeHeight 避让（chrome 层工具栏横跨整行，
              浮层可点区必须让出这段高度；底部状态栏已移除，底部恒 0）。 -->

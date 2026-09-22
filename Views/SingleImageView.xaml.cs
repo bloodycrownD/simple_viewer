@@ -140,6 +140,12 @@ public sealed partial class SingleImageView : UserControl
         InfoPanelOverlay.Margin = new Thickness(0, top, 0, 0);
         InfoPanelCollapsedBar.Margin = new Thickness(0, top, 0, 0);
 
+        // 顶部信息横条（走查 5）：左贴左栏右缘（无间距，同色连续）；上叠 2dip 入工具栏底边——
+        // 150% DPI 下 1dip=1.5px，上叠 1dip 仍会留出亚像素/整像素空行透出画布（实测 y=140 一条
+        // 1px 红线），2dip 稳定覆盖；叠入部分被工具栏不透明底盖住不可见；右侧不收，被右栏浮层覆盖。
+        var stripLeft = ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
+        TopStatusStrip.Margin = new Thickness(stripLeft, Math.Max(0, top - 2), 0, 0);
+
         var left = (ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth)
             + OverlayGap;
         BackToGalleryOverlay.Margin = new Thickness(left, top, 0, 0);
@@ -266,6 +272,12 @@ public sealed partial class SingleImageView : UserControl
         {
             InfoFileNameText.Inlines.Add(new Run { Text = ViewModel.CurrentImageDisplayName });
         }
+
+        // 顶部信息横条（走查 5）同步显示名；完整文件名 tooltip 同口径。
+        TopStripFileNameText.Text = ViewModel.CurrentImageDisplayName;
+        ToolTipService.SetToolTip(
+            TopStripFileNameText,
+            ViewModel.CurrentFileFullName.Length > 0 ? ViewModel.CurrentFileFullName : null);
     }
 
     // ==================== 右栏标签管理（2026-09-19 交互重构） ====================
