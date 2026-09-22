@@ -45,6 +45,15 @@ public interface ILibraryIndexService : IDisposable
     Task RemovePathAsync(string path, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 批量删除指定 path 集合的行（单事务包裹：一次调用内全部 DELETE 作为一个事务提交，D10）。
+    /// 图库删除选中集（文件已批量移入回收站）后的索引清理入口；
+    /// path 不存在的条目静默忽略（DELETE 天然幂等）；空列表为无操作。
+    /// </summary>
+    /// <param name="paths">要删除的文件全路径集合。</param>
+    /// <param name="cancellationToken">取消令牌（仅在任务调度前生效；进行中的 SQLite 写入不可中断）。</param>
+    Task RemovePathsAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 就地重写指定行的标签列（path 未变化的场景，如外部修正文件名后重新解析）。
     /// 注意：打标即改名——文件名变化后 path 已变，应改用 <see cref="ReplacePathAsync"/>。
     /// </summary>
