@@ -655,7 +655,16 @@ public sealed partial class MainWindow : Window
             };
             ApplyDialogTheme(dialog);
 
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            // 单开守卫：已有 ContentDialog 打开时 ShowAsync 抛异常（实机自检实锤，模态本应挡住
+            // 工具栏，但 UIA/自动化交错可触发）——按用户取消处理，不让异常冒泡中断命令。
+            try
+            {
+                return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
         finally
         {
@@ -686,7 +695,16 @@ public sealed partial class MainWindow : Window
             };
             ApplyDialogTheme(dialog);
 
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            // 单开守卫：已有 ContentDialog 打开时 ShowAsync 抛异常（实机自检实锤，模态本应挡住
+            // 工具栏，但 UIA/自动化交错可触发）——按用户取消处理，不让异常冒泡中断命令。
+            try
+            {
+                return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
         finally
         {

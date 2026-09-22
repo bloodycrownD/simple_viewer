@@ -21,7 +21,11 @@ node_status:
   impl-config-delete: { status: done, head_sha: a5848e9, executor: subagent, evidence: 'build 第1次尝试绿；test 118/118（119−T_ST_05 删1；T_TG_05 原位语义重写）；拒绝回显走 ShowError 同型、删组整体拒绝、谓词迁 MainViewModel 静态私有' }
   impl-undefined-zone: { status: done, head_sha: 0be6c59, executor: subagent, evidence: 'build 第1次尝试绿；test 118/118；主滚动流方案（无嵌套滚动）；chip=GhostButtonStyle 覆盖（CornerRadius 6+计数）；收纳对话框代码构建+双层重名检查；AutomationId UndefinedTagsHeader/UndefinedChip_<名>' }
   impl-gallery-panel: { status: done, head_sha: 3304e69, executor: subagent, evidence: 'build 绿（第3次尝试：子代理二分修掉两真因——Border 全局样式 XamlCompiler 崩溃改 Button 载体、XAML 字节损坏重写）；test 118/118；三挂点接线齐（RunTagOperationAsync return 前/RenameFilesAsync 尾部/选中变化）' }
-  cr-func-mid: { status: in_progress }                            # 覆盖 Step 2/3/4
+  cr-func-mid: { status: done, func_ready: yes, evidence: 'Step 2/3/4 矩阵全✓、无 P0/P1、118/118 复跑；3 偏差建议 closed（主滚动流等价实现/GalleryVisibility 天然隐藏等价/注释级微扩）' }
+  verify-ui-mid: { status: done, executor: main, head_sha: '<同提交>', evidence: 'undefined-panel-verify.ps1 实机：未定义区三 chip✓、右栏展开+已选0→6张✓、并集三 chip✓、✕移除废片端到端✓（a1/a2/a6 改名精确、其余不动）；像素采样右栏底色=Fluent 半透明层同单图右栏；坑：Border 无 peer（用交互按钮锚点）、Ctrl+A 被 TryMatch 劫持属设计' }
+  impl-catalog-toolbar: { status: done, head_sha: '644bc3c+cf64a25', executor: subagent, evidence: '两次 build 第1次尝试绿 + 118/118×2；单图回归八项 diff 证明；三态改独立 Catalog* 函数（RadioDot* 被侧栏复用不可改签名）；走查风险点：筛选按钮挪左簇覆盖上迭代尾部权衡，Step 9 复核 flyout 盖左栏' }
+  impl-delete-selection: { status: in_progress, executor: subagent } # Step 7 VM 半
+  impl-doc-sync: { status: in_progress, executor: subagent }      # Step 8（与 Step 7 无文件冲突，同 wave 并行；纯文档+注释不跑 build）
   impl-config-delete: { status: pending, executor: subagent } # Step 2
   impl-undefined-zone: { status: pending, executor: subagent } # Step 3
   impl-gallery-panel: { status: pending, executor: subagent } # Step 4

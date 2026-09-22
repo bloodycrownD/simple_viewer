@@ -95,7 +95,8 @@
                                             Click="OnCatalogTagClicked"
                                             IsEnabled="{x:Bind views:TagCatalogDialog.Not(ApplyState)}"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
-                                            Tag="{x:Bind}">
+                                            Tag="{x:Bind}"
+                                            AutomationProperties.Name="{x:Bind TagName, Mode=OneWay}">
                                             <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
