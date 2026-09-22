@@ -99,6 +99,11 @@ public partial class MainViewModel : ObservableObject
     // 批量打标/移除防重入闸（操作进行中忽略新的侧栏 chip 打标请求）。
     private bool _isTagOperationRunning;
 
+    // 图库删除选中集防重入闸（batch-tag-management Step 7，D9）：独立标志位、不复用
+    // _isTagOperationRunning——置打标标志会联动「视口尺寸忽略 + 收口补判定」与
+    // LoadCurrentAsync 的改名竞态兜底等打标专属语义，删除管线不得借用。
+    private bool _isDeleteSelectionRunning;
+
     // 打标期间的视口尺寸记录与补判定（2026-09-19 打标刷新竞态修复）：打标开始时 InfoBar
     // 弹出会引发布局抖动 → ImageHost 尺寸瞬时变化 → 解码尺寸变化 → 立即重载会读到改名前的
     // 旧路径（File.Move 已落盘、同步阶段尚未替换 _imageFiles）→ FileNotFound 清空视图。
@@ -198,6 +203,13 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>宿主提供的删除确认对话框；返回 true 表示继续删除。</summary>
     public Func<Task<bool>>? ConfirmDeleteAsync { get; set; }
+
+    /// <summary>
+    /// 宿主提供的图库删除选中集确认对话框（batch-tag-management Step 7，D9，MainWindow 注入）：
+    /// 参数 = 选中张数，文案含张数与回收站提示；返回 true 表示继续删除。null 时跳过确认直行
+    /// （对齐 <see cref="ConfirmDeleteAsync"/> 的可空注入形态）。
+    /// </summary>
+    public Func<int, Task<bool>>? ConfirmDeleteSelectionAsync { get; set; }
 
     /// <summary>
     /// 宿主提供的未定义标签连锁删除确认对话框（batch-tag-management Step 3，MainWindow 注入）：
@@ -2877,6 +2889,142 @@ public partial class MainViewModel : ObservableObject
         }
 
         await RemoveCurrentImageAfterFileOperationAsync();
+    }
+
+    /// <summary>
+    /// 图库「删除选中集」（batch-tag-management Step 7，D9 / PRD 核心需求 5）：
+    /// 确认（含张数与回收站提示）→ 批量回收站删除（服务层逐文件聚合失败、成功不回滚）→
+    /// 锁内 <see cref="_galleryItems"/> 移除成功路径 → 索引批量删行 → ScanStatusText 刷新 →
+    /// <see cref="ApplyTagFilter"/>（内含选中清空/命中数/侧栏重建——必须经它而非自绘同步）→
+    /// <see cref="_imageFiles"/> 裁剪校正索引（防回单图撞 FileNotFound，见
+    /// <see cref="TrimImageFilesAfterDeletion"/>）。
+    /// 回执口径（沿用批量回执拍板）：全成功静默；全失败 Error 且不动任何内存状态（可重试）；
+    /// 部分失败 Warning（成功 N 失败 M + 明细）。空选中 no-op（PRD D3——不加 CanExecute）；
+    /// 防重入闸为独立标志位（<see cref="_isDeleteSelectionRunning"/>，不置
+    /// <see cref="_isTagOperationRunning"/>——该标志联动打标专属语义，见字段注释）。
+    /// 扫描中边界：<see cref="_galleryItems"/> 移除全程锁内（与后台扫描 Add 互斥）；迟到
+    /// upsert 的索引复活是既有口径（spec R4，单图删除同在，重开图库 ClearAllItemsAsync
+    /// 兜底）——本期不修。
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSelectionAsync()
+    {
+        if (_isDeleteSelectionRunning)
+        {
+            return;
+        }
+
+        // 路径集快照（选中集卡片 → Item.Path；确认对话框期间选中集可能被清，须先固化）。
+        var paths = _selectedCards.Select(static vm => vm.Item.Path).ToList();
+        if (paths.Count == 0)
+        {
+            return; // 空选中 no-op（PRD D3）。
+        }
+
+        _isDeleteSelectionRunning = true;
+        try
+        {
+            if (ConfirmDeleteSelectionAsync is not null && !await ConfirmDeleteSelectionAsync(paths.Count))
+            {
+                return;
+            }
+
+            var result = await _fileOperations.DeleteToRecycleBin(paths);
+
+            // 全失败（成功 0 且有失败）：不动任何内存状态（图库/索引/选中集原样），Error 回执可重试。
+            if (result.SucceededCount == 0 && result.Failures.Count > 0)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Error,
+                    "删除选中图片",
+                    $"全部 {result.Failures.Count} 张删除失败，图库未改动（失败项可重试）。",
+                    BuildFailureDetails(result.Failures));
+                return;
+            }
+
+            // 成功路径 = 传入路径 − 失败明细路径（整体拒绝的空 Path 不参与差集；
+            // 批量删除服务逐文件聚合、不产生整体拒绝，此为口径自证而非防御分支）。
+            var failurePaths = result.Failures
+                .Select(static failure => failure.Path)
+                .Where(static p => p.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var succeededPaths = paths
+                .Where(p => !failurePaths.Contains(p))
+                .ToList();
+
+            // 锁内移除成功路径（OrdinalIgnoreCase 同单图删除 FindIndex 口径；扫描中与后台 Add 互斥）。
+            var succeededPathSet = succeededPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            lock (_galleryItemsLock)
+            {
+                _galleryItems.RemoveAll(item => succeededPathSet.Contains(item.Path));
+            }
+
+            if (_indexService is not null)
+            {
+                await _indexService.RemovePathsAsync(succeededPaths);
+            }
+
+            // 扫描计数文案同步（ApplyTagFilter 只重建瀑布流不刷新 ScanStatusText；Count 单读免锁口径）。
+            ScanStatusText = $"共 {_galleryItems.Count} 张";
+            ApplyTagFilter();
+
+            // 单图翻页列表裁剪（须在 ApplyTagFilter 之后：选中清空与瀑布流重建不依赖本列表）。
+            TrimImageFilesAfterDeletion(succeededPathSet);
+
+            // 部分失败 Warning（全成功静默——批量回执拍板，删除结果在瀑布流就地可见）。
+            if (result.Failures.Count > 0)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    "删除选中图片",
+                    $"成功 {result.SucceededCount} 张，失败 {result.Failures.Count} 张（成功项不回滚，失败项可重试）。",
+                    BuildFailureDetails(result.Failures));
+            }
+        }
+        finally
+        {
+            _isDeleteSelectionRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// 批量删除后就地裁剪单图翻页列表并校正索引（D9）：已删路径若在 <see cref="_imageFiles"/>
+    /// 中则移除——防回单图时 <see cref="CurrentImagePath"/> 指向已删文件撞 FileNotFound
+    /// （删除管线不置 <see cref="_isTagOperationRunning"/>，LoadCurrentAsync 的重试兜底
+    /// 不适用，必须在此收口）。索引校正参考 <see cref="RemoveCurrentImageAfterFileOperationAsync"/>
+    /// 的回退逻辑：删的都在当前索引前 → 索引左移；当前指向被删 → 索引停在原位指向下一张
+    /// （RemoveAll 就地左移，原位即下一张）；越界钳到末尾；清空则 ClearViewer。
+    /// 仅裁列表不重载当前图（本命令只在图库模式派发，单图视图此刻不可见）；不整体清解码
+    /// 缓存——会误伤存活图片的缓存命中，已删路径的孤儿缓存条目交 LRU 自然淘汰。
+    /// </summary>
+    /// <param name="deletedPathSet">已删除成功的路径集（OrdinalIgnoreCase）。</param>
+    private void TrimImageFilesAfterDeletion(HashSet<string> deletedPathSet)
+    {
+        // 移除前先快照判定：统计当前索引之前被删的数量（决定左移量）。当前项本身被删无需
+        // 标记——索引停在原位即原下一张（RemoveAll 就地左移，见下方校正注释）。
+        var removedBeforeCurrent = 0;
+        for (var i = 0; i < _currentIndex && i < _imageFiles.Count; i++)
+        {
+            if (deletedPathSet.Contains(_imageFiles[i]))
+            {
+                removedBeforeCurrent++;
+            }
+        }
+
+        _imageFiles.RemoveAll(deletedPathSet.Contains);
+        if (_imageFiles.Count == 0)
+        {
+            ClearViewer();
+            return;
+        }
+
+        // 索引校正：先扣掉当前索引之前被删的数量；当前项被删时索引停在原位即原下一张
+        //（RemoveAll 就地左移，无需再调）；最后越界钳到末尾（删到尾部的场景）。
+        _currentIndex -= removedBeforeCurrent;
+        if (_currentIndex >= _imageFiles.Count)
+        {
+            _currentIndex = _imageFiles.Count - 1;
+        }
     }
 
     /// <summary>

@@ -151,14 +151,14 @@
                                     </Flyout>
                                 </Button.Flyout>
                             </Button>
-                            <!-- 删除（图库操作组收尾）：TODO（batch-tag-management Step 7 / D9）——换绑
-                                 DeleteSelectionCommand（图库=删除选中集语义）并在 DispatchShortcut 的
-                                 DeleteImage 分支按模式分流（Gallery→新命令，Single→现状 DeleteAsync；
-                                 单图模式本按钮已随组隐藏，Delete 快捷键删当前图不受影响）。中间态两个提交内
-                                 闭合，本步暂保持 DeleteCommand 现绑定（语义错位是 Step 6 之前既有口径）。 -->
+                            <!-- 删除（图库操作组收尾，batch-tag-management Step 7 / D9 落地）：
+                                 图库语义 = 删除选中集（DeleteSelectionCommand，空选中 no-op——PRD D3）。
+                                 Delete 快捷键在 DispatchShortcut 按模式分流（Gallery→本命令，
+                                 Single→现状删当前图，D4 不变）；单图模式本按钮已随组隐藏，
+                                 快捷键全模式可用不受按钮隐藏影响。 -->
                             <Button
                                 AutomationProperties.AutomationId="DeleteButton"
-                                Command="{x:Bind ViewModel.DeleteCommand}"
+                                Command="{x:Bind ViewModel.DeleteSelectionCommand}"
                                 Content="删除"
                                 Style="{StaticResource GhostButtonStyle}" />
                         </StackPanel>

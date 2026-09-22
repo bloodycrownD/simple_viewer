@@ -61,6 +61,8 @@ public sealed partial class MainWindow : Window
         ViewModel.PickImageFileAsync = PickImageFileAsync;
         ViewModel.PickLibraryFolderAsync = PickLibraryFolderAsync;
         ViewModel.ConfirmDeleteAsync = ConfirmDeleteAsync;
+        // 图库删除选中集确认宿主（batch-tag-management Step 7，D9）。
+        ViewModel.ConfirmDeleteSelectionAsync = ConfirmDeleteSelectionAsync;
         ViewModel.OpenSettingsAsync = ShowSettingsDialogAsync;
         ViewModel.ShowTagCatalogAsync = ShowTagCatalogDialogAsync;
         // 批量标签目录宿主（batch-tag-management Step 5）：图库右栏「＋ 添加标签」。
@@ -427,7 +429,15 @@ public sealed partial class MainWindow : Window
                 ViewModel.ToggleFullscreenCommand.Execute(null);
                 break;
             case ViewerCommand.DeleteImage:
-                if (ViewModel.DeleteCommand.CanExecute(null))
+                // 模式分流（batch-tag-management Step 7 / D9）：图库 = 删除选中集（新命令，
+                // 空选中 no-op——PRD D3）；单图 = 现状删当前图（D4 验收：单图 Delete 快捷键
+                // 行为不变）。快捷键保持全模式可用——删除按钮随模式隐藏（Step 6）不影响本路径
+                // （PRD 不包含范围拍板）。
+                if (ViewModel.CurrentMode == ViewerMode.Gallery)
+                {
+                    ViewModel.DeleteSelectionCommand.Execute(null);
+                }
+                else if (ViewModel.DeleteCommand.CanExecute(null))
                 {
                     ViewModel.DeleteCommand.Execute(null);
                 }
@@ -620,6 +630,37 @@ public sealed partial class MainWindow : Window
         ApplyDialogTheme(dialog);
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>
+    /// 图库删除选中集确认对话框（batch-tag-management Step 7，对照 ConfirmDeleteAsync 注入
+    /// 模式 + ConfirmUndefinedDeleteAsync 的 _shortcutsEnabled try/finally 模板）：文案含
+    /// 张数与回收站提示（PRD 核心需求 5）。
+    /// </summary>
+    /// <param name="count">选中张数。</param>
+    /// <returns>true = 继续删除。</returns>
+    private async Task<bool> ConfirmDeleteSelectionAsync(int count)
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "删除选中图片",
+                Content = $"将 {count} 张图片移入回收站？",
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot,
+            };
+            ApplyDialogTheme(dialog);
+
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
     }
 
     /// <summary>
