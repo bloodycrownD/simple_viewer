@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 01:50
+date: 2026-09-23 02:30
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -76,3 +76,9 @@ user:
 
 assistant:
 走查修复轮 4（688f0cd）：像素剖面定位——工具栏与状态行之间 13px 暗带（31,31,41 透根底色），根因=MainInfoBar 的 Margin="12,4"：**IsOpen=false 只塌内容，Visibility=Visible 元素的 Margin 仍占布局位**，竖向 4+4 成为永久暗缝；全半透明 chrome 时代读作分层、统一不透明 #27272E 后变显眼缝隙。修：InfoBar 关闭时整体 Collapsed（Visibility 绑 IsTagFeedbackOpen）+ TopChromeHeight 仅在 ActualHeight>0 时计入 +8（单图侧浮层避让同一缝一并消除；打开时 SizeChanged 重算路径不变，打开态浮动条带边距属预期）。实测暗带消除（剖面只剩工具栏 1px 底描边分隔线）、面板统一 diff=0、chip 顶部区、单选正常、118/118。教训入坑册：**XAML「关闭」元素若靠 IsOpen/内容塌缩而非 Collapsed，Margin 仍占位**——批量通知条类控件要么绑 Visibility=Collapsed 要么去 Margin。
+
+user:
+走查第五轮：「还是有很细的缝隙，我觉得你参考瀑布流页面的做法，在上方补上一个横条，这样返回图库这个按钮也更清晰些；另外缝隙不是宽窄的问题，而是不希望把图片从缝隙透出，缝隙不能是透明的」。
+
+assistant:
+走查修复轮 5（e83c5f5）：按用户方案给**单图模式加顶部信息横条**（参考图库状态行）——不透明 ChromeBackgroundBrush 底接管工具栏与画布的整个过渡带：左贴左栏右缘、上叠 2dip 入工具栏底边（150%DPI 下 1dip=1.5px，上叠 1dip 实测仍留 1px 透光行，2dip 根除——不透明叠不透明无痕）、右侧延伸被右栏浮层同色覆盖；内容=序号 i/N + 显示名（与右栏信息区同源含扩展名）；返回图库浮层按钮因此获得清晰背板（用户预期）。验证：亮红测试图 + `-d <dir> -i N` 直开单图（绕开 Enter 注入不稳）——顶带全横扫描零透红、横条文本/按钮断言过、**单图工具栏 D1 首次自动断言全过**、118/118。坑册：①亚像素缝治法=不透明元素刻意上叠 2dip（1dip 在 150%DPI 不满整像素行）；②`-d -i` 直开单图是走查单图态的可靠注入路径（键盘进单图在 IME 环境不稳）；③横条底边以下的画布区显示图片本体属预期，透光扫描上界要取横条底而非窗口中带。
