@@ -421,8 +421,35 @@ public static class TagSidebarConverters
     public static Visibility NotBoolToVisibility(bool value)
         => value ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>目录选择器标签行的已选后缀文本（已含 = “✓ 已有”，未含 = 空串；U+2713 BMP 安全码点）。</summary>
-    public static string AppliedSuffix(bool isApplied) => isApplied ? "✓ 已有" : string.Empty;
+    /// <summary>
+    /// 目录标签行已选后缀（batch-tag-management Step 5 三态化 D7）：单图口径「✓ 已有」逐字保留
+    /// （isBatch=false 只有 AppliedToAll/None 两态，行为与 2026-09-19 原版零变化）；
+    /// 批量口径 AppliedToAll =「✓ 全部已有」、AppliedToSome =「部分已有 N/M」
+    /// （N = 选中集内已含数、M = 选中总数）、None = 空串。原 bool 版随 IsApplied 二值口径废弃删除
+    /// （唯一消费方 TagCatalogDialog.xaml 已迁移；U+2713 BMP 安全码点）。
+    /// </summary>
+    public static string CatalogAppliedSuffix(
+        bool isBatch, TagCatalogApplyState state, int appliedCount, int selectionCount)
+        => state switch
+        {
+            TagCatalogApplyState.AppliedToAll => isBatch ? "✓ 全部已有" : "✓ 已有",
+            TagCatalogApplyState.AppliedToSome when isBatch => $"部分已有 {appliedCount}/{selectionCount}",
+            _ => string.Empty,
+        };
+
+    /// <summary>目录标签行三态圆点填充（D7）：全部已有 = 白实心（已选态）；部分/无 = 透明（可点态空心）。
+    /// 三态版委托 bool 版保证色值零漂移；独立函数名（非重载）规避 x:Bind 重载决议风险，
+    /// bool 版仍被侧栏（TagSidebarControl）复用故保留。</summary>
+    public static Brush CatalogDotFill(TagCatalogApplyState state)
+        => RadioDotFill(state == TagCatalogApplyState.AppliedToAll);
+
+    /// <summary>目录标签行三态圆点描边（D7）：全部已有 = 白；部分/无 = 组 hue 45%（可点态）。</summary>
+    public static Brush CatalogDotStroke(int hue, TagCatalogApplyState state)
+        => RadioDotStroke(hue, state == TagCatalogApplyState.AppliedToAll);
+
+    /// <summary>目录标签行名字色（D7）：已有（全部/部分）= 主题主文字；无 = 次要灰（侧栏 bool 版同色值）。</summary>
+    public static Brush CatalogRowNameForeground(TagCatalogApplyState state)
+        => TagRowNameForeground(state != TagCatalogApplyState.None);
 
     /// <summary>组展开 → 标签行列表可见（目录树态：折叠时子行整体收起）。</summary>
     public static Visibility IsExpandedToVisibility(bool isExpanded)

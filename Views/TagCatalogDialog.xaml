@@ -4,14 +4,16 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:views="using:SimpleViewer.Views"
     MinWidth="460">
-    <!-- 职责：标签目录选择器（单图详情右栏「＋」，2026-09-19 交互重构）——两级行列表：
-              组行（对齐侧栏组头视觉：静态展开 chevron + 组名 + 互斥/兼容徽章 + 右对齐计数，
-              不可点）+ 标签行（可点 = 为当前图打该标签，样式复用 TagTreeRowButtonStyle：
-              缩进连接线 + 互斥组单选圆点 + 右对齐计数）；已含该标签的行显示已选态
-              （✓ 已有 + 禁点防误触移除）。计数与侧栏同源（GetTagCatalogSnapshot 快照）；
+    <!-- 职责：标签目录选择器（单图详情右栏「＋」，2026-09-19 交互重构；batch-tag-management Step 5
+              批量三态变体 D7）——两级行列表：组行（对齐侧栏组头视觉：静态展开 chevron + 组名 +
+              互斥/兼容徽章 + 右对齐计数，不可点）+ 标签行（可点 = 为目标集打该标签，样式复用
+              TagTreeRowButtonStyle：缩进连接线 + 互斥组单选圆点 + 右对齐计数）；已选态三态（D7）：
+              全部已有 = 禁点（后缀「✓ 已有」单图 /「✓ 全部已有」批量）、部分已有（仅批量）= 可点
+              （后缀「部分已有 N/M」）、无 = 可点。计数与侧栏同源（GetTagCatalogSnapshot 快照）；
               宿主 ContentDialog 经 MainWindow.ApplyDialogTheme 跟随应用主题。
               点击标签行 → 事件 TagApplied（宿主关闭对话框）→ MainViewModel.ApplyCatalogTagAsync
-              （单图 toggle 管线"添加"方向；同图改名链路保证右栏 chips 不闪不重载地刷新）。 -->
+              （单图 toggle 管线"添加"方向；同图改名链路保证右栏 chips 不闪不重载地刷新）
+              / ApplyCatalogTagToSelectionAsync（批量口径：选中集路径集统一批量打标管线）。 -->
 
     <Grid RowSpacing="10">
         <Grid.RowDefinitions>
@@ -19,12 +21,13 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 说明文本（13px 次要色，对齐 TagEditDialog .modal-msg 惯例） -->
+        <!-- 说明文本（13px 次要色，对齐 TagEditDialog .modal-msg 惯例；单图/批量构造各自定稿——
+             单图文案 = 2026-09-19 原文逐字迁移） -->
         <TextBlock
             FontSize="13"
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             LineHeight="22"
-            Text="点击标签为当前图片打标（互斥组会替换组内旧标签）；已含标签的行不可点，移除请用右栏 chip 的 ✕。"
+            Text="{x:Bind DescriptionText}"
             TextWrapping="Wrap" />
 
         <!-- 目录列表：组行 + 缩进标签行（MaxHeight 限高内滚动）；
@@ -81,14 +84,16 @@
                                     Foreground="{x:Bind views:TagSidebarConverters.TreeCountForeground()}"
                                     Text="{x:Bind views:TagSidebarConverters.GroupCountText(TotalCount)}" />
                             </Grid>
-                            <!-- 标签行：可点（Click 事件经 Tag 槽位回查条目）；已含 = 已选态禁点；
-                                 样式对齐侧栏树行：缩进连接线 + 互斥组单选圆点 + 右对齐计数 -->
+                            <!-- 标签行：可点（Click 事件经 Tag 槽位回查条目）；全部已有 = 已选态禁点（D7 三态，
+                                 部分已有仅批量口径出现、可点补齐）；样式对齐侧栏树行：缩进连接线 +
+                                 互斥组单选圆点 + 右对齐计数。三态视觉函数 Catalog* 族（TagSidebarConverters）：
+                                 bool 旧签名版被侧栏复用不可改，三态版内部委托 bool 版保证色值零漂移 -->
                             <ItemsControl ItemsSource="{x:Bind Entries}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="views:TagCatalogEntry">
                                         <Button
                                             Click="OnCatalogTagClicked"
-                                            IsEnabled="{x:Bind views:TagCatalogDialog.Not(IsApplied)}"
+                                            IsEnabled="{x:Bind views:TagCatalogDialog.Not(ApplyState)}"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}">
                                             <Grid ColumnSpacing="6">
@@ -109,14 +114,14 @@
                                                 </Border>
                                                 <!-- 行首语义标记（radio/checkbox 隐喻，2026-09-19 统一）：
                                                      互斥组 = 单选圆点、兼容组 = 多选方框（7×7 圆角方），
-                                                     均为组色相描边、已含实心；同行两者互斥显示，列宽对齐 -->
+                                                     均为组色相描边、全部已有实心；同行两者互斥显示，列宽对齐 -->
                                                 <Ellipse
                                                     Grid.Column="1"
                                                     Width="7"
                                                     Height="7"
                                                     VerticalAlignment="Center"
-                                                    Fill="{x:Bind views:TagSidebarConverters.RadioDotFill(IsApplied)}"
-                                                    Stroke="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsApplied)}"
+                                                    Fill="{x:Bind views:TagSidebarConverters.CatalogDotFill(ApplyState)}"
+                                                    Stroke="{x:Bind views:TagSidebarConverters.CatalogDotStroke(Hue, ApplyState)}"
                                                     StrokeThickness="1.5"
                                                     Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(Group.Exclusive)}" />
                                                 <Border
@@ -124,8 +129,8 @@
                                                     Width="7"
                                                     Height="7"
                                                     VerticalAlignment="Center"
-                                                    Background="{x:Bind views:TagSidebarConverters.RadioDotFill(IsApplied)}"
-                                                    BorderBrush="{x:Bind views:TagSidebarConverters.RadioDotStroke(Hue, IsApplied)}"
+                                                    Background="{x:Bind views:TagSidebarConverters.CatalogDotFill(ApplyState)}"
+                                                    BorderBrush="{x:Bind views:TagSidebarConverters.CatalogDotStroke(Hue, ApplyState)}"
                                                     BorderThickness="1.5"
                                                     CornerRadius="2"
                                                     Visibility="{x:Bind views:TagSidebarConverters.NotBoolToVisibility(Group.Exclusive)}" />
@@ -133,7 +138,7 @@
                                                     Grid.Column="2"
                                                     VerticalAlignment="Center"
                                                     FontSize="13"
-                                                    Foreground="{x:Bind views:TagSidebarConverters.TagRowNameForeground(IsApplied)}"
+                                                    Foreground="{x:Bind views:TagSidebarConverters.CatalogRowNameForeground(ApplyState)}"
                                                     Text="{x:Bind TagName}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
@@ -141,7 +146,7 @@
                                                     VerticalAlignment="Center"
                                                     FontSize="10"
                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                    Text="{x:Bind views:TagSidebarConverters.AppliedSuffix(IsApplied)}" />
+                                                    Text="{x:Bind views:TagSidebarConverters.CatalogAppliedSuffix(IsBatch, ApplyState, AppliedCount, SelectionCount)}" />
                                                 <TextBlock
                                                     Grid.Column="4"
                                                     VerticalAlignment="Center"

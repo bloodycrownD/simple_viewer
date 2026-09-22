@@ -189,6 +189,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>宿主提供的标签目录选择器（单图详情右栏「＋」；含快捷键屏蔽，由 MainWindow 注入）。</summary>
     public Func<Task>? ShowTagCatalogAsync { get; set; }
 
+    /// <summary>宿主提供的批量标签目录选择器（图库右栏「＋ 添加标签」，batch-tag-management Step 5；
+    /// 含快捷键屏蔽，由 MainWindow 注入）。</summary>
+    public Func<Task>? ShowSelectionTagCatalogAsync { get; set; }
+
     /// <summary>宿主提供的图库根目录选择器（FolderPicker）；由 <see cref="MainWindow"/> 注入。</summary>
     public Func<Task<string?>>? PickLibraryFolderAsync { get; set; }
 
@@ -1666,14 +1670,24 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 图库右栏「＋ 添加标签」按钮（batch-tag-management Step 4 占位）：
-    /// Step 5 接线批量标签目录（TagCatalogDialog 批量三态变体 + 宿主回调）。
-    /// 本波次为 no-op——命令先行存在以稳定 XAML 绑定与 UIA 走查。
+    /// 图库右栏「＋ 添加标签」按钮（batch-tag-management Step 5 接线，替换 Step 4 no-op 占位，C4）：
+    /// 空选中 → Information 轻提示「请先选择图片」（按钮可点但引导先选择，PRD C4 空态口径）；
+    /// 有选中 → 宿主回调打开批量标签目录（TagCatalogDialog 批量三态变体，
+    /// Title「为选中图片添加标签」，ApplyDialogTheme + _shortcutsEnabled 模式）。
     /// </summary>
     [RelayCommand]
-    private void OpenSelectionTagCatalog()
+    private async Task OpenSelectionTagCatalogAsync()
     {
-        // Step 5 接线批量目录（当前 no-op 占位，勿在此添加逻辑）。
+        if (SelectedCardCount == 0)
+        {
+            ShowInstantTagFeedback(InfoBarSeverity.Informational, "批量打标", "请先选择图片。", []);
+            return;
+        }
+
+        if (ShowSelectionTagCatalogAsync is not null)
+        {
+            await ShowSelectionTagCatalogAsync();
+        }
     }
 
     /// <summary>
@@ -1692,6 +1706,18 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task ApplyCatalogTagAsync(TagGroup group, string tagName)
         => await ToggleTagOnCurrentImageAsync(group, tagName);
+
+    /// <summary>
+    /// 对选中集应用目录选中的标签（TagCatalogDialog 批量变体行点击转发，batch-tag-management Step 5，C3）：
+    /// 选中集路径集（<see cref="_selectedCards"/> 全部 Item.Path）→ 统一批量打标管线
+    /// （<see cref="ApplyTagToPathsAsync"/> remove:false——互斥组替换语义与回执标题「互斥组设置「X」」
+    /// 天然沿用）。完成后并集重算已有收口挂点（<see cref="RunTagOperationAsync"/> 返回前统一触发，D6），
+    /// 无需额外挂点。打开对话框后选中集被清空的中间态（计数竞态）直接返回。
+    /// </summary>
+    public Task ApplyCatalogTagToSelectionAsync(TagGroup group, string tagName)
+        => _selectedCards.Count == 0
+            ? Task.CompletedTask
+            : ApplyTagToSelectionAsync(group, tagName);
 
     /// <summary>
     /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算文件名分段与右栏信息行

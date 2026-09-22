@@ -63,6 +63,8 @@ public sealed partial class MainWindow : Window
         ViewModel.ConfirmDeleteAsync = ConfirmDeleteAsync;
         ViewModel.OpenSettingsAsync = ShowSettingsDialogAsync;
         ViewModel.ShowTagCatalogAsync = ShowTagCatalogDialogAsync;
+        // 批量标签目录宿主（batch-tag-management Step 5）：图库右栏「＋ 添加标签」。
+        ViewModel.ShowSelectionTagCatalogAsync = ShowSelectionTagCatalogDialogAsync;
         // 未定义标签区对话框宿主（batch-tag-management Step 3）：连锁删除确认 + 收纳目标组选择。
         ViewModel.ConfirmUndefinedDeleteAsync = ConfirmUndefinedDeleteAsync;
         ViewModel.PickAbsorbGroupAsync = PickAbsorbGroupAsync;
@@ -556,6 +558,38 @@ public sealed partial class MainWindow : Window
             var dialog = new ContentDialog
             {
                 Title = "为当前图片添加标签",
+                Content = catalog,
+                XamlRoot = Content.XamlRoot,
+                CloseButtonText = "关闭",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            ApplyDialogTheme(dialog);
+
+            catalog.TagApplied += dialog.Hide;
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 批量标签目录选择器宿主（batch-tag-management Step 5，D7；对照 ShowTagCatalogDialogAsync 模板，
+    /// 独立方法不动单图现签名）：图库右栏「＋ 添加标签」打开批量三态变体（Title「为选中图片添加标签」）；
+    /// 对话框期间快捷键整体屏蔽（_shortcutsEnabled）；点选标签即关闭（TagApplied → Hide，
+    /// 批量打标异步进行不打断关闭），无主按钮（选择即动作）。空选中由 VM 侧先行轻提示（C4），
+    /// 此处不重复守卫。
+    /// </summary>
+    private async Task ShowSelectionTagCatalogDialogAsync()
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            var catalog = new TagCatalogDialog(ViewModel, batchSelection: true);
+            var dialog = new ContentDialog
+            {
+                Title = "为选中图片添加标签",
                 Content = catalog,
                 XamlRoot = Content.XamlRoot,
                 CloseButtonText = "关闭",
