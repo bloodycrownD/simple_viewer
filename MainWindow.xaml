@@ -423,8 +423,14 @@
                             HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Stretch" />
 
-                        <!-- 图库右栏（选中集标签面板）宿主 -->
-                        <ContentControl x:Name="GallerySelectionPanelHost" Grid.Column="1" />
+                        <!-- 图库右栏（选中集标签面板）宿主：内容 Stretch 铺满（TagSidebarHost 同款）——
+                             缺失时 UserControl 按内容高度顶对齐、列剩余高度露出窗口底色
+                             （走查 2「＋ 添加标签」以下深色空块的根因） -->
+                        <ContentControl
+                            x:Name="GallerySelectionPanelHost"
+                            Grid.Column="1"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch" />
                     </Grid>
 
                     <!-- 首次启动空态引导（未打开图库且未在扫描） -->

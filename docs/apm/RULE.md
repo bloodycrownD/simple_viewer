@@ -52,7 +52,7 @@
 - **WinUI 视觉问题先查三个"隐形层"再动布局尺寸（2026-09-21 筛选面板四轮实锤）**：①Button **系统焦点框**（UseSystemFocusVisuals 默认开，点击/程序聚焦必现矩形框）——自绘面板类按钮一律显式 false；②**ScrollViewer 滚动条是悬浮 overlay**（叠在内容之上、不占布局位）——内容右缘会被压，右侧 Padding 留 ~14-18 让位，加宽度无效；③hover/PointerOver 底色块与预期边框混淆。用户连续两轮报同一问题时，先复现用户原场景（矮窗口/多条件/展开态）再改，勿按自己推断的场景修。
 - UIA bounds 与截图光栅同坐标系（窗口物理尺寸）；`GetDpiForWindow`=144（150%）只影响应用内渲染密度，UIA 坐标即屏幕点，勿再乘缩放。
 - **WinUI Border/Grid 无 automation peer**（2026-09-22 实锤）：AutomationId 挂其上 UIA 树不可见——走查锚点必须挂交互控件（Button/TextBlock）或用其内按钮/标题文本判定（如右栏面板用收起按钮+「已选 N 张」标题）。
-- **UIA 驱动测试优先 Invoke 工具栏按钮而非键盘注入**（2026-09-22 实锤）：中文 IME 环境下 SendKeys Enter/Ctrl+A 可能被输入法/前台竞态吞掉（AppActivate 成功也未必送达）；且用户快捷键表 TryMatch 优先于 Ctrl+A/Enter 接管分支（如用户绑 Ctrl+A=左旋则全选接管收不到，属产品设计）——自动化测试先清空测试 settings 的 shortcuts，全选/进单图用 UIA Invoke「全选」按钮等价驱动。
+- **UIA 驱动测试优先 Invoke 工具栏按钮而非键盘注入**（2026-09-22 实锤）：中文 IME 环境下 SendKeys Enter/Ctrl+A 可能被输入法/前台竞态吞掉（AppActivate 成功也未必送达）；且用户快捷键表 TryMatch 优先于 Ctrl+A/Enter 接管分支（如用户绑 Ctrl+A=左旋则全选接管收不到，属产品设计）——自动化测试先清空测试 settings 的 shortcuts，全选/进单图用 UIA Invoke「全选」按钮等价驱动。**注入含修饰键的键序列（如 '^a'）有 OS 级卡键风险**（2026-09-23 疑案：注入若被中断丢 keyup，GetAsyncKeyState 对所有应用报修饰键按下，用户普通点击全被当成 Ctrl+点击；按一次该修饰键松开即复位）——必须注入时收尾逐个补偿修饰键 keyup（keybd_event KEYEVENTF_KEYUP）。
 - 临时改用户 `%LocalAppData%\SimpleViewer\settings.json` 做测试时：先备份、测完原样还原（app 只在改设置时写盘，退出不覆盖）。
 - **XAML 模板"等价重构"不可免检（2026-09-19 实锤）**：cr/P2-9 把 WaterfallView 卡片 RowDefinition 从 [*,48] 改为 [48,*] 而 Grid.Row 分配未动——缩略图被钉死 48 DIP 细条、文字区吞掉剩余高度；提交信息称"零布局变化"，单测/CR 校验全过（XAML 布局不可单测），直到用户实机开图库才暴露。教训：①改 RowDefinition 行序/对齐/尺寸约束后必须实机走查**视觉布局**（截图行带投影+降采样字符画即可无视觉模型完成，工具已转正：scripts\visual-band-check.py、scripts\visual-ascii-view.py）；②执行轮走查范围须覆盖上轮改过的每个 XAML 文件的呈现，不能只测交互路径（AXPress/Enter 走查全绿但页面是坏的）。
 
