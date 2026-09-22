@@ -403,24 +403,29 @@
                         </Grid>
                     </Border>
 
-                    <!-- 瀑布流本体（code-behind 构造注入，沿用 SingleImageHost 宿主惯例） -->
-                    <ContentControl
-                        x:Name="WaterfallHost"
-                        Grid.Row="2"
-                        HorizontalContentAlignment="Stretch"
-                        VerticalContentAlignment="Stretch" />
+                    <!-- 瀑布流 + 图库右栏（batch-tag-management Step 4 / 拍板 D5；2026-09-23 用户走查修订：
+                         右栏为布局列与画布同级——像左栏一样占布局槽，收展改变瀑布流可用宽度、经窗口
+                         resize 同一路径触发重排；遮盖式布局铁律仅约束单图画布（遮盖不改画布几何防重
+                         解码），瀑布流本就响应宽度重排，浮层遮盖会藏住缩略图（用户走查打回）。
+                         随 GalleryVisibility 单图模式天然隐藏；位于工具栏行之下无需 TopChromeHeight
+                         避让。右栏由 code-behind 构造注入（带 MainViewModel，WaterfallHost 先例），
+                         Auto 列宽随其内 280/36 双 Border 切换。 -->
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
-                    <!-- 图库右栏（选中集标签面板，batch-tag-management Step 4 / 拍板 D5）：图库 Grid 右缘
-                         叠加浮层（Canvas.ZIndex=1、HorizontalAlignment=Right）——遮盖式布局铁律：浮层遮盖
-                         不占布局槽、不改瀑布流几何；随 GalleryVisibility 单图模式天然隐藏；位于 ChromeLayer
-                         工具栏行之下无需 TopChromeHeight 避让。控件由 code-behind 构造注入
-                         （带 MainViewModel 构造参数，WaterfallHost/TagFilterPanelControl 先例）。 -->
-                    <ContentControl
-                        x:Name="GallerySelectionPanelHost"
-                        Grid.Row="2"
-                        Canvas.ZIndex="1"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Stretch" />
+                        <!-- 瀑布流本体（code-behind 构造注入，沿用 SingleImageHost 宿主惯例） -->
+                        <ContentControl
+                            x:Name="WaterfallHost"
+                            Grid.Column="0"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch" />
+
+                        <!-- 图库右栏（选中集标签面板）宿主 -->
+                        <ContentControl x:Name="GallerySelectionPanelHost" Grid.Column="1" />
+                    </Grid>
 
                     <!-- 首次启动空态引导（未打开图库且未在扫描） -->
                     <StackPanel

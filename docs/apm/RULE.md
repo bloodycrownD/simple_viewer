@@ -34,7 +34,7 @@
 - 缩略图 UI 应用必须走 `GalleryItemViewModel.UiApplyGate` 串行闸门（并发 SetSourceAsync 在首帧渲染期死锁过 UI）。
 - 打标/重命名后的同步阶段用"宽松预测 + 磁盘事实判定"（`TryComposeNewPath`），不要用 BuildNewPath 的目标冲突预检（改名后目标必存在，会误判失败跳过同步）。
 - **无 UI 回收站删除用 SHFileOperationW P/Invoke**（2026-09-22 实锤）：`Microsoft.VisualBasic.FileIO.UIOption` **没有 NoUI 成分**（仅 AllDialogs/OnlyErrorDialogs），OnlyErrorDialogs 失败时弹 Shell 错误框而非抛异常（批量场景连环卡死）；批量删除逐文件 `SHFileOperationW` + `FOF_SILENT|FOF_NOCONFIRMATION|FOF_ALLOWUNDO|FOF_NOERRORUI`，失败以非零返回码进 BatchOperationResult 聚合（先例 FileOperationService.DeleteToRecycleBin(paths)）。
-- **图像解码管线两铁律（2026-09-19 修线条毛刺确立；铁律②口径随遮盖式布局重排更新）**：① WIC 缩小插值必须 `BitmapInterpolationMode.Fant`（默认 Linear 大倍率缩小丢高频细节生锯齿；单图 ImageLoaderService 与缩略图 ThumbnailService 两处 CreateTransform）；② 解码尺寸 = 整窗画布区——SingleImageView.ImageHost 在遮盖式布局（2026-09-19）下铺满整窗、几何恒定，解码即贴合显示区 1:1；显示层二次缩小会重新引入锯齿（按比显示区更大的区域解码同样不可取）。**侧栏/右栏/工具栏/状态栏均为 chrome 遮盖层，收展只改变遮盖范围、不得改变画布几何**（画布几何恒定 → 图片位置不动、不触发重解码，只有窗口 resize 改变画布）。放大 ≥1.2× 经 EnsureFullResolutionAsync 按需换全分辨率源（每图一次）；WinUI 的 RenderTransform 缩放作用于源纹理而非布局光栅（实测），故换源即得高分辨率采样。
+- **图像解码管线两铁律（2026-09-19 修线条毛刺确立；铁律②口径随遮盖式布局重排更新）**：① WIC 缩小插值必须 `BitmapInterpolationMode.Fant`（默认 Linear 大倍率缩小丢高频细节生锯齿；单图 ImageLoaderService 与缩略图 ThumbnailService 两处 CreateTransform）；② 解码尺寸 = 整窗画布区——SingleImageView.ImageHost 在遮盖式布局（2026-09-19）下铺满整窗、几何恒定，解码即贴合显示区 1:1；显示层二次缩小会重新引入锯齿（按比显示区更大的区域解码同样不可取）。**侧栏/右栏/工具栏/状态栏均为 chrome 遮盖层，收展只改变遮盖范围、不得改变画布几何**（画布几何恒定 → 图片位置不动、不触发重解码，只有窗口 resize 改变画布）。该铁律约束**单图画布侧**（CanvasLayer/SingleImageView）；图库瀑布流区不适用——左栏本就是 MainAreaGrid 布局列（收展改变瀑布流可用宽度、经 resize 同路径重排属预期），图库右栏（选中集标签面板）2026-09-23 用户走查拍板同为布局列（首版浮层遮盖藏住缩略图被打回）。放大 ≥1.2× 经 EnsureFullResolutionAsync 按需换全分辨率源（每图一次）；WinUI 的 RenderTransform 缩放作用于源纹理而非布局光栅（实测），故换源即得高分辨率采样。
 
 ## 诊断
 

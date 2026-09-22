@@ -8,7 +8,7 @@ prd_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-m
 branch: feature/batch-tag-management
 base_sha: f6bc6a1
 head_sha: c2b3f71
-status: dev-ready
+status: dev-ready（走查修复轮1：右栏浮层遮盖→布局列，HEAD 见新提交）
 spec_summary: 两层语义重构（删定义不连锁/绑定拒绝前移/未定义标签区 chip 流式+连锁真删+收纳）、图库右栏（ContentAreaGrid 浮层 280/36、选中集并集+计数+✕ 批量移除+目录批量三态）、工具栏左右簇模式显隐、图库删除选中集（SHFileOperationW 无 UI 批量回收站+索引批量删+快捷键分流）；Core 下沉 TagProjection；D1~D12 拍板
 
 dag_version: 3
