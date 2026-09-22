@@ -139,7 +139,7 @@ public class TagProjectionTests
         // 空选中（无任何图片）→ 空并集；全部图片标签列表为空 → 同样空并集（右栏空态数据层）。
         Assert.Empty(TagProjection.ComputeSelectionTagUnion([]));
 
-        var allUntagged = new List<IReadOnlyList<string>> { [], [] };
+        var allUntagged = new List<IReadOnlyList<string>> { new List<string>(), Array.Empty<string>() };
         Assert.Empty(TagProjection.ComputeSelectionTagUnion(allUntagged));
     }
 
