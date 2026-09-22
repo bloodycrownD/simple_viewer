@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 00:45
+date: 2026-09-23 01:20
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -64,3 +64,9 @@ user:
 
 assistant:
 走查修复轮 2（8e4ae49）：①右栏空块根因=GallerySelectionPanelHost 缺 Horizontal/VerticalContentAlignment=Stretch（TagSidebarHost/WaterfallHost 都有）——UserControl 按内容高度顶对齐、列剩余高度露窗口底色；浮层形态时被画布内容掩盖、布局列形态才暴露。修：宿主补双 Stretch + ExpandedPanel/CollapsedBar 加 VerticalAlignment=Stretch 双保险；左右栏背景键本同 LayerFillColorDefaultBrush，实测铺满后上下段 RGB 差=4、与左栏同色系（39,39,4x）。②多选回归：代码链路全查无改动（WaterfallView.xaml.cs 零 diff、HandleCardTapped/SelectSingleCard/ClearCardSelection/修饰键检测原样），UIA 无键盘路径连点两卡实测两次均「已选 1 张」单选重置正常——**非产品回归**，最可能是走查当时系统 Ctrl 处于卡键按下态（此前自动测试注入过 SendKeys '^a' 序列，若 keyup 丢失则 GetAsyncKeyState 对所有应用报 Ctrl down、普通点击全变 Ctrl+点击；当前系统态已验证正常）。RULE 补：注入含修饰键键序列必须收尾逐个补偿 keyup（keybd_event KEYEVENTF_KEYUP）。新坑沉淀：ContentControl 宿主缺 Content 双 Stretch 是「UserControl 顶对齐露底」的通用形态——新建宿主对照 TagSidebarHost 抄全属性。
+
+user:
+走查第三轮两问题：「右侧这种你不觉得很丑吗？标签直接居中？为什么不参考图片详情左侧栏的做法？」「图片详情，为什么内部的左右上下工具栏都是透明的？为什么不统一成不透明？图片一大，连按钮都看不清」（附截图：chips 浮在右栏中部、大片空白上下都有）。
+
+assistant:
+走查修复轮 3（83516ea）：①右栏标签区照详情页 SingleImageView 标签区结构重做——节标题行「标签」+「＋」（批量目录入口从底部大按钮收进节标题）+ chips 内容自适应 MaxHeight380 限高滚动 + 空态文案同 cell 互斥。根因有二：chips 区撑满剩余高度（*行）时 WinUI ScrollViewer 视口大于内容会把内容垂直居中→浮在面板中部；**详情页 2026-09-19 就为同坑修过一次（「标签少时大段空白被误读为缺内容→内容自适应+限高」注释明文），我做图库右栏时没照抄该先例**——同类 UI 新建时必须先找同款先例抄结构而非重造。②全 chrome 统一不透明：App.xaml 新增 ChromeBackgroundBrush（ThemeDictionaries Dark #27272E=原 Layer 底实测混合值观感不变 / Light #F3F3F8；自定义键规避「文档存在但 WinUI3 实际缺失」ThemeResource 风险——LayerFillColorSecondaryBrush 事故先例），工具栏/左栏×2/图库右栏×2/单图右栏×2 七面全换（半透明 LayerFillColorDefault 在单图大图上按钮不可读）。实测：toolbar/左右栏/右栏全高 RGB 全等 39,39,46（上下差=0）、chip 回顶部区 y=316、单选重置仍正常、118/118。坑：截图采样 y<88 是 150%DPI 下 32dip 标题栏（系统元素随系统浅色，与 RootGrid 主题覆盖无关）——采样先算准 chrome 行物理起点。
