@@ -83,6 +83,10 @@ public sealed partial class MainWindow : Window
         // 瀑布流本体（Step 8）：同一互斥切换机制；Esc 返回后滚动位置由 Visibility 切换天然保持。
         WaterfallHost.Content = new WaterfallView(ViewModel);
 
+        // 图库右栏（选中集标签面板，batch-tag-management Step 4）：构造注入（带 MainViewModel 参数，
+        // 无法在 XAML 实例化）；宿主在图库 Grid 右缘叠加，随 GalleryVisibility 单图模式天然隐藏。
+        GallerySelectionPanelHost.Content = new GallerySelectionPanelControl(ViewModel);
+
         // 标签栏本体（Step 9）：配置组初始呈现（计数随扫描/编辑刷新）。
         TagSidebarHost.Content = new TagSidebarControl(ViewModel, ViewModel.TagSidebar);
         _ = ViewModel.InitializeTagSidebarAsync();

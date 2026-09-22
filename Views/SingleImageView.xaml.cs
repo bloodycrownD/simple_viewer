@@ -40,10 +40,10 @@ public sealed partial class SingleImageView : UserControl
     /// </summary>
     private const double FullResZoomThreshold = 1.2;
 
-    /// <summary>左栏展开宽度（逻辑 px；与 MainWindow 左栏展开态 Border Width 一致）。</summary>
+    /// <summary>左栏展开宽度（逻辑 px；与 MainWindow 左栏展开态 Border Width 一致；图库右栏 GallerySelectionPanelControl 展开宽 280 同族锚点，改值两处同步）。</summary>
     private const double SidebarExpandedWidth = 280;
 
-    /// <summary>左栏折叠窄条宽度（逻辑 px；与 MainWindow 左栏折叠态 Border Width 一致）。</summary>
+    /// <summary>左栏折叠窄条宽度（逻辑 px；与 MainWindow 左栏折叠态 Border Width 一致；图库右栏 GallerySelectionPanelControl 折叠宽 36 同族锚点，改值两处同步）。</summary>
     private const double SidebarCollapsedWidth = 36;
 
     /// <summary>浮层与左栏的横向间距（逻辑 px）。</summary>

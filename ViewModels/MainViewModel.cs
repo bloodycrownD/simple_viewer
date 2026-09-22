@@ -869,6 +869,21 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 图库右栏（选中集标签面板）是否处于折叠态（默认展开；batch-tag-management Step 4，
+    /// 全仿 <see cref="IsInfoPanelCollapsed"/> 先例）。仅图库模式可见——面板宿主随 GalleryVisibility
+    /// 显隐，单图模式天然隐藏，本状态跨模式保持（回图库恢复原收展态）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGallerySelectionPanelCollapsed;
+
+    /// <summary>折叠/展开图库右栏（选中集标签面板）。</summary>
+    [RelayCommand]
+    private void ToggleGallerySelectionPanel()
+    {
+        IsGallerySelectionPanelCollapsed = !IsGallerySelectionPanelCollapsed;
+    }
+
+    /// <summary>
     /// Esc 三态路由（D6）：单图模式且有图库 → 返回瀑布流并返回 true；
     /// 瀑布流模式且有选中集 → 清空选中并返回 true；
     /// 其余返回 false，由调用方维持 ExitApp 原行为。
@@ -1087,9 +1102,9 @@ public partial class MainViewModel : ObservableObject
     /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选；tag-filter-tree：QuickAdd 追加）：
     /// 单图模式下额外切回图库让筛选结果可见
     /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
-    /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）。
-    /// 原 Shift+点击“从选中集移除”入口随之取消——移除走详情页右栏 chip 的 ✕（原
-    /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
+    /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）；
+    /// 批量移除入口 = 图库右栏 chip ✕（RemoveTagFromSelectionAsync，batch-tag-management Step 4
+    /// 重启同名方法——语义为选中集批量移除标签，非旧 Shift+点击口径）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
     public void HandleTagChipTapped(string tagName)
@@ -1242,11 +1257,19 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 按路径集批量打标（选中集快捷键与拖拽共用入口）：路径 → 候选 GalleryItem——优先在当前呈现集中
-    /// 查同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；不在呈现集（如拖拽中途瀑布流被重置）
-    /// 时解析文件名构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+    /// 按路径集批量打标/移除（选中集快捷键、拖拽与图库右栏 chip ✕ 共用入口）：路径 → 候选 GalleryItem——
+    /// 优先在当前呈现集中查同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；不在呈现集
+    /// （如拖拽中途瀑布流被重置）时解析文件名构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+    /// remove 变体（batch-tag-management Step 4）：组参数仅满足签名不消费组语义（RunTagOperationAsync
+    /// remove 分支按名移除），调用方传 <see cref="FindGroupByTagName"/> 兜底组；回执标题用移除口径
+    /// 「移除标签「X」」（与单图 ✕ :1348 同文案）。
     /// </summary>
-    private async Task ApplyTagToPathsAsync(IReadOnlyList<string> paths, TagGroup group, string tagName)
+    /// <param name="paths">目标路径集。</param>
+    /// <param name="group">标签所属配置组（remove 路径仅占位）。</param>
+    /// <param name="tagName">标签名。</param>
+    /// <param name="remove">true = 移除标签（图库右栏 chip ✕）；false = 添加标签（默认，原行为）。</param>
+    private async Task ApplyTagToPathsAsync(
+        IReadOnlyList<string> paths, TagGroup group, string tagName, bool remove = false)
     {
         if (paths.Count == 0 || _isTagOperationRunning || string.IsNullOrWhiteSpace(tagName))
         {
@@ -1268,15 +1291,17 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var title = group.Exclusive
-            ? $"互斥组设置「{tagName}」"
-            : $"添加标签「{tagName}」";
+        var title = remove
+            ? $"移除标签「{tagName}」"
+            : group.Exclusive
+                ? $"互斥组设置「{tagName}」"
+                : $"添加标签「{tagName}」";
 
         _isTagOperationRunning = true;
         try
         {
             BeginTagOperation(title, showProgress: true, candidates.Count);
-            var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove: false, showProgress: true);
+            var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove, showProgress: true);
             ShowTagOperationResult(result, sync);
             await RefreshTagDataAsync();
         }
@@ -1575,6 +1600,82 @@ public partial class MainViewModel : ObservableObject
         return SaveSettingsAndRebuildSidebar(settings);
     }
 
+    // ==================== 图库右栏：选中集标签并集（batch-tag-management Step 4，D6） ====================
+
+    /// <summary>
+    /// 图库右栏并集 chip 集合：选中集全部图片标签的并集（含未定义标签——C2 数据层），
+    /// 计数 = 选中集内含该标签的图片数（如 30 张中 18 张含 Z → 「Z 18」）。计数降序、
+    /// 同计数按名 Ordinal（TagProjection 排序口径）；随选中集变化与标签操作收口全量重建（UI 线程）。
+    /// </summary>
+    public ObservableCollection<TagCountEntry> SelectionTagUnion { get; } = [];
+
+    /// <summary>选中集并集是否非空（右栏 chip 区/空态文案互斥可见性）。</summary>
+    public bool HasSelectionTags => SelectionTagUnion.Count > 0;
+
+    /// <summary>右栏标题行文本：「已选 N 张」（随选中数刷新）。</summary>
+    public string SelectionPanelTitleText => $"已选 {SelectedCardCount} 张";
+
+    /// <summary>
+    /// 全量重算选中集标签并集（D6）：<see cref="TagProjection.ComputeSelectionTagUnion"/> 纯函数 →
+    /// 集合先清后加重建。锁不需要——<see cref="_selectedCards"/> 只在 UI 线程动；容忍
+    /// SelectSingleCard/SelectCardRange 先清后加的 0→n 中间态通知（重算幂等，中间态闪变可接受，D6）。
+    /// 三个挂点（改标签的所有路径汇入这些收口；<b>不在</b> ReplaceGalleryItemState 内部逐文件触发
+    /// ——防 N 次重算放大 O(N²)，D6 拍板）：
+    /// ① <see cref="OnSelectedCardCountChanged"/>——选中集增减（点选/Ctrl/Shift/Ctrl+A/Esc 清空）；
+    /// ② <see cref="RunTagOperationAsync"/> 返回前——批量打标/移除统一管线收口（单图 ✕、选中集快捷键
+    ///    打标、拖拽打标、图库右栏 chip ✕、未定义区连锁删全汇入），完成后一次；
+    /// ③ <see cref="RenameFilesAsync"/> 尾部——重命名标签连锁改标签，完成后一次。
+    /// </summary>
+    public void RecomputeSelectionTagUnion()
+    {
+        SelectionTagUnion.Clear();
+        foreach (var entry in TagProjection.ComputeSelectionTagUnion(
+                     _selectedCards.Select(static vm => vm.Item.Tags)))
+        {
+            SelectionTagUnion.Add(entry);
+        }
+
+        OnPropertyChanged(nameof(HasSelectionTags));
+    }
+
+    /// <summary>
+    /// 图库右栏 chip ✕ 批量移除（C1）：选中集中 <see cref="Models.GalleryItem.Tags"/> 含该标签
+    /// （OrdinalIgnoreCase）的文件路径 → <see cref="ApplyTagToPathsAsync"/> remove 变体（统一批量管线：
+    /// 分批 25/就地同步/回执口径与批量打标一致）。仅选中集内命中的文件被移除；选中集保持——
+    /// ReplaceGalleryItemState 卡片 VM 实例不变（UpdateFrom 就地更新）天然保选中。
+    /// 无命中（计数竞态：chip 显示后标签已被其他路径移除）静默返回。
+    /// </summary>
+    /// <param name="tagName">标签名（chip 显示拼写）。</param>
+    public async Task RemoveTagFromSelectionAsync(string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
+        {
+            return;
+        }
+
+        var paths = _selectedCards
+            .Where(vm => vm.Item.Tags.Contains(tagName, StringComparer.OrdinalIgnoreCase))
+            .Select(static vm => vm.Item.Path)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            return; // 计数竞态兜底：选中集已无该标签，无需动作。
+        }
+
+        await ApplyTagToPathsAsync(paths, FindGroupByTagName(tagName), tagName, remove: true);
+    }
+
+    /// <summary>
+    /// 图库右栏「＋ 添加标签」按钮（batch-tag-management Step 4 占位）：
+    /// Step 5 接线批量标签目录（TagCatalogDialog 批量三态变体 + 宿主回调）。
+    /// 本波次为 no-op——命令先行存在以稳定 XAML 绑定与 UIA 走查。
+    /// </summary>
+    [RelayCommand]
+    private void OpenSelectionTagCatalog()
+    {
+        // Step 5 接线批量目录（当前 no-op 占位，勿在此添加逻辑）。
+    }
+
     /// <summary>
     /// 标签目录快照（TagCatalogDialog 构造时一次性取用）：配置组序列 + 当前图标签集
     /// （判已选态）。快照口径——对话框生命周期内配置不变（编辑入口都在侧栏，对话框打开期间互斥）。
@@ -1658,6 +1759,11 @@ public partial class MainViewModel : ObservableObject
                 TagFeedbackMessage = $"正在处理 {processed}/{candidates.Count} 张";
             }
         }
+
+        // 图库右栏挂点②（D6）：批量打标/移除统一管线收口——所有改标签路径（批量打标/单图右栏 ✕/
+        // 图库右栏 chip ✕/未定义区连锁删）汇入本管线，完成后重算一次选中集并集
+        // （SyncRenamedItemsAsync 已就地更新选中卡片的 Item.Tags；不在其内部逐文件触发，防 O(N²)）。
+        RecomputeSelectionTagUnion();
 
         return (new BatchOperationResult(succeeded, failures), new SyncResult(syncedTotal, failedTotal));
     }
@@ -2390,6 +2496,10 @@ public partial class MainViewModel : ObservableObject
 
         // 索引已同步：刷新计数快照并重建侧栏（后续配置保存路径的 Rebuild 复用新快照）。
         await RefreshTagDataAsync();
+
+        // 图库右栏挂点③（D6）：重命名连锁改标签（唯一改标签而不经 RunTagOperationAsync 的路径），
+        // 尾部重算一次选中集并集（SyncRenamedItemsAsync 已就地更新选中卡片的 Item.Tags）。
+        RecomputeSelectionTagUnion();
         return null;
     }
 
@@ -2833,6 +2943,13 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(InfoPanelCollapsedVisibility));
     }
 
+    partial void OnIsGallerySelectionPanelCollapsedChanged(bool value)
+    {
+        // 图库右栏收展派生可见性（batch-tag-management Step 4，全仿单图右栏先例）。
+        OnPropertyChanged(nameof(GallerySelectionPanelExpandedVisibility));
+        OnPropertyChanged(nameof(GallerySelectionPanelCollapsedVisibility));
+    }
+
     public Visibility ImageVisibility => HasImage ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility EmptyStateVisibility => HasImage ? Visibility.Collapsed : Visibility.Visible;
@@ -2871,6 +2988,17 @@ public partial class MainViewModel : ObservableObject
     public Visibility InfoPanelCollapsedVisibility =>
         IsInfoPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
 
+    /// <summary>
+    /// 图库右栏（选中集标签面板）展开态可见性（batch-tag-management Step 4，仿单图右栏先例；
+    /// 仅图库模式整体可见——面板宿主挂 GalleryVisibility 那层 Grid 内，单图模式天然隐藏）。
+    /// </summary>
+    public Visibility GallerySelectionPanelExpandedVisibility =>
+        IsGallerySelectionPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>图库右栏折叠窄条可见性（36 窄条 + ◀ 展开按钮）。</summary>
+    public Visibility GallerySelectionPanelCollapsedVisibility =>
+        IsGallerySelectionPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+
     /// <summary>图库状态行文本：扫描/共 N 张 + 已选 N 张（筛选命中数在筛选条显示，Step 11 起）。</summary>
     public string GalleryStatusText
     {
@@ -2903,8 +3031,11 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedCardCountChanged(int value)
     {
-        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）与工具栏「选择」按钮文案。
+        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）与工具栏「选择」按钮文案；
+        // 图库右栏挂点①（D6）：选中集增减 → 并集全量重算 + 右栏标题行刷新（batch-tag-management Step 4）。
         OnPropertyChanged(nameof(GalleryStatusText));
+        OnPropertyChanged(nameof(SelectionPanelTitleText));
+        RecomputeSelectionTagUnion();
         UpdateSelectAllToggleText();
     }
 

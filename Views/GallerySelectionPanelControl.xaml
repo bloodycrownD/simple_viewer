@@ -1,0 +1,163 @@
+﻿<UserControl
+    x:Class="SimpleViewer.Views.GallerySelectionPanelControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:SimpleViewer.Services"
+    xmlns:views="using:SimpleViewer.Views">
+    <!-- 职责：图库右栏（选中集标签面板，batch-tag-management Step 4）——标题行「已选 N 张」+ 收起、
+              选中集标签并集 chips（圆角矩形 + 选中集内计数 + 批量移除）、空态文案、底部「＋ 添加标签」
+              （Step 5 接线批量目录，本波次 no-op）。
+              双 Border 展开 280 / 折叠 36 互斥 Visibility 切换（机制仿单图右栏 InfoPanelOverlay/
+              CollapsedBar，无动画）；宽度值在 code-behind 常量族定义（与 SingleImageView.xaml.cs
+              SidebarExpandedWidth=280 / SidebarCollapsedWidth=36 锚点注释互指）。
+              布局：根 Grid 由宿主在图库 Grid 右缘叠加（Canvas.ZIndex=1、HorizontalAlignment=Right，
+              遮盖式布局铁律：不占布局槽、不改瀑布流几何）；随 GalleryVisibility 单图模式天然隐藏；
+              位于 ChromeLayer 工具栏行之下，无需 TopChromeHeight 避让。
+              绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。
+              约束：不用 DockPanel；符号字符均为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）；
+              交互一律 Click（不用 Tapped）；自绘按钮 UseSystemFocusVisuals=false；
+              chip 本体无主点击行为（不筛选不打标，PRD 右栏 chip 与左栏不同），仅内嵌按钮移除。 -->
+    <Grid>
+        <!-- 展开态（280，右缘浮层不透明底 + 左描边，对照单图右栏展开态先例） -->
+        <Border
+            x:Name="ExpandedPanel"
+            Width="280"
+            HorizontalAlignment="Right"
+            AutomationProperties.AutomationId="GallerySelectionPanel"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1,0,0,0"
+            Visibility="{x:Bind ViewModel.GallerySelectionPanelExpandedVisibility, Mode=OneWay}">
+            <Grid Margin="14,12,14,12" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 标题行：已选 N 张 + 收起按钮（对照单图右栏「图片信息 + 收起」先例） -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        Text="{x:Bind ViewModel.SelectionPanelTitleText, Mode=OneWay}" />
+                    <Button
+                        Grid.Column="1"
+                        AutomationProperties.AutomationId="GallerySelectionPanelCollapse"
+                        Command="{x:Bind ViewModel.ToggleGallerySelectionPanelCommand}"
+                        Content="▶"
+                        FontSize="13"
+                        Style="{StaticResource GhostIconButtonStyle}"
+                        ToolTipService.ToolTip="收起选中集面板（向右收拢）" />
+                </Grid>
+
+                <!-- 并集 chip 区与空态文案（同 cell 互斥）：chip 区 ScrollViewer 占满面板剩余高度
+                     （面板高度 = 图库区高，天然限高内滚动）；右 Padding 14 让位悬浮 overlay 滚动条
+                     （RULE 三隐形层：防 chip 被滚动条压住）。 -->
+                <Grid Grid.Row="1">
+                    <ScrollViewer
+                        Padding="0,0,14,0"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto"
+                        ZoomMode="Disabled">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.SelectionTagUnion, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <views:WrapPanel ItemSpacing="6" LineSpacing="6" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="HorizontalAlignment" Value="Left" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="services:TagCountEntry">
+                                    <!-- 并集 chip：圆角矩形（SelectionChipStyle，区别于单图右栏全圆胶囊）
+                                         + 标签名 + 选中集内计数 + 移除小按钮（Tag 槽位回查标签名，Click 经
+                                         code-behind 转发 RemoveTagFromSelectionAsync）。chip 本体为 Button
+                                         载体但无 Command 无 Click handler，点 chip 无副作用（不筛选不打标），
+                                         嵌套 Button 点击各自直达不冒泡（GroupHeaderButtonStyle 同先例）；
+                                         移除小按钮规范：GhostIconButtonStyle + FontSize 11 + Padding 4,2 +
+                                         禁焦点框 + 清零描边（TagFilterPanelControl.MakeIconButton 教训）。 -->
+                                    <Button
+                                        AutomationProperties.AutomationId="{x:Bind views:TagSidebarConverters.SelectionChipAutomationId(Name)}"
+                                        Style="{StaticResource SelectionChipStyle}"
+                                        UseSystemFocusVisuals="False">
+                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="12"
+                                                Text="{x:Bind Name}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="11"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
+                                            <Button
+                                                BorderThickness="0"
+                                                Click="OnRemoveChipClicked"
+                                                Content="✕"
+                                                FontSize="11"
+                                                Padding="4,2"
+                                                Style="{StaticResource GhostIconButtonStyle}"
+                                                Tag="{x:Bind Name}"
+                                                ToolTipService.ToolTip="从选中集移除该标签"
+                                                UseSystemFocusVisuals="False" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <!-- 空态文案（未选中 / 选中集全部无标签时并集为空） -->
+                    <TextBlock
+                        Margin="0,4"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="选择图片后可批量移除标签"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind views:TagSidebarConverters.NotBoolToVisibility(ViewModel.HasSelectionTags), Mode=OneWay}" />
+                </Grid>
+
+                <!-- 底部：＋ 添加标签（命令占位，Step 5 接线批量标签目录；对照左栏「＋ 新建标签组」贴底形态） -->
+                <Button
+                    Grid.Row="2"
+                    AutomationProperties.AutomationId="SelectionAddTagButton"
+                    Command="{x:Bind ViewModel.OpenSelectionTagCatalogCommand}"
+                    Content="＋ 添加标签"
+                    HorizontalAlignment="Stretch"
+                    Style="{StaticResource GhostButtonStyle}"
+                    ToolTipService.ToolTip="为选中集批量添加标签" />
+            </Grid>
+        </Border>
+
+        <!-- 折叠态（36 窄条 + 展开按钮，对照单图右栏折叠条先例） -->
+        <Border
+            x:Name="CollapsedBar"
+            Width="36"
+            HorizontalAlignment="Right"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1,0,0,0"
+            Visibility="{x:Bind ViewModel.GallerySelectionPanelCollapsedVisibility, Mode=OneWay}">
+            <Button
+                Margin="0,8,0,0"
+                Padding="6,6"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                AutomationProperties.AutomationId="GallerySelectionPanelExpand"
+                Command="{x:Bind ViewModel.ToggleGallerySelectionPanelCommand}"
+                Content="◀"
+                FontSize="13"
+                Style="{StaticResource GhostIconButtonStyle}"
+                ToolTipService.ToolTip="展开选中集面板" />
+        </Border>
+    </Grid>
+</UserControl>

@@ -360,6 +360,18 @@
                         HorizontalContentAlignment="Stretch"
                         VerticalContentAlignment="Stretch" />
 
+                    <!-- 图库右栏（选中集标签面板，batch-tag-management Step 4 / 拍板 D5）：图库 Grid 右缘
+                         叠加浮层（Canvas.ZIndex=1、HorizontalAlignment=Right）——遮盖式布局铁律：浮层遮盖
+                         不占布局槽、不改瀑布流几何；随 GalleryVisibility 单图模式天然隐藏；位于 ChromeLayer
+                         工具栏行之下无需 TopChromeHeight 避让。控件由 code-behind 构造注入
+                         （带 MainViewModel 构造参数，WaterfallHost/TagFilterPanelControl 先例）。 -->
+                    <ContentControl
+                        x:Name="GallerySelectionPanelHost"
+                        Grid.Row="2"
+                        Canvas.ZIndex="1"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Stretch" />
+
                     <!-- 首次启动空态引导（未打开图库且未在扫描） -->
                     <StackPanel
                         Grid.Row="0"

@@ -71,6 +71,25 @@
                 <Setter Property="CornerRadius" Value="4" />
             </Style>
 
+            <!-- 图库右栏选中集并集 chip（batch-tag-management Step 4）：圆角矩形（CornerRadius 5，
+                 区别于单图右栏全圆胶囊）+ 安全键底色/描边；内容 = 标签名（12）+ 选中集内计数（11 次要灰）
+                 + 内嵌 ✕ 按钮（GhostIconButtonStyle，控件 XAML 内逐 chip 内联）。
+                 契约：chip 本体无 Command 无 Click handler——点 chip 无副作用（不筛选不打标，
+                 PRD 右栏 chip 与左栏不同），仅 ✕ 移除；嵌套 Button 点击各自直达不冒泡
+                 （GroupHeaderButtonStyle 组行内嵌管理按钮同先例）。 -->
+            <Style
+                x:Key="SelectionChipStyle"
+                BasedOn="{StaticResource GhostButtonStyle}"
+                TargetType="Button">
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="5" />
+                <Setter Property="Padding" Value="9,3" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="UseSystemFocusVisuals" Value="False" />
+            </Style>
+
             <!-- 瀑布流卡片按钮（cr/P1-6：卡片主交互 Click 化——Tapped 对键盘/UIA 静默失效，
                  RULE「交互用 Click 不用 Tapped」）：模板仅 Border + ContentPresenter（对齐 Ghost 系
                  透明底极简模板），CornerRadius 10 对齐卡片圆角，底色/描边由卡片实例的 Background/

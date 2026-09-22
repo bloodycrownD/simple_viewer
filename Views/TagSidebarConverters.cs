@@ -435,6 +435,12 @@ public static class TagSidebarConverters
     public static string UndefinedChipAutomationId(string name) => "UndefinedChip_" + name;
 
     /// <summary>
+    /// 图库右栏选中集并集 chip 的 AutomationId（batch-tag-management Step 4，实机走查定位用）：
+    /// UndefinedChipAutomationId 同款模式（x:Bind 函数绑定逐项生成）。
+    /// </summary>
+    public static string SelectionChipAutomationId(string name) => "SelectionChip_" + name;
+
+    /// <summary>
     /// 组头 chevron 字符（目录树态）：展开 ▾（U+25BE）/ 折叠 ▸（U+25B8）。
     /// BMP 文本字符方案（不使用 FontIcon/SymbolIcon Glyph，规避 XamlCompiler 沉默崩溃码点；
     /// 字形缺失方块时备选 U+25B6/U+25BC）。
