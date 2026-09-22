@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 00:01
+date: 2026-09-23 00:20
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -52,3 +52,9 @@ user:
 
 assistant:
 code-dev-loop **dev-ready**（13 提交链 3b0d169→c2b3f71，最终 build 0 警告 + 118/118，cr-func×3 全 func-ready，无 open spec_deviations——三条偏差均 closed：未定义区主滚动流/右栏宿主天然隐藏等价/D10 订正 SHFileOperationW）。关键曲折：①wave0 实编译证伪 spec D10 的 `UIOption.NoUI`（审查建议臆造成员）→ trivial 豁免改 SHFileOperationW P/Invoke 并订正 spec；②两轮实机自检（undefined-panel-verify + toolbar-catalog-verify，模式=受控 settings 备份还原+临时图库+UIA 断言+落盘事实核对）：未定义区/右栏并集/✕ 批量移除/批量目录打标（旧标签保留）/删选中集（确认→回收站→已选0）端到端全过，图库工具栏 D1 十一断言全过；③实机自检揪出并修掉：目录行 UIA Name 缺失（复杂模板不自动暴露，补 AutomationProperties.Name=TagName——注意 Name=组名 TagName=标签名是两个属性，首版绑错）、双 ContentDialog 单开冲突（UIA 交错触发 ShowAsync 抛异常，两个删除确认框加守卫按取消处理）；④还原踩踏两次（RULE 定向串行还原处置）；⑤wave4 子代理二分修掉 XamlCompiler 崩溃两真因（App.xaml 全局 Style TargetType=Border + build.ps1 Out-Null 吞 CS 错误）。RULE 新沉淀四条：Border 全局样式禁用/MSB3073 先跑裸 dotnet build/Border 无 automation peer/UIA 驱动优先 Invoke 按钮而非键盘注入（IME+快捷键表劫持）。**待用户**：实机走查清单（iteration-state notes）+ 一项拍板：筛选按钮挪左簇后 flyout 实测盖左栏 367px（PRD D8 分簇拍板 vs 上迭代「尾部弹出防盖左栏」权衡冲突，备选 ShowAt 右移弹出/按钮挪常显右簇/接受遮盖）；另观察项：一条 15s UI 心跳告警（与既往走查日志同款，疑误报/瞬时）。
+
+user:
+走查第一轮打回：「右侧工具栏，怎么在画布上方？应该和画布同级吧？就像左侧工具栏一样」。
+
+assistant:
+走查修复轮 1（652138f）：图库右栏从浮层遮盖改**布局列**——图库 Grid Row2 改 */Auto 双列（WaterfallHost Col0 + 右栏宿主 Col1），移除 ZIndex/HorizontalAlignment=Right；收展改变瀑布流可用宽度、经窗口 resize 同一路径触发重排。根因是 spec D5 沿用了单图右栏的「浮层遮盖」机制，但遮盖式铁律的本意是保护**单图画布**几何恒定（防重解码），瀑布流本来响应宽度重排（左栏收展就是如此），浮层只会藏住缩略图。口径三处同步：spec D5/PRD 需求 3 加修订标记、RULE 铁律②修正为「仅约束单图画布侧，图库区不适用（左栏本就是布局列、图库右栏 2026-09-23 拍板同为布局列）」。验证：build 0 警告 + 118/118 + undefined-panel-verify 全链路复验（未定义区/右栏收展/全选并集/✕移除端到端落盘事实不变）。教训：把「同款机制」从单图侧照搬到图库侧前，先核对铁律的适用域（画布 vs 重排流）。
