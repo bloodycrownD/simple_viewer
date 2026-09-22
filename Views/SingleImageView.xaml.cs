@@ -46,9 +46,6 @@ public sealed partial class SingleImageView : UserControl
     /// <summary>左栏折叠窄条宽度（逻辑 px；与 MainWindow 左栏折叠态 Border Width 一致；图库右栏 GallerySelectionPanelControl 折叠宽 36 同族锚点，改值两处同步）。</summary>
     private const double SidebarCollapsedWidth = 36;
 
-    /// <summary>浮层与左栏的横向间距（逻辑 px）。</summary>
-    private const double OverlayGap = 12;
-
     /// <summary>缩放/平移交互态归属的图路径（切图复位依据；同图分辨率升级不重置）。</summary>
     private string? _zoomOwnerPath;
 
@@ -131,8 +128,8 @@ public sealed partial class SingleImageView : UserControl
     /// 实际高度（MainWindow 依各行 SizeChanged 写入 VM）。右栏收起按钮曾因浮层顶到窗口顶
     /// 被工具栏盖住、真实鼠标点不到（UIA Press 不做视觉命中测试，走查假阳性）。
     /// 底部状态栏已移除（2026-09-19）：底部避让删除，浮层底部恒 0。
-    /// 返回图库按钮（2026-09-19 用户实测反馈）：左侧额外让出左栏实际宽度
-    ///（展开 280 / 折叠 36 + 12 间距，与 MainWindow 左栏 Border 宽一致），左栏收展时跟随移动。
+    /// 返回图库按钮（2026-09-19 引入，走查 6 收进顶部信息横条首元素）：CanExecute=HasGallery，
+    /// CLI 直开无图库时禁用灰态。
     /// </summary>
     private void ApplyChromeInsets()
     {
@@ -140,15 +137,12 @@ public sealed partial class SingleImageView : UserControl
         InfoPanelOverlay.Margin = new Thickness(0, top, 0, 0);
         InfoPanelCollapsedBar.Margin = new Thickness(0, top, 0, 0);
 
-        // 顶部信息横条（走查 5）：左贴左栏右缘（无间距，同色连续）；上叠 2dip 入工具栏底边——
-        // 150% DPI 下 1dip=1.5px，上叠 1dip 仍会留出亚像素/整像素空行透出画布（实测 y=140 一条
-        // 1px 红线），2dip 稳定覆盖；叠入部分被工具栏不透明底盖住不可见；右侧不收，被右栏浮层覆盖。
-        var stripLeft = ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
-        TopStatusStrip.Margin = new Thickness(stripLeft, Math.Max(0, top - 2), 0, 0);
-
-        var left = (ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth)
-            + OverlayGap;
-        BackToGalleryOverlay.Margin = new Thickness(left, top, 0, 0);
+        // 顶部信息横条（走查 5/6）：整宽铺设 + 上叠 2dip 入工具栏底边——与左栏/工具栏交界从
+        // 相邻变叠加（左段钻入左栏下方，ChromeLayer 层级更高盖住），DPI 取整不再透光；
+        // 内容左让左栏实际宽 + 14 内边距（返回图库按钮/序号/显示名）。
+        TopStatusStrip.Margin = new Thickness(0, Math.Max(0, top - 2), 0, 0);
+        var sidebarWidth = ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
+        StripContent.Margin = new Thickness(sidebarWidth + 14, 0, 14, 0);
     }
 
     // ==================== 滚轮缩放 / 拖拽平移（2026-09-19：单图查看核心交互） ====================

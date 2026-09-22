@@ -97,20 +97,36 @@ try {
   }
   Write-Output ('返回图库浮层按钮: ' + $(if ($back) { 'OK rect=' + [int]$back.Current.BoundingRectangle.X + ',' + [int]$back.Current.BoundingRectangle.Y } else { 'MISSING' }))
 
-  # 3) 缝隙透图检查：工具栏底到横条底之间（y=130..175）不得出现红色（R>150）——
-  #    横条底边（~y181）以下是图片本体显示区，红色属预期，不在扫描范围
+  # 3) 缝隙透图检查：工具栏底到横条底之间（y=130..175）、横条带全宽（含左栏右缘交界，x=180 起）
+  #    不得出现红色（R>150 且 G/B<110，排除浅色文字）；横条底边以下是图片本体显示区不扫
   Write-Output '=== 3. 顶带透红扫描 ==='
   $bmp = [System.Drawing.Bitmap]::FromFile((Join-Path $shotDir 's5-single.png'))
   $redHits = 0; $redAt = ''
   foreach ($y in 130..175) {
-    foreach ($x in 500..1450 | Where-Object { $_ % 7 -eq 0 }) {
+    foreach ($x in 180..1450 | Where-Object { $_ % 7 -eq 0 }) {
       $c = $bmp.GetPixel($x, $y)
       if ($c.R -gt 150 -and $c.G -lt 110 -and $c.B -lt 110) { $redHits++; $redAt += "($x,$y)" ; if ($redHits -gt 6) { break } }
     }
     if ($redHits -gt 6) { break }
   }
   $bmp.Dispose()
-  if ($redHits -eq 0) { Write-Output 'NO-RED-SEAM: 顶带无透图缝隙 ✓' } else { Write-Output ('RED-SEAM-FOUND: ' + $redHits + ' 处 ' + $redAt) }
+  if ($redHits -eq 0) { Write-Output 'NO-RED-SEAM: 顶带全宽无透图缝隙 ✓' } else { Write-Output ('RED-SEAM-FOUND: ' + $redHits + ' 处 ' + $redAt) }
+
+  # 3b) 横条带内元素坐标（验证按钮与文本不再重叠：各元素 X 区间互不交叠）
+  Write-Output '=== 3b. 横条带元素坐标 ==='
+  $txtCond2 = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text)
+  foreach ($t in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $txtCond2)) {
+    $r = $t.Current.BoundingRectangle
+    if ($r.Y -ge 130 -and $r.Y -le 180 -and $r.Height -gt 0) {
+      Write-Output ('  STRIP-TEXT "' + $t.Current.Name + '" @ ' + [int]$r.X + '..' + [int]($r.X + $r.Width) + ' y=' + [int]$r.Y)
+    }
+  }
+  foreach ($b in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))) {
+    $r = $b.Current.BoundingRectangle
+    if ($r.Y -ge 130 -and $r.Y -le 180 -and $r.Height -gt 0) {
+      Write-Output ('  STRIP-BTN "' + $b.Current.Name + '" @ ' + [int]$r.X + '..' + [int]($r.X + $r.Width) + ' y=' + [int]$r.Y)
+    }
+  }
 
   # 4) 剖面：x=700 顶带垂直色带
   $bmp2 = [System.Drawing.Bitmap]::FromFile((Join-Path $shotDir 's5-single.png'))
