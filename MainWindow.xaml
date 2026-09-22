@@ -33,9 +33,14 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 工具栏（2026-09-19 左对齐重做：原 CommandBar 主命令默认右对齐，左上留出大块空白
-             观感怪——换成左对齐横向文本按钮行，命令绑定照搬；分隔线用 1px 竖 Rectangle。
-             图标一律 BMP 文本字符（不用 FontIcon/SymbolIcon 的 PUA 字形，RULE）。窄窗口横向可滚。 -->
+        <!-- 工具栏（2026-09-19 左对齐重做；batch-tag-management Step 6 左右簇 + 场景显隐 D8）：
+             外层 Grid 两列——左簇左对齐（打开/打开图库 常显 + 选择/⧩筛选/删除 仅图库模式）、
+             右簇右对齐（返回图库/上一张/下一张/左旋/右旋 仅单图模式 + 设置/主题/全屏 常显收尾）；
+             模式组整体嵌套 StackPanel + Visibility 绑派生属性（GalleryOnlyControlsVisibility /
+             SingleOnlyControlsVisibility，挂 OnCurrentModeChanged 通知链），隐藏 = Collapsed 非禁用
+             （PRD：按钮直接隐藏；快捷键走 OnPreviewKeyDown 与按钮无关，零影响）。
+             图标一律 BMP 文本字符（不用 FontIcon/SymbolIcon 的 PUA 字形，RULE）。窄窗口横向可滚
+             （内容宽于视口时 Grid 按内容 arrange 参与滚动；宽于内容时 * 列撑开右簇贴右）。 -->
         <Border
             x:Name="ToolBarRow"
             Grid.Row="0"
@@ -48,142 +53,187 @@
                 HorizontalScrollMode="Auto"
                 VerticalScrollBarVisibility="Disabled"
                 VerticalScrollMode="Disabled">
-                <StackPanel Orientation="Horizontal" Spacing="2">
-                    <Button
-                        Command="{x:Bind ViewModel.OpenFilePickerCommand}"
-                        Content="打开"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Button
-                        Command="{x:Bind ViewModel.OpenLibraryCommand}"
-                        Content="打开图库"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Button
-                        Command="{x:Bind ViewModel.BackToGalleryCommand}"
-                        Content="返回图库"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Rectangle
-                        Width="1"
-                        Height="16"
-                        Margin="6,0"
-                        VerticalAlignment="Center"
-                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <Button
-                        Command="{x:Bind ViewModel.PrevCommand}"
-                        Content="上一张"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Button
-                        Command="{x:Bind ViewModel.NextCommand}"
-                        Content="下一张"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Rectangle
-                        Width="1"
-                        Height="16"
-                        Margin="6,0"
-                        VerticalAlignment="Center"
-                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <Button
-                        Command="{x:Bind ViewModel.RotateLeftCommand}"
-                        Content="左旋"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Button
-                        Command="{x:Bind ViewModel.RotateRightCommand}"
-                        Content="右旋"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Rectangle
-                        Width="1"
-                        Height="16"
-                        Margin="6,0"
-                        VerticalAlignment="Center"
-                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <Button
-                        Command="{x:Bind ViewModel.ToggleSelectAllCommand}"
-                        Content="{x:Bind ViewModel.SelectAllToggleText, Mode=OneWay}"
-                        Style="{StaticResource GhostButtonStyle}"
-                        ToolTipService.ToolTip="全选 / 取消全选当前呈现集（Ctrl+A 全选，Esc 取消）" />
-                    <Button
-                        Command="{x:Bind ViewModel.DeleteCommand}"
-                        Content="删除"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Rectangle
-                        Width="1"
-                        Height="16"
-                        Margin="6,0"
-                        VerticalAlignment="Center"
-                        Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
-                    <!-- 筛选按钮（tag-filter-tree Step 5，demo .filter-toggle 同构）：文本字符图标
-                         ⧩ 筛选 ▾（Click 挂 Flyout 自动开关）；有条件时强调态（accent 淡底/字/描边，
-                         ActiveConditionCount 经函数绑定驱动）+ 数字徽章（小圆角计数，demo .cond-badge）。
-                         位置对齐 demo（五轮走查修复）：demo 筛选按钮在工具栏右侧、flyout 从右上弹出
-                         不遮左栏——先前放在工具栏左侧导致 700 宽面板悬浮盖住标签栏（视觉上"左栏变窄"），
-                         故挪到工具栏尾部（设置/主题/全屏之前）。面板宿主 Flyout 内容由 code-behind
-                         注入（构造注入惯例，XAML 占位 ContentControl）。 -->
-                    <Button
-                        x:Name="FilterToggleButton"
-                        Background="{x:Bind views:TagSidebarConverters.FilterToggleBackground(ViewModel.ActiveConditionCount), Mode=OneWay}"
-                        BorderBrush="{x:Bind views:TagSidebarConverters.FilterToggleBorderBrush(ViewModel.ActiveConditionCount), Mode=OneWay}"
-                        BorderThickness="1"
-                        Foreground="{x:Bind views:TagSidebarConverters.FilterToggleForeground(ViewModel.ActiveConditionCount), Mode=OneWay}"
-                        Style="{StaticResource GhostButtonStyle}"
-                        ToolTipService.ToolTip="标签筛选（条件实时生效）">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock VerticalAlignment="Center" Text="⧩ 筛选" />
-                            <Border
-                                MinWidth="16"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左簇：文件入口（常显）+ 图库操作组（仅图库模式） -->
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <Button
+                            Command="{x:Bind ViewModel.OpenFilePickerCommand}"
+                            Content="打开"
+                            Style="{StaticResource GhostButtonStyle}" />
+                        <Button
+                            Command="{x:Bind ViewModel.OpenLibraryCommand}"
+                            Content="打开图库"
+                            Style="{StaticResource GhostButtonStyle}" />
+                        <!-- 图库操作组（仅图库模式显示，D8）：全选/筛选/删除随组整体隐藏；
+                             组首分隔线同组隐藏（常显按钮与图库组之间的语义分界） -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="2"
+                            Visibility="{x:Bind ViewModel.GalleryOnlyControlsVisibility, Mode=OneWay}">
+                            <Rectangle
+                                Width="1"
                                 Height="16"
-                                Padding="3,0"
+                                Margin="6,0"
                                 VerticalAlignment="Center"
-                                Background="{x:Bind views:TagSidebarConverters.FilterToggleBadgeBackground(), Mode=OneWay}"
-                                CornerRadius="8"
-                                Visibility="{x:Bind views:TagSidebarConverters.FilterBadgeVisibility(ViewModel.ActiveConditionCount), Mode=OneWay}">
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    FontSize="10"
-                                    Foreground="{x:Bind views:TagSidebarConverters.FilterToggleBadgeForeground(), Mode=OneWay}"
-                                    Text="{x:Bind ViewModel.ActiveConditionCount, Mode=OneWay}" />
-                            </Border>
-                            <TextBlock VerticalAlignment="Center" Text="▾" />
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <!-- 「选择」no-op 口径（D8 拍板）：无图库 / 呈现集为空时点击空转——
+                                 ToggleSelectAll 未全选分支走 SelectAllCards（空呈现集无事发生）、
+                                 已全选分支走 ClearCardSelection（空集亦无事发生），现状行为即
+                                 PRD「不响应」，无需额外守卫；快捷键 Ctrl+A 仅图库模式接管（现状口径）。 -->
+                            <Button
+                                AutomationProperties.AutomationId="SelectAllButton"
+                                Command="{x:Bind ViewModel.ToggleSelectAllCommand}"
+                                Content="{x:Bind ViewModel.SelectAllToggleText, Mode=OneWay}"
+                                Style="{StaticResource GhostButtonStyle}"
+                                ToolTipService.ToolTip="全选 / 取消全选当前呈现集（Ctrl+A 全选，Esc 取消）" />
+                            <!-- 筛选按钮（tag-filter-tree Step 5，demo .filter-toggle 同构）：文本字符图标
+                                 ⧩ 筛选 ▾（Click 挂 Flyout 自动开关）；有条件时强调态（accent 淡底/字/描边，
+                                 ActiveConditionCount 经函数绑定驱动）+ 数字徽章（小圆角计数，demo .cond-badge）。
+                                 位置（batch-tag-management Step 6 / D8 重排拍板）：图库操作组（左簇）——
+                                 tag-filter-tree 期「挪到工具栏尾部」的五轮走查权衡（flyout 不盖左栏）被本需求
+                                 PRD 需求 4 左簇分组覆盖；Placement=Bottom 不变，按钮位置在左簇图库组
+                                 （打开/打开图库之后），700 宽面板起点较旧左侧位右移，遮盖左栏上缘的风险
+                                 由 Step 9 实机走查复核。面板宿主 Flyout 内容由 code-behind 注入
+                                 （构造注入惯例，XAML 占位 ContentControl）。 -->
+                            <Button
+                                x:Name="FilterToggleButton"
+                                Background="{x:Bind views:TagSidebarConverters.FilterToggleBackground(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                                BorderBrush="{x:Bind views:TagSidebarConverters.FilterToggleBorderBrush(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                                BorderThickness="1"
+                                Foreground="{x:Bind views:TagSidebarConverters.FilterToggleForeground(ViewModel.ActiveConditionCount), Mode=OneWay}"
+                                Style="{StaticResource GhostButtonStyle}"
+                                ToolTipService.ToolTip="标签筛选（条件实时生效）">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock VerticalAlignment="Center" Text="⧩ 筛选" />
+                                    <Border
+                                        MinWidth="16"
+                                        Height="16"
+                                        Padding="3,0"
+                                        VerticalAlignment="Center"
+                                        Background="{x:Bind views:TagSidebarConverters.FilterToggleBadgeBackground(), Mode=OneWay}"
+                                        CornerRadius="8"
+                                        Visibility="{x:Bind views:TagSidebarConverters.FilterBadgeVisibility(ViewModel.ActiveConditionCount), Mode=OneWay}">
+                                        <TextBlock
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            FontSize="10"
+                                            Foreground="{x:Bind views:TagSidebarConverters.FilterToggleBadgeForeground(), Mode=OneWay}"
+                                            Text="{x:Bind ViewModel.ActiveConditionCount, Mode=OneWay}" />
+                                    </Border>
+                                    <TextBlock VerticalAlignment="Center" Text="▾" />
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <!-- 面板本体 code-behind 构造注入（TagFilterPanelControl(Main, vm) 构造签名，
+                                         对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs）。
+                                         FlyoutPresenterStyle（实机走查修复，两轮）：WinUI 默认 FlyoutThemeMaxWidth=456
+                                         会把面板硬夹成 456 逻辑宽导致内容竖排挤压——覆盖为 700=660(面板)+左右
+                                         FlyoutContentPadding 16×2+边框余量（二轮加宽：底部操作行与条件行留裕）；
+                                         BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板。 -->
+                                    <Flyout x:Name="TagFilterFlyout" Placement="Bottom">
+                                        <Flyout.FlyoutPresenterStyle>
+                                            <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
+                                                <Setter Property="MinWidth" Value="700" />
+                                                <Setter Property="MaxWidth" Value="700" />
+                                                <!-- 外层滚动禁用（实机走查二轮修复）：FlyoutPresenter 自带 ScrollViewer
+                                                     在面板高于按钮下方可用空间时给出贯穿面板全高的滚动条，压住底部
+                                                     「命中 N / 已发现 N 张」的数字；改为面板内部 TreeScroll 自滚
+                                                     （UserControl MaxHeight=520 收紧总高），外层不再滚。 -->
+                                                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+                                                <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
+                                            </Style>
+                                        </Flyout.FlyoutPresenterStyle>
+                                        <ContentControl x:Name="FilterPanelHost" />
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            <!-- 删除（图库操作组收尾）：TODO（batch-tag-management Step 7 / D9）——换绑
+                                 DeleteSelectionCommand（图库=删除选中集语义）并在 DispatchShortcut 的
+                                 DeleteImage 分支按模式分流（Gallery→新命令，Single→现状 DeleteAsync；
+                                 单图模式本按钮已随组隐藏，Delete 快捷键删当前图不受影响）。中间态两个提交内
+                                 闭合，本步暂保持 DeleteCommand 现绑定（语义错位是 Step 6 之前既有口径）。 -->
+                            <Button
+                                AutomationProperties.AutomationId="DeleteButton"
+                                Command="{x:Bind ViewModel.DeleteCommand}"
+                                Content="删除"
+                                Style="{StaticResource GhostButtonStyle}" />
                         </StackPanel>
-                        <Button.Flyout>
-                            <!-- 面板本体 code-behind 构造注入（TagFilterPanelControl(Main, vm) 构造签名，
-                                 对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs）。
-                                 FlyoutPresenterStyle（实机走查修复，两轮）：WinUI 默认 FlyoutThemeMaxWidth=456
-                                 会把面板硬夹成 456 逻辑宽导致内容竖排挤压——覆盖为 700=660(面板)+左右
-                                 FlyoutContentPadding 16×2+边框余量（二轮加宽：底部操作行与条件行留裕）；
-                                 BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板。 -->
-                            <Flyout x:Name="TagFilterFlyout" Placement="Bottom">
-                                <Flyout.FlyoutPresenterStyle>
-                                    <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
-                                        <Setter Property="MinWidth" Value="700" />
-                                        <Setter Property="MaxWidth" Value="700" />
-                                        <!-- 外层滚动禁用（实机走查二轮修复）：FlyoutPresenter 自带 ScrollViewer
-                                             在面板高于按钮下方可用空间时给出贯穿面板全高的滚动条，压住底部
-                                             「命中 N / 已发现 N 张」的数字；改为面板内部 TreeScroll 自滚
-                                             （UserControl MaxHeight=520 收紧总高），外层不再滚。 -->
-                                        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
-                                        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
-                                    </Style>
-                                </Flyout.FlyoutPresenterStyle>
-                                <ContentControl x:Name="FilterPanelHost" />
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                    <Button
-                        Command="{x:Bind ViewModel.OpenSettingsCommand}"
-                        Content="设置"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <!-- 主题三态循环（深色默认/浅色/跟随系统），demo 深色优先的观感由此保证；
-                         Content 由 ApplyTheme 按 当前态 写（如"主题：深色"） -->
-                    <Button
-                        x:Name="ThemeButton"
-                        Click="OnThemeButtonClick"
-                        Content="主题"
-                        Style="{StaticResource GhostButtonStyle}" />
-                    <Button
-                        Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
-                        Content="全屏"
-                        Style="{StaticResource GhostButtonStyle}" />
-                </StackPanel>
+                    </StackPanel>
+
+                    <!-- 右簇：单图操作组（仅单图模式）+ 全局收尾（常显） -->
+                    <StackPanel
+                        Grid.Column="1"
+                        HorizontalAlignment="Right"
+                        Orientation="Horizontal"
+                        Spacing="2">
+                        <!-- 单图操作组（仅单图模式显示，D8）：返回图库 | 翻页 | 旋转 三段语义分组
+                             竖线沿用 2026-09-19 视觉节奏，随组整体隐藏；组尾竖线为与常显收尾组的分界，
+                             同组隐藏（图库模式下右簇仅剩 设置/主题/全屏 右对齐） -->
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="2"
+                            Visibility="{x:Bind ViewModel.SingleOnlyControlsVisibility, Mode=OneWay}">
+                            <Button
+                                Command="{x:Bind ViewModel.BackToGalleryCommand}"
+                                Content="返回图库"
+                                Style="{StaticResource GhostButtonStyle}" />
+                            <Rectangle
+                                Width="1"
+                                Height="16"
+                                Margin="6,0"
+                                VerticalAlignment="Center"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <Button
+                                Command="{x:Bind ViewModel.PrevCommand}"
+                                Content="上一张"
+                                Style="{StaticResource GhostButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ViewModel.NextCommand}"
+                                Content="下一张"
+                                Style="{StaticResource GhostButtonStyle}" />
+                            <Rectangle
+                                Width="1"
+                                Height="16"
+                                Margin="6,0"
+                                VerticalAlignment="Center"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                            <Button
+                                Command="{x:Bind ViewModel.RotateLeftCommand}"
+                                Content="左旋"
+                                Style="{StaticResource GhostButtonStyle}" />
+                            <Button
+                                Command="{x:Bind ViewModel.RotateRightCommand}"
+                                Content="右旋"
+                                Style="{StaticResource GhostButtonStyle}" />
+                            <Rectangle
+                                Width="1"
+                                Height="16"
+                                Margin="6,0"
+                                VerticalAlignment="Center"
+                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
+                        </StackPanel>
+                        <Button
+                            Command="{x:Bind ViewModel.OpenSettingsCommand}"
+                            Content="设置"
+                            Style="{StaticResource GhostButtonStyle}" />
+                        <!-- 主题三态循环（深色默认/浅色/跟随系统），demo 深色优先的观感由此保证；
+                             Content 由 ApplyTheme 按 当前态 写（如"主题：深色"）；唯一 Click 处理器，
+                             D8 重排只挪位置不动接线 -->
+                        <Button
+                            x:Name="ThemeButton"
+                            Click="OnThemeButtonClick"
+                            Content="主题"
+                            Style="{StaticResource GhostButtonStyle}" />
+                        <Button
+                            Command="{x:Bind ViewModel.ToggleFullscreenCommand}"
+                            Content="全屏"
+                            Style="{StaticResource GhostButtonStyle}" />
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
         </Border>
 

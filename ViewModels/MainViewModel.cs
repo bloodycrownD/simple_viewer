@@ -2932,6 +2932,10 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SingleVisibility));
         OnPropertyChanged(nameof(GalleryVisibility));
+
+        // 工具栏场景化按钮组（batch-tag-management Step 6，D8）：随模式切换通知派生可见性。
+        OnPropertyChanged(nameof(GalleryOnlyControlsVisibility));
+        OnPropertyChanged(nameof(SingleOnlyControlsVisibility));
     }
 
     partial void OnHasGalleryChanged(bool value)
@@ -2989,6 +2993,21 @@ public partial class MainViewModel : ObservableObject
     /// <summary>图库视图可见性（D14：与 SingleVisibility 互斥）。</summary>
     public Visibility GalleryVisibility =>
         CurrentMode == ViewerMode.Gallery ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 工具栏「图库组」按钮可见性（batch-tag-management Step 6，D8）：选择 / ⧩筛选 / 删除
+    /// 仅图库模式显示（隐藏 = Collapsed 非禁用；快捷键走 OnPreviewKeyDown 与按钮无关，零影响——
+    /// PRD「快捷键保持全模式可用」不含按钮）。通知挂 <see cref="OnCurrentModeChanged"/>。
+    /// </summary>
+    public Visibility GalleryOnlyControlsVisibility =>
+        CurrentMode == ViewerMode.Gallery ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 工具栏「单图组」按钮可见性（D8）：返回图库 / 上一张 / 下一张 / 左旋 / 右旋
+    /// 仅单图模式显示（隐藏 = Collapsed；单图 Delete 等快捷键路径不受按钮隐藏影响）。
+    /// </summary>
+    public Visibility SingleOnlyControlsVisibility =>
+        CurrentMode == ViewerMode.Single ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>扫描状态文本可见性：已打开图库或扫描进行中时显示。</summary>
     public Visibility ScanStatusVisibility =>
