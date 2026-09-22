@@ -10,3 +10,9 @@ user:
 
 assistant:
 理解确认与六轮拍板（对话内完成）：①两层模型与代码事实一致（TagGroup 配置层/文件名事实层）；②配置组重命名保持连锁、未定义区不做重命名只保留删除（连锁真删）+收纳，UI 用 tag 流式；③未定义区点击弹菜单（删除/收纳）；④右栏常驻、空态支持批量添加；⑤工具栏左右分组。探索后 AskQuestion 四项补拍板：删除组=只删配置、图库删除按钮=删选中集（新能力，现状是删背后隐藏单图）、单图模式筛选入口隐藏、右栏=浮层遮盖+收展。PRD 落盘 docs\iterations\图片打标签与瀑布流浏览\features\batch-tag-management\prd.md（dependency 指向父 PRD）：5 条核心需求、A1-E1 共 15 条 GWT 验收、显式推翻三项 2026-09-19 历史拍板（未分组忽略/批量移除收窄/删除连锁）。探索关键发现：_latestTagCounts 全量聚合已含未定义标签计数（服务层零改动）；批量 remove 管线现成只缺 UI；TagCatalogDialog 需批量变体；工具栏无模式可见性机制需新建。待用户确认 PRD。
+
+user:
+（上下文压缩前）更新记忆。
+
+assistant:
+PRD 已提交（27da0fc，分支 feature/tag-filter-tree）。当前会话全局状态备查：①tag-filter-tree 迭代 dev-ready + 七轮用户走查修复全部收口（面板宽度/滚动条遮挡/✕焦点框/按钮位置盖左栏/⋯三点菜单/选择按钮），HEAD=12cf426 后又有 27da0fc，分支未合并 master；②batch-tag-management PRD 待用户最终确认，确认后下一步= spec-generate（技术规格：未定义区/图库右栏/工具栏显隐/删选中集，Core 可测逻辑=两层语义分流与未定义集合计算）；③走查方法论已入 RULE（UI 交付前实机自检脚本模式、三个隐形层）。

@@ -1,8 +1,8 @@
 ---
-date: 2026-09-21 23:40
-title: 复杂筛选器：设计稿三轮收敛 → spec → code-dev-loop dev-ready（tag-filter-tree）
-keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree, code-dev-loop, dev-ready
-abstract: 复杂筛选器全流程闭环：demo 设计稿三轮收敛（纯标签 in/not in + and/or 卡片嵌套）→ spec（8 Step、14 用例）→ code-dev-loop 9 波次 dev-ready（分支 feature/tag-filter-tree，b8b2511→302e648，107 测试全绿）。实现含条件树 Core、内存求值管线、Flyout 非模态面板、快捷键局部抑制、扫描竞态修补。open deviation 一项（两态切换按钮组 vs demo select 下拉）留用户实机走查拍板；Step 8 走查清单在 spec 与 iteration-state。
+date: 2026-09-22 12:10
+title: 复杂筛选器全周期：demo 三轮收敛 → spec → dev-loop dev-ready → 七轮实机走查修复 + 工具栏选择按钮
+keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree, code-dev-loop, dev-ready, 走查修复, FlyoutThemeMaxWidth, overlay滚动条, 焦点框, 三点菜单, 选择按钮
+abstract: 筛选器迭代全周期闭环（分支 feature/tag-filter-tree，未合并）：demo 三轮收敛（纯标签 in/not in + and/or 卡片嵌套）→ spec（8 Step/14 用例）→ code-dev-loop 9 波次 dev-ready（107 测试绿）→ 用户七轮实机走查全部修复收口（Flyout 456 夹宽、外层滚动条盖数字、✕ 焦点框、overlay 滚动条压列、面板盖左栏→按钮挪尾+动态收窄、左栏管理收敛 ⋯ 三点菜单、工具栏「选择」全选按钮）。方法论沉淀入 RULE：UI 交付前实机自检（filter-panel-verify.ps1 模式）、WinUI 三隐形层（焦点框/overlay 滚动条/hover）。后续迭代 batch-tag-management 见 20260922 记忆。
 ---
 
 user:
