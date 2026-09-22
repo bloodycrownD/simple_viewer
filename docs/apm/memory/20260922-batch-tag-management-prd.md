@@ -1,8 +1,8 @@
 ---
-date: 2026-09-22 21:48
+date: 2026-09-23 00:01
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
-abstract: 用户提出批量移除标签需求并洞察两层模型（配置层定义 vs 事实层文件名标签），六轮问答拍板全量口径后 PRD 落盘并经 spec-generate 四路探索出技术规格：12 项拍板（D1~D12：绑定拒绝前移 VM、连锁删除走 RunTagOperationAsync(remove)、TagProjection 下沉 Core、右栏宿主 ContentAreaGrid 浮层、Ctrl+A 按现状仅图库等）、9 Step、T-PR/T-FO/T-IX 用例族。spec 待用户确认，确认后走 code-dev-loop（分支 feature/batch-tag-management，base=feature/tag-filter-tree@4d68321）。
+abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
 ---
 
 user:
@@ -40,3 +40,15 @@ user:
 
 assistant:
 第 1 轮审查结论 **Go**（0 P0 / 1 P1 / 6 P2）：D1~D12 承重锚点逐条与代码核实相符（含关键边界确认——所有改标签路径汇入 SyncRenamedItemsAsync→ReplaceGalleryItemState 同一漏斗，D6 收口挂点天然覆盖单图 ✕ 场景）；15 条 GWT 全有映射。唯一 P1 实锤：批量删除若照抄单图的 UIOption.OnlyErrorDialogs，失败弹 Shell 错误框而非抛异常（批量卡死 UI、T_FO_02 挂死）——拍板批量变体逐文件 UIOption.NoUI。因 must-fix 仅 1 条措辞级补丁走 **trivial 豁免**（主代理直接 doc-fix，P2 顺手全闭合）：D10 NoUI 拍板、测试命名对齐惯例（T_PR_01/T_FO_01/T_IX_12 下划线两位——现有最高 T_IX_11 且连字符式不合惯例）、不变清单补齐（ThemeResource 键核对高险点/PUA·DockPanel/PRD 范围守护）、D7 补三组 x:Bind 函数绑定消费面、D6 触发粒度=操作收口一次（防 O(N²)）、Step 9 补 A4 重命名走查、D2 补删组遇绑定引用整体拒绝。iteration-state 记 review_round 2、execute-ready 待用户确认。**等用户确认后走 code-dev-loop（分支 feature/batch-tag-management）。**
+
+user:
+调用 code-dev-loop——execute-ready 确认，开工。
+
+assistant:
+code-dev-loop 启动（22:00）：建分支 feature/batch-tag-management（base=f6bc6a1）。初始 DAG（dag_version 1，11 波）：wave-0 并行 impl-core（Step 1 TagProjection+T_PR）∥ impl-delete-services（Step 7 服务层半：NoUI 批量回收站+T_FO、RemovePathsAsync+T_IX_12，两节点禁各自 build 防撞锁）→ verify-wave0（统一 build+test）→ cr-func-wave0 → 中段串行 impl-config-delete（Step 2）→ impl-undefined-zone（Step 3）→ impl-gallery-panel（Step 4）→ cr-func-mid → impl-catalog-toolbar（Step 5+6 合并）→ impl-delete-selection ∥ impl-doc-sync → verify-full → cr-func-final。串行原因：MainViewModel.cs 被 Step 2~7 全程触碰。
+
+user:
+（开发过程推进，跨日 00:01 收口）
+
+assistant:
+code-dev-loop **dev-ready**（13 提交链 3b0d169→c2b3f71，最终 build 0 警告 + 118/118，cr-func×3 全 func-ready，无 open spec_deviations——三条偏差均 closed：未定义区主滚动流/右栏宿主天然隐藏等价/D10 订正 SHFileOperationW）。关键曲折：①wave0 实编译证伪 spec D10 的 `UIOption.NoUI`（审查建议臆造成员）→ trivial 豁免改 SHFileOperationW P/Invoke 并订正 spec；②两轮实机自检（undefined-panel-verify + toolbar-catalog-verify，模式=受控 settings 备份还原+临时图库+UIA 断言+落盘事实核对）：未定义区/右栏并集/✕ 批量移除/批量目录打标（旧标签保留）/删选中集（确认→回收站→已选0）端到端全过，图库工具栏 D1 十一断言全过；③实机自检揪出并修掉：目录行 UIA Name 缺失（复杂模板不自动暴露，补 AutomationProperties.Name=TagName——注意 Name=组名 TagName=标签名是两个属性，首版绑错）、双 ContentDialog 单开冲突（UIA 交错触发 ShowAsync 抛异常，两个删除确认框加守卫按取消处理）；④还原踩踏两次（RULE 定向串行还原处置）；⑤wave4 子代理二分修掉 XamlCompiler 崩溃两真因（App.xaml 全局 Style TargetType=Border + build.ps1 Out-Null 吞 CS 错误）。RULE 新沉淀四条：Border 全局样式禁用/MSB3073 先跑裸 dotnet build/Border 无 automation peer/UIA 驱动优先 Invoke 按钮而非键盘注入（IME+快捷键表劫持）。**待用户**：实机走查清单（iteration-state notes）+ 一项拍板：筛选按钮挪左簇后 flyout 实测盖左栏 367px（PRD D8 分簇拍板 vs 上迭代「尾部弹出防盖左栏」权衡冲突，备选 ShowAt 右移弹出/按钮挪常显右簇/接受遮盖）；另观察项：一条 15s UI 心跳告警（与既往走查日志同款，疑误报/瞬时）。

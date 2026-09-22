@@ -7,37 +7,42 @@ spec_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-
 prd_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/prd.md
 branch: feature/batch-tag-management
 base_sha: f6bc6a1
-status: in-progress（wave-0）
-spec_summary: 两层语义重构（删定义不连锁/绑定拒绝前移/未定义标签区 chip 流式+连锁真删+收纳）、图库右栏（ContentAreaGrid 浮层 280/36、选中集并集+计数+✕ 批量移除+目录批量三态）、工具栏左右簇模式显隐、图库删除选中集（NoUI 批量回收站+索引批量删+快捷键分流）；Core 下沉 TagProjection；D1~D12 拍板
+head_sha: c2b3f71
+status: dev-ready
+spec_summary: 两层语义重构（删定义不连锁/绑定拒绝前移/未定义标签区 chip 流式+连锁真删+收纳）、图库右栏（ContentAreaGrid 浮层 280/36、选中集并集+计数+✕ 批量移除+目录批量三态）、工具栏左右簇模式显隐、图库删除选中集（SHFileOperationW 无 UI 批量回收站+索引批量删+快捷键分流）；Core 下沉 TagProjection；D1~D12 拍板
 
-dag_version: 2
-wave_plan: [[impl-core, impl-delete-services], [fix-wave0], [verify-wave0], [cr-func-wave0], [impl-config-delete], [impl-undefined-zone], [impl-gallery-panel], [cr-func-mid], [impl-catalog-toolbar], [impl-delete-selection, impl-doc-sync], [verify-full], [cr-func-final]]
+dag_version: 3
+review_round: 1   # spec-check-loop 已收敛（Go）
+wave_plan: [[impl-core, impl-delete-services], [fix-wave0], [verify-wave0], [cr-func-wave0], [impl-config-delete], [impl-undefined-zone], [impl-gallery-panel], [cr-func-mid], [verify-ui-mid], [impl-catalog-toolbar], [impl-delete-selection, impl-doc-sync], [verify-full], [cr-func-final]]
 node_status:
-  impl-core: { status: done, head_sha: 3b0d169, executor: subagent }          # Step 1：TagProjection + T_PR_01~08
-  impl-delete-services: { status: done, head_sha: 5269700, executor: subagent } # Step 7 服务层半：批量回收站删除(T_FO) + RemovePathsAsync(T_IX_12)
-  fix-wave0: { status: done, head_sha: 480238f, executor: main, note: trivial 豁免——UIOption 无 NoUI 成员（实编译证实），批量删除改 SHFileOperationW P/Invoke；spec D10 同步订正；T_PR_07 语法修复 }
-  verify-wave0: { status: done, executor: main, evidence: 'build 第2次尝试绿（首败=已知 XamlCompiler 间歇竞态）；dotnet test --no-restore 119/119（107+T_PR_08+T_FO_03+T_IX_12）' }
-  cr-func-wave0: { status: done, func_ready: yes, evidence: '矩阵全✓（D1/D12/D10 订正后逐条吻合）；--list-tests 清点 TOTAL=119=T_PR8+T_FO3+T_IX12+既有107；独立复跑 119/119；无 must-fix、无 spec_deviations；P2 观察两条留后续波次顺手处理（FileOperationServiceTests:52 注释滞后、$null 垃圾文件）' }
-  impl-config-delete: { status: done, head_sha: a5848e9, executor: subagent, evidence: 'build 第1次尝试绿；test 118/118（119−T_ST_05 删1；T_TG_05 原位语义重写）；拒绝回显走 ShowError 同型、删组整体拒绝、谓词迁 MainViewModel 静态私有' }
-  impl-undefined-zone: { status: done, head_sha: 0be6c59, executor: subagent, evidence: 'build 第1次尝试绿；test 118/118；主滚动流方案（无嵌套滚动）；chip=GhostButtonStyle 覆盖（CornerRadius 6+计数）；收纳对话框代码构建+双层重名检查；AutomationId UndefinedTagsHeader/UndefinedChip_<名>' }
-  impl-gallery-panel: { status: done, head_sha: 3304e69, executor: subagent, evidence: 'build 绿（第3次尝试：子代理二分修掉两真因——Border 全局样式 XamlCompiler 崩溃改 Button 载体、XAML 字节损坏重写）；test 118/118；三挂点接线齐（RunTagOperationAsync return 前/RenameFilesAsync 尾部/选中变化）' }
-  cr-func-mid: { status: done, func_ready: yes, evidence: 'Step 2/3/4 矩阵全✓、无 P0/P1、118/118 复跑；3 偏差建议 closed（主滚动流等价实现/GalleryVisibility 天然隐藏等价/注释级微扩）' }
-  verify-ui-mid: { status: done, executor: main, head_sha: '<同提交>', evidence: 'undefined-panel-verify.ps1 实机：未定义区三 chip✓、右栏展开+已选0→6张✓、并集三 chip✓、✕移除废片端到端✓（a1/a2/a6 改名精确、其余不动）；像素采样右栏底色=Fluent 半透明层同单图右栏；坑：Border 无 peer（用交互按钮锚点）、Ctrl+A 被 TryMatch 劫持属设计' }
-  impl-catalog-toolbar: { status: done, head_sha: '644bc3c+cf64a25', executor: subagent, evidence: '两次 build 第1次尝试绿 + 118/118×2；单图回归八项 diff 证明；三态改独立 Catalog* 函数（RadioDot* 被侧栏复用不可改签名）；走查风险点：筛选按钮挪左簇覆盖上迭代尾部权衡，Step 9 复核 flyout 盖左栏' }
-  impl-delete-selection: { status: in_progress, executor: subagent } # Step 7 VM 半
-  impl-doc-sync: { status: in_progress, executor: subagent }      # Step 8（与 Step 7 无文件冲突，同 wave 并行；纯文档+注释不跑 build）
-  impl-config-delete: { status: pending, executor: subagent } # Step 2
-  impl-undefined-zone: { status: pending, executor: subagent } # Step 3
-  impl-gallery-panel: { status: pending, executor: subagent } # Step 4
-  cr-func-mid: { status: pending }                            # 覆盖 Step 2/3/4
-  impl-catalog-toolbar: { status: pending, executor: subagent } # Step 5+6 合并（同触及 MainWindow/MainViewModel）
-  impl-delete-selection: { status: pending, executor: subagent } # Step 7 VM 半
-  impl-doc-sync: { status: pending, executor: subagent }      # Step 8（与代码无文件冲突，与 impl-delete-selection 同 wave）
-  verify-full: { status: pending, executor: main }
-  cr-func-final: { status: pending }
+  impl-core: { status: done, head_sha: 3b0d169, executor: subagent }
+  impl-delete-services: { status: done, head_sha: 5269700, executor: subagent }
+  fix-wave0: { status: done, head_sha: 480238f, executor: main, note: trivial 豁免——UIOption 无 NoUI 成员（实编译证实），批量删除改 SHFileOperationW P/Invoke；spec D10 同步订正 }
+  verify-wave0: { status: done, executor: main, evidence: 'build 绿 + 119/119' }
+  cr-func-wave0: { status: done, func_ready: yes }
+  impl-config-delete: { status: done, head_sha: a5848e9, executor: subagent, evidence: 'build 绿 + 118/118（T_ST_05 删 1、T_TG_05 语义重写）' }
+  impl-undefined-zone: { status: done, head_sha: 0be6c59, executor: subagent, evidence: 'build 绿 + 118/118；主滚动流方案；双层重名检查' }
+  impl-gallery-panel: { status: done, head_sha: 3304e69, executor: subagent, evidence: 'build 绿 + 118/118；子代理二分修掉两真因（Border 全局样式 XamlCompiler 崩溃、XAML 字节损坏）' }
+  cr-func-mid: { status: done, func_ready: yes, evidence: 'Step 2/3/4 矩阵全✓；3 偏差均等价实现 closed' }
+  verify-ui-mid: { status: done, executor: main, head_sha: 5377efa, evidence: 'undefined-panel-verify 实机：未定义区三 chip/右栏展开已选0→6/并集 chip/✕移除端到端（仅命中文件改名）' }
+  impl-catalog-toolbar: { status: done, head_sha: '644bc3c+cf64a25', executor: subagent, evidence: 'build 绿 + 118/118×2；单图回归八项 diff 证明；三态改独立 Catalog* 函数' }
+  impl-delete-selection: { status: done, head_sha: 23f422c, executor: subagent, evidence: 'build 绿 + 118/118；独立防重入闸；TrimImageFilesAfterDeletion 索引校正' }
+  impl-doc-sync: { status: done, head_sha: 39aa726, executor: subagent, evidence: '9 文件纯文档+注释零逻辑改动；父 PRD 三处回写+ungrouped 部分推翻标注+Ctrl+A 修正+两 P2 闭合+spec 措辞对齐' }
+  verify-full: { status: done, executor: main, head_sha: c2b3f71, evidence: 'wave9 小修后 build 0 警告 + 118/118；toolbar-catalog-verify 实机：图库工具栏 D1 11断言/批量目录 C3 端到端（4 张追加风景旧标签保留+并集 chip）/删除选中集 D2 端到端（确认→回收站→已选0）；中途还原踩踏按 RULE 定向串行还原处置' }
+  cr-func-final: { status: done, func_ready: yes, evidence: '9 Step 矩阵终核全✓（文件:行实读）；12 条 blocking 测试在库；不变清单七项抽查全过（重命名连锁/单图 DeleteAsync/角标口径/MainInfoBar 顺序/FontIcon/BOM/ThemeResource）；三条偏差 closed 落点核实；A1~E1 覆盖清单：C1/C2/C3/D1/D2 auto 已证，其余代码已证+留走查；无 must-fix' }
 open_must_fix: []
-spec_deviations: []
+spec_deviations:
+  - id: DEV-BT-1
+    status: closed
+    desc: 未定义区滚动=主滚动流（spec 原文 MaxHeight 限高滚动）——防嵌套滚动，PRD 标注实现细节级，spec 措辞已同步
+  - id: DEV-BT-2
+    status: closed
+    desc: 右栏 Gallery 模式限定靠宿主位于 GalleryVisibility 层天然隐藏（等价实现，少一条通知链）
+  - id: DEV-BT-3
+    status: closed
+    desc: D10 批量删除机制订正为 SHFileOperationW P/Invoke（UIOption 无 NoUI 成员，实编译证实；spec 已订正）
 notes:
-  - MainViewModel.cs 被 Step 2~7 全程触碰 → 中段串行；wave-0 两 impl 并行但禁各自 build（统一 verify-wave0）
-  - 每中段 impl 节点内嵌 build+test（非并行波次可跑）；cr-func 检查其证据
-  - Step 9 的 manual_user 走查项交付后留给用户（含 A1~E1、双主题、大选中集、回归清单）
+  - ⚠ 用户走查拍板点：筛选按钮挪左簇后 flyout 实测盖左栏（重叠 367px，toolbar-catalog-verify 实锤）——PRD D8 分簇拍板与上迭代「尾部弹出防盖左栏」权衡冲突，备选=ShowAt 右移弹出/按钮挪常显右簇/接受遮盖
+  - 走查遗留：单图模式进入（Enter/双击）在 IME 环境键盘注入不稳（产品路径有历史走查覆盖，单图工具栏与图库同机制反向）；空选中删除 no-op 未自动断言（简单路径）；一条 15s UI 心跳告警（与既往观察项同款，疑误报/瞬时）
+  - Step 9 manual_user 走查清单交付用户：A1~E1 全量、双主题、大选中集体感、单图目录/单图 Delete/拖拽打标/Esc/Ctrl+A 回归、窄窗口左右栏 280+280 形态（R2）
+  - 构建期教训候选入 RULE（dev-ready 后）：App.xaml 全局 Style TargetType=Border 致 XamlCompiler 沉默崩溃（改 Button 载体）；build.ps1 Out-Null 会吞 CS 错误只剩 MSB3073 尾巴（先跑 dotnet build -v:q 排查）
