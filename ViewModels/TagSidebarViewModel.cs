@@ -140,7 +140,7 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <param name="activeFilters">当前激活的筛选标签集（chip 高亮）。</param>
     /// <returns>「标签名 → 组色相」索引是否变化（宿主据此对已呈现瀑布流卡片补发 Badges 重通知，
     /// 消除打标后角标底色滞后一轮的问题——见 GalleryItemViewModel.NotifyBadgeHuesChanged）。</returns>
-        public bool Rebuild(
+    public bool Rebuild(
             IReadOnlyList<TagGroup> configGroups,
             IReadOnlyDictionary<string, int> tagCounts,
             IReadOnlyCollection<string> activeFilters)

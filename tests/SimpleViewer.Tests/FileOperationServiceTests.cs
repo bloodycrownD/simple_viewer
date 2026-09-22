@@ -49,7 +49,7 @@ public class FileOperationServiceTests
             File.WriteAllText(path, "x");
         }
 
-        // 锁定句柄（FileShare.None）在删除期间全程保持打开：NoUI 下删除被占用文件抛异常（进失败明细而非弹框）
+        // 锁定句柄（FileShare.None）在删除期间全程保持打开：SHFileOperationW 对被占用文件返回非零错误码（进失败明细而非弹框）
         using (File.Open(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             var result = await service.DeleteToRecycleBin(normalPaths.Append(lockedPath).ToArray());

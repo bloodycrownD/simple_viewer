@@ -1414,8 +1414,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 移除当前图的一个标签（右栏 chip 的 ✕）：按标签名解析所属配置组（未命中 = 兜底组）后走单图
     /// toggle 管线——当前图必含该标签（chips 即当前标签集），toggle 即移除。
-    /// 2026-09-19 用户拍板：右栏 chips 保留显示全部标签（含无组）且 ✕ 可移除——这是清理文件名中
-    /// 无组脏数据的<b>唯一 UI 出口</b>（有意偏差 demo，demo 也跳过无组）；remove 分支按名操作文件、
+    /// 2026-09-19 用户拍板：右栏 chips 保留显示全部标签（含无组）且 ✕ 可移除（有意偏差 demo，
+    /// demo 也跳过无组）；2026-09-22 batch-tag-management 修订——无组标签清理出口：单图右栏 ✕ /
+    /// 图库右栏并集 chip ✕ 批量移除 / 未定义区连锁删除；remove 分支按名操作文件、
     /// 不消费组语义，故兜底组仅作 toggle 管线的非空参数（见 <see cref="FindGroupByTagName"/>）。
     /// </summary>
     /// <param name="tagName">标签名。</param>

@@ -11,7 +11,7 @@ using Windows.Foundation;
 namespace SimpleViewer.Views;
 
 /// <summary>
-/// 水平流式换行面板（WaterfallView 卡片角标条使用；侧栏已改为目录树行式节点，不再使用本面板）。
+/// 水平流式换行面板（现用于单图右栏 chips、瀑布流角标条、左栏未定义标签区 chip 流）。
 /// </summary>
 public sealed class WrapPanel : Panel
 {
