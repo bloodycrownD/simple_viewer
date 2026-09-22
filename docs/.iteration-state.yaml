@@ -1,35 +1,30 @@
-# tag-filter-tree 开发编排状态（code-dev-loop）—— dev-ready
-# spec: docs/iterations/图片打标签与瀑布流浏览/features/tag-filter-tree/spec.md
+# batch-tag-management 文档审查编排状态（spec-check-loop）
+# prd: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/prd.md
+# spec: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/spec.md
+# 前一迭代 tag-filter-tree 状态（dev-ready，DEV-2 open 留用户走查）见本文件 git 历史
 
-spec_path: docs/iterations/图片打标签与瀑布流浏览/features/tag-filter-tree/spec.md
-prd_path: demo/filter.html（设计稿，非标准 PRD）
-branch: feature/tag-filter-tree
-base_sha: b8b2511
-head_sha: 302e648
-status: dev-ready
-spec_summary: 纯标签 in/not in + and/or 条件树（≤3 层），单一内存求值器（索引层零改动），TagFilterState 重构为条件树（Core），MainViewModel 状态收敛，左栏 QuickAdd，Flyout 非模态面板（组=卡片嵌套），表达式 chips，不落盘
+spec_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/spec.md
+prd_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/prd.md
+branch: feature/batch-tag-management（计划，base=feature/tag-filter-tree@4d68321；当前仍在 feature/tag-filter-tree）
+status: execute-ready 待用户确认
 
-dag_version: 1
-wave_plan: [[impl-core],[verify-core],[cr-func-core],[impl-pipeline],[impl-entry],[impl-panel],[impl-integration],[verify-full],[cr-func-final]]
-node_status:
-  impl-core: { status: done, head_sha: 2265379+db70b5c, executor: subagent }
-  verify-core: { status: done, executor: main }                    # 107/107
-  cr-func-core: { status: done, func_ready: yes }
-  impl-pipeline: { status: done, head_sha: 3160952, executor: subagent }
-  impl-entry: { status: done, head_sha: 3d499e8, executor: main }  # trivial
-  impl-panel: { status: done, head_sha: 4707797+d3f22e5, executor: subagent }
-  impl-integration: { status: done, head_sha: 3c02fea+e117ac5, executor: subagent }
-  verify-full: { status: done, executor: main }                    # 冷重建成功 + 107/107
-  cr-func-final: { status: done, func_ready: yes }
+dag_version: 2
+review_round: 2
 open_must_fix: []
-spec_deviations:
-  - id: DEV-1
-    status: closed
-    desc: 值选择「＋标签」行内展开（非二级 Flyout）——spec R1 明文降级预案（嵌套 Flyout 触发父级 light-dismiss）
-  - id: DEV-2
-    status: open   # 留 Step 8 用户拍板：接受两态切换按钮组即 closed；要求 demo select 形态则按集中替换点还原（BuildTwoStateSwitch/MakeSwitchOption + L114/L233）
-    desc: 组头「全部/任一」与条件行「包含任一/不包含任一」为两态切换按钮组（非 ComboBox 下拉）——语义等价、交互同构，视觉形态与设计稿 select 有差；动机=Flyout 内二级 popup 主题风险
+doc_fix_plan: []
+review_summary:
+  round1:
+    verdict: Go（0 P0 / 1 P1 / 6 P2）
+    closed:
+      - P1 D10 批量删除 UIOption 拍板（批量变体逐文件 UIOption.NoUI，OnlyErrorDialogs 失败弹 Shell 框会卡死 T_FO_02；单图路径不动）
+      - P2 测试命名对齐惯例（T-PR1→T_PR_01 等，T-IX13→T_IX_12——现有最高 T_IX_11 无 12）
+      - P2 不变清单补齐（ThemeResource 键核对高险点/U+00AB·BB·PUA·DockPanel/PRD 不包含范围守护）
+      - P2 D7 补 IsApplied 三组 x:Bind 函数绑定消费面 + T_ST_05 同号消歧
+      - P2 D6 重算触发粒度明确（操作收口一次，非 ReplaceGalleryItemState 逐文件）
+      - P2 Step 9 走查补 A4 重命名连锁回归
+      - P2 D2 补删除组遇绑定引用标签整体拒绝拍板
+    mode: trivial 豁免（must-fix 仅 1 条措辞级补丁，主代理直接 doc-fix，P2 顺手闭合）
 notes:
-  - Step 8（manual_user，spec blocking:no）留用户实机走查：demo 形态还原度/双主题/10 万级体感/拖拽打标回归/快捷键抑制体感/扫描中面板实时性
-  - RULE.md Flyout 先例待实机双主题实证后落录（终检建议）
-  - 构建产物：Debug bin 已随各波次生成，可直接实机走查
+  - spec 由 spec-generate 产出：四路探索 + D1~D12 拍板 + 9 Step + T_PR/T_FO/T_IX_12 用例族 + 7 风险
+  - 轮次上限 5；第 1 轮即 Go，闭合后等效 execute-ready
+

@@ -1,5 +1,5 @@
 ---
-date: 2026-09-22 21:29
+date: 2026-09-22 21:48
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 用户提出批量移除标签需求并洞察两层模型（配置层定义 vs 事实层文件名标签），六轮问答拍板全量口径后 PRD 落盘并经 spec-generate 四路探索出技术规格：12 项拍板（D1~D12：绑定拒绝前移 VM、连锁删除走 RunTagOperationAsync(remove)、TagProjection 下沉 Core、右栏宿主 ContentAreaGrid 浮层、Ctrl+A 按现状仅图库等）、9 Step、T-PR/T-FO/T-IX 用例族。spec 待用户确认，确认后走 code-dev-loop（分支 feature/batch-tag-management，base=feature/tag-filter-tree@4d68321）。
@@ -28,3 +28,15 @@ user:
 
 assistant:
 探索关键结论：①绑定引用拒绝现状在 TagService.DeleteTagAsync（文件管线前置），删定义纯化后必须前移 VM，否则 ValidateBindings 会以「引用的标签不存在」错误文案拒绝悬空绑定；②分批 25 的是 RunTagOperationAsync（打标管线）而 RenameFilesAsync（编辑管线）不分批——未定义区连锁删除拍板「QueryByTagsAsync 取候选 + RunTagOperationAsync(remove:true)」，回执口径才与批量打标一致；③未定义集合/并集计算现状内联 TagSidebarViewModel.Rebuild（UI 层不可测），下沉新文件 Services\TagProjection.cs（T-PR 用例族）；④图库右栏宿主定 ContentAreaGrid 图库 Grid 右缘浮层（随 GalleryVisibility 单图天然隐藏、免 TopChromeHeight 避让、规避 XamlCompiler 顺序坑）；⑤PRD 风险节「Ctrl+A 单图仍全选」与现状不符（接管条件本含 CurrentMode==Gallery），按现状拍板 D11 并回写修正。spec 落盘 features\batch-tag-management\spec.md：D1~D12 拍板、9 Step（core-projection→config-delete-rework→undefined-zone→gallery-panel→catalog-batch→toolbar-mode→delete-selection→doc-sync→verify-full）、T-PR1~8/T-FO1~3/T-IX13 + 现有 T_TG_05/T_ST_05 口径调整、7 风险、不变清单与文档同步点（父 PRD 三处回写、ungrouped-tags-ignore 部分推翻标注——精确到聚合忽略，角标与右栏 chips 口径不推翻）。分支计划 feature/batch-tag-management，base=feature/tag-filter-tree@4d68321（依赖其 TagFilterState 树联动）。待用户确认 spec。
+
+user:
+（未直接确认，先走质量闸门）调用 spec-check-loop 审查 spec。
+
+assistant:
+spec-check-loop 启动：iteration-state 切换为 batch-tag-management 文档审查循环（review_round 1，待首轮审查；上限 5 轮），派 readonly 审查子代理对照代码库审查（重点：D1~D12 与代码现状的硬冲突、Step/用例对 PRD GWT A1~E1 的覆盖、行号锚点抽查、PRD↔SPEC 一致性）。
+
+user:
+（首轮审查报告返回）
+
+assistant:
+第 1 轮审查结论 **Go**（0 P0 / 1 P1 / 6 P2）：D1~D12 承重锚点逐条与代码核实相符（含关键边界确认——所有改标签路径汇入 SyncRenamedItemsAsync→ReplaceGalleryItemState 同一漏斗，D6 收口挂点天然覆盖单图 ✕ 场景）；15 条 GWT 全有映射。唯一 P1 实锤：批量删除若照抄单图的 UIOption.OnlyErrorDialogs，失败弹 Shell 错误框而非抛异常（批量卡死 UI、T_FO_02 挂死）——拍板批量变体逐文件 UIOption.NoUI。因 must-fix 仅 1 条措辞级补丁走 **trivial 豁免**（主代理直接 doc-fix，P2 顺手全闭合）：D10 NoUI 拍板、测试命名对齐惯例（T_PR_01/T_FO_01/T_IX_12 下划线两位——现有最高 T_IX_11 且连字符式不合惯例）、不变清单补齐（ThemeResource 键核对高险点/PUA·DockPanel/PRD 范围守护）、D7 补三组 x:Bind 函数绑定消费面、D6 触发粒度=操作收口一次（防 O(N²)）、Step 9 补 A4 重命名走查、D2 补删组遇绑定引用整体拒绝。iteration-state 记 review_round 2、execute-ready 待用户确认。**等用户确认后走 code-dev-loop（分支 feature/batch-tag-management）。**
