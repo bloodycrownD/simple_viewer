@@ -58,7 +58,7 @@
             Canvas.ZIndex="1"
             Width="280"
             HorizontalAlignment="Right"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1,0,0,0"
             Visibility="{x:Bind ViewModel.InfoPanelExpandedVisibility, Mode=OneWay}">
@@ -246,7 +246,7 @@
             Canvas.ZIndex="1"
             Width="36"
             HorizontalAlignment="Right"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1,0,0,0"
             Visibility="{x:Bind ViewModel.InfoPanelCollapsedVisibility, Mode=OneWay}">

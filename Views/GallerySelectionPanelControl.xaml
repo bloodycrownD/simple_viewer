@@ -5,8 +5,8 @@
     xmlns:services="using:SimpleViewer.Services"
     xmlns:views="using:SimpleViewer.Views">
     <!-- 职责：图库右栏（选中集标签面板，batch-tag-management Step 4）——标题行「已选 N 张」+ 收起、
-              选中集标签并集 chips（圆角矩形 + 选中集内计数 + 批量移除）、空态文案、底部「＋ 添加标签」
-              （Step 5 接线批量目录，本波次 no-op）。
+              标签区（节标题「标签」+「＋」批量目录 + 选中集标签并集 chips（圆角矩形 + 选中集内计数
+              + 批量移除）+ 空态文案）——标签区结构照详情页 SingleImageView 同名区（走查 3 拍板）。
               双 Border 展开 280 / 折叠 36 互斥 Visibility 切换（机制仿单图右栏 InfoPanelOverlay/
               CollapsedBar，无动画）；宽度值在 code-behind 常量族定义（与 SingleImageView.xaml.cs
               SidebarExpandedWidth=280 / SidebarCollapsedWidth=36 锚点注释互指）。
@@ -26,14 +26,13 @@
             HorizontalAlignment="Right"
             VerticalAlignment="Stretch"
             AutomationProperties.AutomationId="GallerySelectionPanel"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1,0,0,0"
             Visibility="{x:Bind ViewModel.GallerySelectionPanelExpandedVisibility, Mode=OneWay}">
             <Grid Margin="14,12,14,12" RowSpacing="12">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
@@ -58,11 +57,38 @@
                         ToolTipService.ToolTip="收起选中集面板（向右收拢）" />
                 </Grid>
 
-                <!-- 并集 chip 区与空态文案（同 cell 互斥）：chip 区 ScrollViewer 占满面板剩余高度
-                     （面板高度 = 图库区高，天然限高内滚动）；右 Padding 14 让位悬浮 overlay 滚动条
-                     （RULE 三隐形层：防 chip 被滚动条压住）。 -->
-                <Grid Grid.Row="1">
+                <!-- 标签区（走查 3 照详情页 SingleImageView 标签区结构重做）：节标题行「标签」+ ＋
+                     批量目录；chips 内容自适应 + MaxHeight 380 限高滚动——不撑满剩余高度（撑满时
+                     视口大于内容会把 chips 垂直居中浮在面板中部，2026-09-23 走查打回；详情页
+                     2026-09-19 同坑先例「标签少时大段空白被误读为缺内容」），空白自然落面板底部；
+                     右 Padding 14 让位悬浮 overlay 滚动条（RULE 三隐形层）。空态文案与 chips
+                     同 cell 互斥（无选中/并集为空时显示，＋ 仍可点提示先选择=PRD C4）。 -->
+                <Grid Grid.Row="1" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            Text="标签" />
+                        <Button
+                            Grid.Column="1"
+                            AutomationProperties.AutomationId="SelectionAddTagButton"
+                            Command="{x:Bind ViewModel.OpenSelectionTagCatalogCommand}"
+                            Content="＋"
+                            Style="{StaticResource GhostIconButtonStyle}"
+                            ToolTipService.ToolTip="为选中集批量添加标签（打开标签目录）" />
+                    </Grid>
                     <ScrollViewer
+                        Grid.Row="1"
+                        MaxHeight="380"
                         Padding="0,0,14,0"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto"
@@ -118,25 +144,16 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
-                    <!-- 空态文案（未选中 / 选中集全部无标签时并集为空） -->
+                    <!-- 空态文案（未选中 / 选中集全部无标签时并集为空；与 chips 同 cell 互斥） -->
                     <TextBlock
+                        Grid.Row="1"
                         Margin="0,4"
                         FontSize="12"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="选择图片后可批量移除标签"
+                        Text="选择图片后可批量移除标签——点右上「＋」可批量添加"
                         TextWrapping="Wrap"
                         Visibility="{x:Bind views:TagSidebarConverters.NotBoolToVisibility(ViewModel.HasSelectionTags), Mode=OneWay}" />
                 </Grid>
-
-                <!-- 底部：＋ 添加标签（命令占位，Step 5 接线批量标签目录；对照左栏「＋ 新建标签组」贴底形态） -->
-                <Button
-                    Grid.Row="2"
-                    AutomationProperties.AutomationId="SelectionAddTagButton"
-                    Command="{x:Bind ViewModel.OpenSelectionTagCatalogCommand}"
-                    Content="＋ 添加标签"
-                    HorizontalAlignment="Stretch"
-                    Style="{StaticResource GhostButtonStyle}"
-                    ToolTipService.ToolTip="为选中集批量添加标签" />
             </Grid>
         </Border>
 
@@ -146,7 +163,7 @@
             Width="36"
             HorizontalAlignment="Right"
             VerticalAlignment="Stretch"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1,0,0,0"
             Visibility="{x:Bind ViewModel.GallerySelectionPanelCollapsedVisibility, Mode=OneWay}">

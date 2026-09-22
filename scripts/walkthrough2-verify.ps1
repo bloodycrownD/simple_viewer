@@ -30,6 +30,10 @@ function FindName($win, $name) {
   return $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c)
 }
 function InvokeEl($el) { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+function FindId($win, $id) {
+  $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
+  return $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c)
+}
 function AncestorButton($el) {
   $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
   $p = $el
@@ -87,7 +91,7 @@ try {
   # ── 1. 右栏铺满验证：面板上/下段像素应同色（窗口 40,40 1500x950；面板 x≈1120-1540） ──
   Shot 'w2-panel.png'
   $bmp = [System.Drawing.Bitmap]::FromFile((Join-Path $shotDir 'w2-panel.png'))
-  $pts = @(@(1300, 300), @(1300, 700), @(1300, 900), @(150, 400))
+  $pts = @(@(700, 25), @(1300, 300), @(1300, 700), @(1300, 900), @(150, 400))
   foreach ($pt in $pts) {
     $c = $bmp.GetPixel($pt[0], $pt[1])
     Write-Output ('PIXEL @' + $pt[0] + ',' + $pt[1] + ' RGB=' + $c.R + ',' + $c.G + ',' + $c.B)
@@ -114,6 +118,13 @@ try {
     InvokeEl $cards[0][1]
     Start-Sleep -Milliseconds 900
     Write-Output ('CLICK-card1 -> ' + (SelectCount $win))
+    # chip 纵向位置断言：应在面板顶部区（标题+「标签」节标题下方），修复前浮在面板中部
+    $chip = FindId $win 'SelectionChip_废片'
+    if ($chip) {
+      $cr = $chip.Current.BoundingRectangle
+      $verdict = if ($cr.Y -lt 450) { 'OK-顶部区' } else { 'FAIL-仍浮中部' }
+      Write-Output ('CHIP-POS: y=' + [int]$cr.Y + ' x=' + [int]$cr.X + ' ' + $verdict)
+    } else { Write-Output 'CHIP-废片-MISSING' }
     InvokeEl $cards[1][1]
     Start-Sleep -Milliseconds 900
     $after = SelectCount $win

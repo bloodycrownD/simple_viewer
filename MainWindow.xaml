@@ -45,7 +45,7 @@
             x:Name="ToolBarRow"
             Grid.Row="0"
             Padding="8,4"
-            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="0,0,0,1">
             <ScrollViewer
@@ -249,7 +249,7 @@
             <Border
                 Grid.Column="0"
                 Width="280"
-                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                Background="{ThemeResource ChromeBackgroundBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="0,0,1,0"
                 Visibility="{x:Bind ViewModel.SidebarExpandedVisibility, Mode=OneWay}">
@@ -268,7 +268,7 @@
             <Border
                 Grid.Column="0"
                 Width="36"
-                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                Background="{ThemeResource ChromeBackgroundBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="0,0,1,0"
                 Visibility="{x:Bind ViewModel.SidebarCollapsedVisibility, Mode=OneWay}">
@@ -301,7 +301,7 @@
                     <Border
                         Grid.Row="0"
                         Padding="16,6"
-                        Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        Background="{ThemeResource ChromeBackgroundBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="0,0,0,1">
                         <TextBlock
