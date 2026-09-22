@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 01:20
+date: 2026-09-23 01:50
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -70,3 +70,9 @@ user:
 
 assistant:
 走查修复轮 3（83516ea）：①右栏标签区照详情页 SingleImageView 标签区结构重做——节标题行「标签」+「＋」（批量目录入口从底部大按钮收进节标题）+ chips 内容自适应 MaxHeight380 限高滚动 + 空态文案同 cell 互斥。根因有二：chips 区撑满剩余高度（*行）时 WinUI ScrollViewer 视口大于内容会把内容垂直居中→浮在面板中部；**详情页 2026-09-19 就为同坑修过一次（「标签少时大段空白被误读为缺内容→内容自适应+限高」注释明文），我做图库右栏时没照抄该先例**——同类 UI 新建时必须先找同款先例抄结构而非重造。②全 chrome 统一不透明：App.xaml 新增 ChromeBackgroundBrush（ThemeDictionaries Dark #27272E=原 Layer 底实测混合值观感不变 / Light #F3F3F8；自定义键规避「文档存在但 WinUI3 实际缺失」ThemeResource 风险——LayerFillColorSecondaryBrush 事故先例），工具栏/左栏×2/图库右栏×2/单图右栏×2 七面全换（半透明 LayerFillColorDefault 在单图大图上按钮不可读）。实测：toolbar/左右栏/右栏全高 RGB 全等 39,39,46（上下差=0）、chip 回顶部区 y=316、单选重置仍正常、118/118。坑：截图采样 y<88 是 150%DPI 下 32dip 标题栏（系统元素随系统浅色，与 RootGrid 主题覆盖无关）——采样先算准 chrome 行物理起点。
+
+user:
+走查第四轮：「上方非得有个缝隙吗？」（附截图：右栏顶端上方一条横贯内容区的暗缝）。
+
+assistant:
+走查修复轮 4（688f0cd）：像素剖面定位——工具栏与状态行之间 13px 暗带（31,31,41 透根底色），根因=MainInfoBar 的 Margin="12,4"：**IsOpen=false 只塌内容，Visibility=Visible 元素的 Margin 仍占布局位**，竖向 4+4 成为永久暗缝；全半透明 chrome 时代读作分层、统一不透明 #27272E 后变显眼缝隙。修：InfoBar 关闭时整体 Collapsed（Visibility 绑 IsTagFeedbackOpen）+ TopChromeHeight 仅在 ActualHeight>0 时计入 +8（单图侧浮层避让同一缝一并消除；打开时 SizeChanged 重算路径不变，打开态浮动条带边距属预期）。实测暗带消除（剖面只剩工具栏 1px 底描边分隔线）、面板统一 diff=0、chip 顶部区、单选正常、118/118。教训入坑册：**XAML「关闭」元素若靠 IsOpen/内容塌缩而非 Collapsed，Margin 仍占位**——批量通知条类控件要么绑 Visibility=Collapsed 要么去 Margin。
