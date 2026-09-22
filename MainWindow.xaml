@@ -475,7 +475,8 @@
             IsOpen="{x:Bind ViewModel.IsTagFeedbackOpen, Mode=TwoWay}"
             Message="{x:Bind ViewModel.TagFeedbackMessage, Mode=OneWay}"
             Severity="{x:Bind ViewModel.TagFeedbackSeverity, Mode=OneWay}"
-            Title="{x:Bind ViewModel.TagFeedbackTitle, Mode=OneWay}">
+            Title="{x:Bind ViewModel.TagFeedbackTitle, Mode=OneWay}"
+            Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ViewModel.IsTagFeedbackOpen), Mode=OneWay}">
             <StackPanel Spacing="4">
                 <ProgressBar
                     Height="4"

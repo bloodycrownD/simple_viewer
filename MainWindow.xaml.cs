@@ -129,11 +129,16 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// chrome 顶行尺寸变化（工具栏/InfoBar）：汇总实际占位高度写入 VM，
-    /// 驱动画布层浮层的顶部避让 Margin。InfoBar 行高含其上下 Margin（XAML 为 12,4 → 竖向共 8）。
+    /// 驱动画布层浮层的顶部避让 Margin。InfoBar 关闭时整体 Collapsed（走查 4：IsOpen=false
+    /// 只塌内容、Visible 元素的 Margin 仍占位，4+4 竖向边距在工具栏与内容区之间留出永久
+    /// 暗缝被走查打回）——高度仅在可见时计入 ActualHeight + 上下 Margin（XAML 12,4 → 竖向 8）。
     /// </summary>
     private void OnChromeRowSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + MainInfoBar.ActualHeight + InfoBarVerticalMargin;
+        var infoBarHeight = MainInfoBar.ActualHeight == 0
+            ? 0
+            : MainInfoBar.ActualHeight + InfoBarVerticalMargin;
+        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + infoBarHeight;
     }
 
     /// <summary>
