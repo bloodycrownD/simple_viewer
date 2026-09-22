@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 00:20
+date: 2026-09-23 00:45
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -58,3 +58,9 @@ user:
 
 assistant:
 走查修复轮 1（652138f）：图库右栏从浮层遮盖改**布局列**——图库 Grid Row2 改 */Auto 双列（WaterfallHost Col0 + 右栏宿主 Col1），移除 ZIndex/HorizontalAlignment=Right；收展改变瀑布流可用宽度、经窗口 resize 同一路径触发重排。根因是 spec D5 沿用了单图右栏的「浮层遮盖」机制，但遮盖式铁律的本意是保护**单图画布**几何恒定（防重解码），瀑布流本来响应宽度重排（左栏收展就是如此），浮层只会藏住缩略图。口径三处同步：spec D5/PRD 需求 3 加修订标记、RULE 铁律②修正为「仅约束单图画布侧，图库区不适用（左栏本就是布局列、图库右栏 2026-09-23 拍板同为布局列）」。验证：build 0 警告 + 118/118 + undefined-panel-verify 全链路复验（未定义区/右栏收展/全选并集/✕移除端到端落盘事实不变）。教训：把「同款机制」从单图侧照搬到图库侧前，先核对铁律的适用域（画布 vs 重排流）。
+
+user:
+走查第二轮两问题：「右侧栏颜色不统一，感觉下面空了一块」「左侧栏的多选逻辑变了，之前是 ctrl 左键，现在直接左键就能多选了」（附截图：右栏上半段面板浅色、「＋添加标签」以下露出窗口底色深黑一大块）。
+
+assistant:
+走查修复轮 2（8e4ae49）：①右栏空块根因=GallerySelectionPanelHost 缺 Horizontal/VerticalContentAlignment=Stretch（TagSidebarHost/WaterfallHost 都有）——UserControl 按内容高度顶对齐、列剩余高度露窗口底色；浮层形态时被画布内容掩盖、布局列形态才暴露。修：宿主补双 Stretch + ExpandedPanel/CollapsedBar 加 VerticalAlignment=Stretch 双保险；左右栏背景键本同 LayerFillColorDefaultBrush，实测铺满后上下段 RGB 差=4、与左栏同色系（39,39,4x）。②多选回归：代码链路全查无改动（WaterfallView.xaml.cs 零 diff、HandleCardTapped/SelectSingleCard/ClearCardSelection/修饰键检测原样），UIA 无键盘路径连点两卡实测两次均「已选 1 张」单选重置正常——**非产品回归**，最可能是走查当时系统 Ctrl 处于卡键按下态（此前自动测试注入过 SendKeys '^a' 序列，若 keyup 丢失则 GetAsyncKeyState 对所有应用报 Ctrl down、普通点击全变 Ctrl+点击；当前系统态已验证正常）。RULE 补：注入含修饰键键序列必须收尾逐个补偿 keyup（keybd_event KEYEVENTF_KEYUP）。新坑沉淀：ContentControl 宿主缺 Content 双 Stretch 是「UserControl 顶对齐露底」的通用形态——新建宿主对照 TagSidebarHost 抄全属性。
