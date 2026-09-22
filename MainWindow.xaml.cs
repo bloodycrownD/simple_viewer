@@ -63,6 +63,9 @@ public sealed partial class MainWindow : Window
         ViewModel.ConfirmDeleteAsync = ConfirmDeleteAsync;
         ViewModel.OpenSettingsAsync = ShowSettingsDialogAsync;
         ViewModel.ShowTagCatalogAsync = ShowTagCatalogDialogAsync;
+        // 未定义标签区对话框宿主（batch-tag-management Step 3）：连锁删除确认 + 收纳目标组选择。
+        ViewModel.ConfirmUndefinedDeleteAsync = ConfirmUndefinedDeleteAsync;
+        ViewModel.PickAbsorbGroupAsync = PickAbsorbGroupAsync;
         ViewModel.FullscreenChanged += OnFullscreenChanged;
         ViewModel.ExitRequested += OnExitRequested;
 
@@ -579,6 +582,121 @@ public sealed partial class MainWindow : Window
         ApplyDialogTheme(dialog);
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>
+    /// 未定义标签连锁删除确认对话框（batch-tag-management Step 3，对照 ConfirmDeleteAsync 注入模式 +
+    /// _shortcutsEnabled try/finally）：文案含影响张数与不可逆提示（PRD B1）。
+    /// </summary>
+    /// <param name="tagName">未定义标签名。</param>
+    /// <param name="affectedCount">影响张数（侧栏计数快照同源）。</param>
+    /// <returns>true = 继续删除。</returns>
+    private async Task<bool> ConfirmUndefinedDeleteAsync(string tagName, int affectedCount)
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "连锁删除未定义标签",
+                Content = $"将从 {affectedCount} 张图片的文件名移除「{tagName}」，文件将重命名且不可撤销。",
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot,
+            };
+            ApplyDialogTheme(dialog);
+
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 收纳目标组选择对话框（batch-tag-management Step 3，D4）：组下拉选择 + 确认；
+    /// 重名/未选择在对话框内即时提示（PrimaryButtonClick 取消关闭，不外弹）。
+    /// 代码构建 UI（轻量对话框，BuildFilterFlyoutStyle 代码构建先例）；错误文字色走
+    /// TagSidebarConverters.DangerTextForeground（IsDarkTheme 双值，不走 ThemeResource 运行时查找）。
+    /// 返回 (GroupId, Error)：GroupId 非 null = 确认；两者均 null = 取消；Error 非 null = 对话框侧拒绝（已内联回显）。
+    /// </summary>
+    /// <param name="tagName">待收纳的未定义标签名。</param>
+    private async Task<(string? GroupId, string? Error)> PickAbsorbGroupAsync(string tagName)
+    {
+        _shortcutsEnabled = false;
+        try
+        {
+            // 组快照（对话框生命周期内配置不变——模态互斥，编辑入口都在侧栏）。
+            var groups = _settingsService.Load().TagGroups;
+
+            var errorText = new TextBlock
+            {
+                FontSize = 12,
+                Foreground = Views.TagSidebarConverters.DangerTextForeground(),
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed,
+            };
+
+            var groupPicker = new ComboBox
+            {
+                DisplayMemberPath = nameof(TagGroup.Name),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                ItemsSource = groups,
+                PlaceholderText = "选择目标标签组",
+            };
+
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = $"在目标配置组中创建同名标签「{tagName}」——仅录入定义，不改动任何图片文件。",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            panel.Children.Add(groupPicker);
+            panel.Children.Add(errorText);
+
+            var dialog = new ContentDialog
+            {
+                Title = "收纳未定义标签",
+                Content = panel,
+                PrimaryButtonText = "收纳",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = Content.XamlRoot,
+            };
+            ApplyDialogTheme(dialog);
+
+            dialog.PrimaryButtonClick += (_, args) =>
+            {
+                if (groupPicker.SelectedItem is not TagGroup)
+                {
+                    errorText.Text = "请先选择目标标签组。";
+                    errorText.Visibility = Visibility.Visible;
+                    args.Cancel = true;
+                    return;
+                }
+
+                // 重名即时检查（快照口径，查全部组——ValidateTagGroups 拒绝跨组重名，B3）。
+                var conflict = groups.FirstOrDefault(g => g.Tags.Any(t =>
+                    string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)));
+                if (conflict is not null)
+                {
+                    errorText.Text = $"组「{conflict.Name}」已存在同名标签「{tagName}」，请先处理该定义。";
+                    errorText.Visibility = Visibility.Visible;
+                    args.Cancel = true;
+                }
+            };
+
+            var result = await dialog.ShowAsync();
+            return result == ContentDialogResult.Primary && groupPicker.SelectedItem is TagGroup selected
+                ? (selected.Id, (string?)null)
+                : (null, null);
+        }
+        finally
+        {
+            _shortcutsEnabled = true;
+        }
     }
 
     private async Task<string?> PickImageFileAsync()

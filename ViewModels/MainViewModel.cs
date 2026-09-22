@@ -195,6 +195,19 @@ public partial class MainViewModel : ObservableObject
     /// <summary>宿主提供的删除确认对话框；返回 true 表示继续删除。</summary>
     public Func<Task<bool>>? ConfirmDeleteAsync { get; set; }
 
+    /// <summary>
+    /// 宿主提供的未定义标签连锁删除确认对话框（batch-tag-management Step 3，MainWindow 注入）：
+    /// 文案含影响张数与不可逆提示；返回 true 表示继续删除。
+    /// </summary>
+    public Func<string, int, Task<bool>>? ConfirmUndefinedDeleteAsync { get; set; }
+
+    /// <summary>
+    /// 宿主提供的收纳目标组选择对话框（batch-tag-management Step 3，MainWindow 注入）：
+    /// 返回 (GroupId, Error)——GroupId 非 null = 确认收纳；GroupId null = 取消；
+    /// Error 非 null = 对话框侧拒绝（重名即时提示等，由对话框内自行回显，执行侧不再弹）。
+    /// </summary>
+    public Func<string, Task<(string? GroupId, string? Error)>>? PickAbsorbGroupAsync { get; set; }
+
     /// <summary>宿主提供的设置对话框打开回调。</summary>
     public Func<Task>? OpenSettingsAsync { get; set; }
 
@@ -1414,6 +1427,153 @@ public partial class MainViewModel : ObservableObject
                 Name = "未分组",
                 Exclusive = false,
             };
+
+    // ==================== 未定义标签区执行管线（batch-tag-management Step 3：连锁删除 D3 / 收纳 D4） ====================
+
+    /// <summary>
+    /// 未定义标签连锁删除（D3，spec Step 3）：确认对话框（宿主回调，含影响张数与不可逆提示）→
+    /// <see cref="ILibraryIndexService.QueryByTagsAsync"/> 取候选 → 空候选直接返回（计数竞态兜底）→
+    /// 候选转 GalleryItem（照 <see cref="ApplyTagToPathsAsync"/> 的 FindPresentedItemByPath 口径）→
+    /// 批量移除统一管线（RunTagOperationAsync remove:true，分批 25/就地同步/回执口径与批量打标一致）→
+    /// 计数刷新。未定义标签必不在配置组——组参数用 <see cref="FindGroupByTagName"/> 兜底组占位
+    /// （remove 分支按名操作文件、不消费组语义）。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    public async Task RemoveTagFromLibraryAsync(string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
+        {
+            return;
+        }
+
+        // 确认对话框：影响张数取计数快照（chip 上的计数同源，确认口径与所见一致）；
+        // 宿主未注入回调（组装期防御）视为未确认直接返回。
+        if (ConfirmUndefinedDeleteAsync is null
+            || !await ConfirmUndefinedDeleteAsync(tagName, GetTagCount(tagName)))
+        {
+            return;
+        }
+
+        // 无索引守卫（对齐 RenameFilesAsync 现口径）：未开图库时未定义区本就为空（计数快照
+        // 来自索引聚合），天然不触发；此处防御返回 + InfoBar 提示而非静默失败。
+        if (_indexService is null)
+        {
+            ShowInstantTagFeedback(
+                InfoBarSeverity.Warning,
+                $"移除标签「{tagName}」",
+                "尚未打开图库（无索引可用）。",
+                []);
+            return;
+        }
+
+        var queried = await _indexService.QueryByTagsAsync([tagName]);
+        if (queried.Count == 0)
+        {
+            return; // 计数竞态兜底：确认期间引用已被其他路径清空，无需动作。
+        }
+
+        // 候选转换（ApplyTagToPathsAsync 同口径）：优先呈现集中同路径项（宽高/排序 key 继承，
+        // 瀑布流卡片就地更新不失真）；索引行本身即完整 GalleryItem，未命中呈现集时直接可用。
+        var candidates = new List<GalleryItem>(queried.Count);
+        foreach (var queriedItem in queried)
+        {
+            candidates.Add(FindPresentedItemByPath(queriedItem.Path) ?? queriedItem);
+        }
+
+        _isTagOperationRunning = true;
+        try
+        {
+            BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
+            var (result, sync) = await RunTagOperationAsync(
+                candidates, FindGroupByTagName(tagName), tagName, remove: true, showProgress: true);
+            ShowTagOperationResult(result, sync);
+            await RefreshTagDataAsync();
+        }
+        finally
+        {
+            ClearTagOperationRunning();
+        }
+    }
+
+    /// <summary>
+    /// 未定义标签收纳入口（D4 编排，侧栏 chip「收纳进组」命令目标）：弹目标组选择对话框
+    /// （宿主回调，重名在对话框内即时提示）→ 取消/对话框侧拒绝则返回 → 执行配置层收纳。
+    /// 执行侧错误（竞态防御，正常流程不可达）经 InfoBar 回显。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    public async Task AbsorbUndefinedTagAsync(string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName))
+        {
+            return;
+        }
+
+        if (PickAbsorbGroupAsync is null)
+        {
+            return; // 宿主未注入回调（组装期防御）。
+        }
+
+        var (groupId, dialogError) = await PickAbsorbGroupAsync(tagName);
+        if (dialogError is not null)
+        {
+            // 对话框侧已回显（如重名即时提示），此处不重复弹。
+            return;
+        }
+
+        if (groupId is null)
+        {
+            return; // 用户取消。
+        }
+
+        var error = await AbsorbUndefinedTagAsync(tagName, groupId);
+        if (error is not null)
+        {
+            ShowInstantTagFeedback(
+                InfoBarSeverity.Warning,
+                "收纳标签失败",
+                error,
+                []);
+        }
+    }
+
+    /// <summary>
+    /// 未定义标签收纳执行（D4）：Load settings → 找目标组 → 前置重名检查（任何组已有同名标签即拒
+    /// ——对齐 <see cref="SettingsService.ValidateTagGroups"/> 的组内/跨组重名口径，未前置则 Save 时
+    /// 被校验以更生硬文案拒绝）→ 组内新建 TagDefinition（新 Id 生成方式照 ExecuteAddTag 现状）→
+    /// <see cref="SaveSettingsAndRebuildSidebar"/>。0 文件改名（收编语义：按名匹配配置自然生效）。
+    /// 返回 null = 成功；非 null = 拒绝文案。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    /// <param name="targetGroupId">目标配置组 Id（对话框选定）。</param>
+    public async Task<string?> AbsorbUndefinedTagAsync(string tagName, string targetGroupId)
+    {
+        if (_settingsService is null)
+        {
+            return "设置服务未初始化。";
+        }
+
+        // 纯配置操作无 await 点，保持 async 签名对齐编排入口（对话框确认后的续体语义）。
+        await Task.CompletedTask;
+        var settings = _settingsService.Load();
+        var group = FindGroup(settings.TagGroups, targetGroupId);
+        if (group is null)
+        {
+            return "目标标签组不存在（配置可能已被外部修改）。";
+        }
+
+        // 前置重名检查（B3）：查全部组而非仅目标组——ValidateTagGroups 拒绝跨组重名，只查目标组
+        // 会把拒绝推迟到 Save 时以「跨组标签重名」文案弹出。未定义标签理论上必不在任何组
+        // （投影差集已排除），此检查是对话框快照与当前配置竞态的防御。
+        var conflict = settings.TagGroups.FirstOrDefault(g => g.Tags.Any(t =>
+            string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)));
+        if (conflict is not null)
+        {
+            return $"组「{conflict.Name}」已存在同名标签「{tagName}」，文件名标签不允许跨组重名。";
+        }
+
+        group.Tags.Add(new TagDefinition { Id = Guid.NewGuid().ToString("N"), Name = tagName });
+        return SaveSettingsAndRebuildSidebar(settings);
+    }
 
     /// <summary>
     /// 标签目录快照（TagCatalogDialog 构造时一次性取用）：配置组序列 + 当前图标签集

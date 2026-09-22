@@ -2,10 +2,10 @@
 //       （点击 = 切换筛选；2026-09-19 交互重构：打标移交拖拽/详情页右栏/快捷键）、编辑请求上抛。
 // 不变量：组/chip 为不可变快照对象——任何变化（计数刷新/筛选切换/配置编辑）经 Rebuild 全量重建
 //         （侧栏规模为几十个 chip，重建开销可忽略，换取免 INPC 的简单性）；
-//         聚合类 UI 完全忽略无组标签（2026-09-19 用户拍板推翻 4679a12 引入的「未分组」虚拟组
-//         与「曾见即留」记忆）：侧栏只遍历配置组——文件名中不属于任何配置组的标签不显示、
-//         不可筛选；无组脏数据的清理出口 = 单图右栏 chips 的 ✕（RemoveCurrentImageTagAsync），
-//         或在配置组内新建同名标签自然「收编」（按名匹配配置，无需额外代码）；
+//         2026-09-19「聚合类 UI 完全忽略无组标签」口径已被 batch-tag-management 推翻（spec Step 3）：
+//         未定义标签（文件名中不属于任何配置组的标签）改在左栏底部新区展示（chip 流式，
+//         TagProjection.ComputeUndefinedTags 投影），支持连锁删除与收纳进组；卡片角标仍忽略无组标签；
+//         无组脏数据的其余清理出口 = 单图右栏 chips 的 ✕（RemoveCurrentImageTagAsync）；
 //         chip 点击经 HandleChipTappedAsync 转发（MainViewModel 切筛选并处理单图→图库回切）；
 //         所有编辑操作经 TagEditRequest 上抛给宿主对话框（MainWindow 注入 ShowTagEditorAsync），
 //         落盘/索引/配置持久化统一在 MainViewModel.ExecuteTagEditAsync。
@@ -18,6 +18,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SimpleViewer.Models;
+using SimpleViewer.Services;
 
 namespace SimpleViewer.ViewModels;
 
@@ -103,17 +104,36 @@ public partial class TagSidebarViewModel : ObservableObject
     /// <summary>展示的组序列（仅配置组，按配置顺序；2026-09-19 口径：不再追加「未分组」虚拟组）。</summary>
     public ObservableCollection<TagGroupViewModel> Groups { get; } = [];
 
+    /// <summary>
+    /// 未定义标签 chip 序列（batch-tag-management Step 3）：索引计数键集 − 配置组标签集的投影
+    /// （TagProjection.ComputeUndefinedTags，D12：拼写取计数键、计数降序同计数按名 Ordinal），
+    /// 经 Rebuild 全量重建。空集合时 UI 整区隐藏（E1）。
+    /// </summary>
+    public ObservableCollection<UndefinedTagChipViewModel> UndefinedTags { get; } = [];
+
+    /// <summary>未定义标签区是否可见（空集合整区隐藏，E1；经 Rebuild 全量重建派生）。</summary>
+    [ObservableProperty]
+    private bool _hasUndefinedTags;
+
     /// <summary>是否无任何组/标签（空态引导）。</summary>
     [ObservableProperty]
     private bool _isEmpty;
+
+    /// <summary>
+    /// 空态引导是否显示：组配置为空且未定义区也为空才显示——组全删后标签齐入未定义区
+    /// （A3 极端形态）时左栏仍有内容可看，「暂无标签组」居中提示不再与之重叠。
+    /// </summary>
+    [ObservableProperty]
+    private bool _showEmptyHint;
 
     /// <summary>底部「新建标签组」固定入口。</summary>
     [RelayCommand]
     private void AddGroup() => RaiseEdit(new TagEditRequest { Kind = TagEditKind.AddGroup });
 
     /// <summary>
-    /// 全量重建组/chip（UI 线程）：仅配置组——索引计数中不属于任何配置组的标签被忽略
-    /// （2026-09-19 用户拍板：聚合类 UI 完全忽略无组标签，对齐 demo 只遍历配置组）。
+    /// 全量重建组/chip 与未定义标签区（UI 线程）：配置组照旧遍历；索引计数中不属于任何
+    /// 配置组的标签经 <see cref="TagProjection.ComputeUndefinedTags"/> 投影进未定义区
+    /// （batch-tag-management Step 3 推翻 2026-09-19「完全忽略」口径——卡片角标仍忽略）。
     /// </summary>
     /// <param name="configGroups">配置组（SettingsService.Load().TagGroups）。</param>
     /// <param name="tagCounts">最近一次索引标签计数快照。</param>
@@ -129,6 +149,7 @@ public partial class TagSidebarViewModel : ObservableObject
         var tagHuesChanged = GalleryItemViewModel.UpdateTagHues(configGroups);
 
         Groups.Clear();
+        UndefinedTags.Clear();
         var configuredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var group in configGroups)
@@ -163,10 +184,22 @@ public partial class TagSidebarViewModel : ObservableObject
                 isExpanded: !_collapsedGroupIds.Contains(group.Id)));
         }
 
+        // 未定义标签区（Step 3）：投影已排好序（计数降序、同计数按名 Ordinal），逐项建 chip VM；
+        // 命令经 _owner 调 MainViewModel 管线（连锁删除/收纳），模式照 CreateChipEditCommands。
+        foreach (var entry in TagProjection.ComputeUndefinedTags(tagCounts, configGroups))
+        {
+            UndefinedTags.Add(new UndefinedTagChipViewModel(
+                entry.Name,
+                entry.Count,
+                CreateUndefinedChipCommands(entry.Name)));
+        }
+
         // 清理折叠集合中已删除组的残留项（按现存组 Id 交集，避免集合无界增长）。
         _collapsedGroupIds.IntersectWith(new HashSet<string>(Groups.Select(static g => g.Id)));
 
         IsEmpty = Groups.Count == 0;
+        HasUndefinedTags = UndefinedTags.Count > 0;
+        ShowEmptyHint = IsEmpty && !HasUndefinedTags;
         return tagHuesChanged;
     }
 
@@ -204,6 +237,16 @@ public partial class TagSidebarViewModel : ObservableObject
                 TagEditKind.RenameTag, group, tagName))),
             Delete: new RelayCommand(() => RaiseEdit(BuildTagRequest(
                 TagEditKind.DeleteTag, group, tagName))));
+
+    /// <summary>
+    /// 未定义标签 chip 的操作命令集（batch-tag-management Step 3）：连锁删除（事实层真删：
+    /// 从所有引用图片文件名移除该标签）与收纳进组（配置层收编：目标组建同名定义，0 文件改名）。
+    /// 经 _owner 调 MainViewModel 管线（对话框确认由管线内宿主回调承担）。
+    /// </summary>
+    private UndefinedTagChipCommands CreateUndefinedChipCommands(string tagName)
+        => new(
+            DeleteFromLibrary: new RelayCommand(() => _ = _owner.RemoveTagFromLibraryAsync(tagName)),
+            AbsorbIntoGroup: new RelayCommand(() => _ = _owner.AbsorbUndefinedTagAsync(tagName)));
 
     private GroupCommands CreateGroupCommands(TagGroup group)
         => new(
@@ -283,6 +326,11 @@ public sealed record GroupCommands(
 /// <param name="Rename">重命名标签。</param>
 /// <param name="Delete">删除标签。</param>
 public sealed record TagChipCommands(ICommand Rename, ICommand Delete);
+
+/// <summary>未定义标签 chip 命令集（batch-tag-management Step 3；主点击弹菜单不走命令）。</summary>
+/// <param name="DeleteFromLibrary">连锁删除：从所有引用图片的文件名移除该标签（事实层真删）。</param>
+/// <param name="AbsorbIntoGroup">收纳进组：选择目标配置组并在组内创建同名定义（0 文件改名）。</param>
+public sealed record UndefinedTagChipCommands(ICommand DeleteFromLibrary, ICommand AbsorbIntoGroup);
 
 /// <summary>标签组展示模型（不可变快照，经 Rebuild 全量重建）。</summary>
 public sealed class TagGroupViewModel
@@ -385,4 +433,31 @@ public sealed class TagChipViewModel
 
     /// <summary>chip 命令集。</summary>
     public TagChipCommands Commands { get; }
+}
+
+/// <summary>
+/// 未定义标签 chip 展示模型（batch-tag-management Step 3，不可变快照，经 Rebuild 全量重建）：
+/// 文件名中不属于任何配置组的标签——显示拼写与计数取索引计数侧（TagProjection 投影，D12）。
+/// 主点击 = 弹菜单（连锁删除/收纳进组），命令经 MainViewModel 管线执行。
+/// </summary>
+public sealed class UndefinedTagChipViewModel
+{
+    public UndefinedTagChipViewModel(
+        string name,
+        int count,
+        UndefinedTagChipCommands commands)
+    {
+        Name = name;
+        Count = count;
+        Commands = commands;
+    }
+
+    /// <summary>标签名（计数键拼写 = 文件名聚合侧，不取配置侧——spec D12）。</summary>
+    public string Name { get; }
+
+    /// <summary>该标签的全库图片计数（索引全表聚合）。</summary>
+    public int Count { get; }
+
+    /// <summary>chip 命令集（连锁删除/收纳进组）。</summary>
+    public UndefinedTagChipCommands Commands { get; }
 }

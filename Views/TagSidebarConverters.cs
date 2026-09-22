@@ -236,6 +236,12 @@ public static class TagSidebarConverters
 
     private static Brush DangerBrush() => new SolidColorBrush(DangerColor());
 
+    /// <summary>
+    /// 错误提示文字色（batch-tag-management Step 3：代码构建的收纳对话框内联错误文本；
+    /// 深色 #FF7B72 / 浅色 #D64545，IsDarkTheme 双值——代码取色不走 ThemeResource 运行时查找）。
+    /// </summary>
+    public static Brush DangerTextForeground() => DangerBrush();
+
     /// <summary>次要灰文本（且/或/括号段与无标签 chip；对齐 TreeCountForeground 色值）。</summary>
     private static Brush SecondaryTextBrush()
         => new SolidColorBrush(Windows.UI.Color.FromArgb(
@@ -421,6 +427,12 @@ public static class TagSidebarConverters
     /// <summary>组展开 → 标签行列表可见（目录树态：折叠时子行整体收起）。</summary>
     public static Visibility IsExpandedToVisibility(bool isExpanded)
         => isExpanded ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 未定义 chip 的 AutomationId（batch-tag-management Step 3，实机走查定位用）：
+    /// 前缀 + 标签名（chip 实例随 ItemsControl 模板实例化，x:Bind 函数绑定逐项生成稳定标记）。
+    /// </summary>
+    public static string UndefinedChipAutomationId(string name) => "UndefinedChip_" + name;
 
     /// <summary>
     /// 组头 chevron 字符（目录树态）：展开 ▾（U+25BE）/ 折叠 ▸（U+25B8）。

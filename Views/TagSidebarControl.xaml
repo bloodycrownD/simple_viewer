@@ -14,8 +14,11 @@
               （展开状态会话内记忆，见 TagSidebarViewModel）；激活标签行（筛选命中）= 整行圆角浅灰叠加高亮。
               行内无常显管理按钮（干净的单行只读观感）——悬停浮现经 RowCommands 容器 Opacity 0↔1
               （不用 Visibility：按钮保持在 UIA 树中可命中，键盘/自动化路径不失效，见项目 RULE）。
-              底部「新建标签组」；仅展示配置组（2026-09-19 用户拍板：聚合类 UI 完全忽略无组标签，
-              原固定末位「未分组」虚拟组已移除——无组脏数据清理走单图右栏 chips ✕ / 配置组同名收编）。
+              底部「新建标签组」；配置组区之后为【未定义标签】区（batch-tag-management Step 3，
+              推翻 2026-09-19「聚合类 UI 完全忽略无组标签」口径——卡片角标仍忽略）：
+              chip 流式换行（自研 WrapPanel，区别于文件树行风格）+ 标签名 + 全库计数，
+              chip 主点击弹 MenuFlyout（连锁删除 = 事实层真删 / 收纳进组 = 配置层收编）；
+              空集合整区隐藏（E1）；不做子滚动区，随主滚动区滚动（防嵌套滚动）。
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
               （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
               交互不变量：标签行主点击经 OnChipClicked 转发 = 筛选——无修饰 = 单选筛选（唯一选中再点取消）、
@@ -62,7 +65,8 @@
                 ToolTipService.ToolTip="收起标签栏（向左收拢）" />
         </Grid>
 
-        <!-- 组列表（仅配置组；2026-09-19 口径：无组标签不在侧栏聚合展示）；
+        <!-- 组列表 + 未定义标签区（batch-tag-management Step 3：主滚动流方案——未定义区不做
+             子 ScrollViewer，chip 多时整个左栏滚动，防嵌套滚动手感问题）；
              右 Padding 14 让出覆盖式滚动条宽度——行右计数不再被遮挡（与目录弹窗同修） -->
         <ScrollViewer
             Grid.Row="1"
@@ -70,6 +74,7 @@
             Padding="0,0,14,0"
             VerticalScrollBarVisibility="Auto"
             ZoomMode="Disabled">
+            <StackPanel Spacing="6">
             <ItemsRepeater ItemsSource="{x:Bind ViewModel.Groups, Mode=OneWay}">
                 <ItemsRepeater.Layout>
                     <StackLayout Spacing="6" />
@@ -265,6 +270,73 @@
                     </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
             </ItemsRepeater>
+
+            <!-- 未定义标签区（batch-tag-management Step 3）：文件名中不属于任何配置组的标签
+                 （TagProjection 投影，拼写取计数键、计数降序）；chip 流式换行（自研 WrapPanel），
+                 主点击弹 MenuFlyout（连锁删除/收纳进组，语义见 TagSidebarViewModel）；
+                 空集合整区隐藏（E1）；随主滚动区滚动（无子 ScrollViewer，防嵌套滚动） -->
+            <StackPanel
+                Margin="0,8,0,0"
+                Spacing="6"
+                Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ViewModel.HasUndefinedTags), Mode=OneWay}">
+                <TextBlock
+                    AutomationProperties.AutomationId="UndefinedTagsHeader"
+                    FontSize="13"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="未定义标签"
+                    ToolTipService.ToolTip="未录入任何配置组的标签——点击 chip 可连锁删除或收纳进组" />
+                <ItemsControl ItemsSource="{x:Bind ViewModel.UndefinedTags, Mode=OneWay}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <views:WrapPanel ItemSpacing="6" LineSpacing="6" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="HorizontalAlignment" Value="Left" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:UndefinedTagChipViewModel">
+                            <!-- 未定义 chip：小圆角自绘按钮（安全键底色 + 1px 描边，区别于
+                                 单图右栏全圆胶囊与配置组树行）+ 标签名 + 计数；主点击弹
+                                 MenuFlyout（Button.Flyout 点击自动展示，无需 Click handler）；
+                                 ✕ U+2715 / ⇱ U+21F1 均为 BMP 文本字符（非 FontIcon） -->
+                            <Button
+                                AutomationProperties.AutomationId="{x:Bind views:TagSidebarConverters.UndefinedChipAutomationId(Name)}"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,3"
+                                Style="{StaticResource GhostButtonStyle}"
+                                ToolTipService.ToolTip="未定义标签——点击选择：连锁删除 / 收纳进组"
+                                UseSystemFocusVisuals="False">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Command="{x:Bind Commands.DeleteFromLibrary}" Text="✕ 连锁删除" />
+                                        <MenuFlyoutItem Command="{x:Bind Commands.AbsorbIntoGroup}" Text="⇱ 收纳进组" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Text="{x:Bind Name}"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        VerticalAlignment="Center"
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+            </StackPanel>
         </ScrollViewer>
 
         <!-- 新建标签组（固定入口；ghost 描边风格） -->
@@ -275,7 +347,7 @@
             HorizontalAlignment="Stretch"
             Style="{StaticResource GhostButtonStyle}" />
 
-        <!-- 空态引导 -->
+        <!-- 空态引导（组配置为空且未定义区也为空才显示——组全删后标签齐入未定义区时左栏仍有内容） -->
         <TextBlock
             Grid.Row="1"
             Margin="0,16"
@@ -286,6 +358,6 @@
             Text="暂无标签组——点击下方「新建标签组」开始"
             TextAlignment="Center"
             TextWrapping="Wrap"
-            Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ViewModel.IsEmpty), Mode=OneWay}" />
+            Visibility="{x:Bind views:TagSidebarConverters.BoolToVisibility(ViewModel.ShowEmptyHint), Mode=OneWay}" />
     </Grid>
 </UserControl>
