@@ -1,6 +1,6 @@
 ---
-date: 2026-09-23 23:30
-title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除→CR 两轮收敛→CR 修复执行 dev-ready
+date: 2026-09-24 00:40
+title: 批量标签管理迭代全周期：PRD→spec→dev-ready→走查→性能根除→CR 两轮→修复执行→v1.0.2 发布
 keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板, code-review-loop, fix-spec-2, 互斥闸, 备份还原窗口, 并行提交事故
 abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索→spec-check Go→13 波次 dev-ready（118/118）→九轮实机走查修复→两项性能根除（WIC-on-STA 冻结死锁+换源管线全后台化）→flyout 拍板①→CR 两轮收敛（四路评审+review-full，16 条 must-fix，4 deviations 回写）→CR 修复执行 dev-ready（16 条全闭合+3 处意图增补，HEAD=9adb45d，build 0 警告+118/118+三实机脚本复跑，cr-func func-ready）。后续：走查尾款五项（含 vm/B-1 时序断言）→合并 master→可选 v1.0.2；观察项 RenameFilesAsync 无互斥闸下轮 CR 认定。
 ---
@@ -130,3 +130,9 @@ user:
 
 assistant:
 CR 修复轮 **dev-ready**（2026-09-23 23:30，HEAD=9adb45d）：code-dev-loop 三波次执行 cr-fix-spec-2 全 16 条。①wave-0 五路并行 impl 子代理（vm/scripts/ui-main/ui-panel/docs）+ 主代理 trivial（svc/C-1 注释缩进+ui/C-2 枚举注释）——**并行事故教训：两个子代理各自 amend/reset 历史改写一度互相挤掉提交**（impl-scripts amend 撞上 impl-vm 的 vm/B-3 暂存，soft reset 恢复；impl-vm 29e3a52 被挤出后重提 adf24ae）——后续多节点并行 impl 必须在 prompt 里明令「禁止 amend/reset 历史改写，只允许新增提交」；②两处主代理裁决补修（同条目意图清单漏列，非范围蔓延）：RemoveTagFromLibraryAsync 互斥闸（连锁删除走 remove 打标管线）+ 单图版 ShowTagCatalogDialogAsync 单开守卫；③verify-full：build 0 警告+118/118+12 脚本语法 12/12+三实机脚本复跑全过（undefined-panel 实证 ui/H-2——SELECT-CHIP name="废片 ×3"、X-INVOKED 按名命中）；④cr-func-final func-ready: yes（16/16 矩阵闭合、裁决合规、MF-1 一行闭合后子代理复核确认）。fix-spec-2 状态转 executed、iteration-state 记 CR 轮。**遗留**：manual_user——vm/B-1 时序断言（打标中点删除 no-op，自动化不可行需走查）、vm/B-2 注入抛错回执；观察项——RenameFilesAsync 重命名管线无互斥闸（vm/B-1 同构，cr-func 提出，下轮 CR 认定）；cr-func nit——ShowTagCatalogDialogAsync 空 catch 无注释。清掉一个 spec-fix 子代理 PowerShell 重定向出错产生的根目录垃圾文件「$(if」（79KB fix-spec 草稿残留）。下一步：走查尾款五项 → 合并 master → 可选 v1.0.2。
+
+user:
+「合并，发布1.0.2吧，然后本机也打个release忘记说了，还有1.0.2的changelog」
+
+assistant:
+v1.0.2 发布完成（2026-09-24 深夜，master HEAD=f0ffafb）：①CHANGELOG 补 1.0.2 节（新增六条：条件树筛选/两层模型/图库右栏/工具栏分簇/删选中集/单图顶部横条；性能三条：冻结根除/换源顿挫/O(N+M)；修复打磨：互斥闸/异常兜底/走查九轮/脚本加固/测试 100→118）——8c39299 在 feature 分支提交后随合并进 master；②merge --no-ff（仓库惯例，message 全量总结两代 feature）→ 69 文件 +8454/-849 无冲突；③annotated tag v1.0.2（v1.0.0/v1.0.1 均 commit 类型，保持一致）；④push 后 Actions run#10 Success（2m16s，118 测试全过）→ Draft Release 已创建带 SimpleViewer-v1.0.2-win-x64.zip + 自动 notes——**待用户到 Releases 页手动 Publish（v1.0.0 惯例）**；⑤本机 release.ps1 -Version 1.0.2 一次通过 → release\SimpleViewer-v1.0.2-win-x64.zip（43MB，.NET 自包含+WinAppSDK 框架依赖形态）。坑：WebFetch 同 URL 有 15 分钟缓存——盯 CI 状态时连续 4 次看到「In progress」全是缓存，加 query 参数破缓存后即见已 Success；gh CLI 本机不可用。发布形态不变：draft → 用户实机确认 → Publish。走查尾款五项仍未做（浅色主题实测等，用户直接拍板发布视为接受现状）。分支 feature/batch-tag-management 与 feature/tag-filter-tree 均已并入 master，可删。
