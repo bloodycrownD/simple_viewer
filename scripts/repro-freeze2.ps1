@@ -3,6 +3,8 @@
 $libDir = Join-Path $env:TEMP 'sv-freeze-lib'
 if (-not (Test-Path $libDir)) { Write-Output 'NO-LIB（先跑 repro-freeze.ps1）'; exit 1 }
 
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 路径，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-frz2'
 # qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
@@ -22,7 +24,7 @@ try {
   taskkill /IM viewer.exe /F 2>$null | Out-Null
   Start-Sleep -Milliseconds 800
   $markBefore = (Get-Item "$env:LOCALAPPDATA\SimpleViewer\logs\startup.log").Length
-  Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
+  Start-Process $exe
   Start-Sleep -Seconds 45
   taskkill /IM viewer.exe /F 2>$null | Out-Null
   Start-Sleep -Milliseconds 600

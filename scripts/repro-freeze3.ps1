@@ -2,6 +2,8 @@
 # 启动大图库 → 等 8s（应已冻结）→ dotnet-stack report + 线程 CPU 快照 → 杀进程还原
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $libDir = Join-Path $env:TEMP 'sv-freeze-lib'
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 路径，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-frz3'
 # qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
@@ -22,7 +24,7 @@ try {
 
   taskkill /IM viewer.exe /F 2>$null | Out-Null
   Start-Sleep -Milliseconds 800
-  $proc = Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe' -PassThru
+  $proc = Start-Process $exe -PassThru
   Start-Sleep -Seconds 8
 
   # 线程 CPU 形态（两轮采样间隔 3s）：主 UI 线程（通常线程 id 最小之一）CPU 是否在涨

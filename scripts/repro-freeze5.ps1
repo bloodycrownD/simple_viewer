@@ -1,6 +1,8 @@
 ﻿# repro-freeze5.ps1 - 以应用心跳看门狗为冻结信号：轮询 startup.log 新增行，见「UI 无响应」立即抓 dotnet-stack + CPU
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $libDir = Join-Path $env:TEMP 'sv-freeze-lib'
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 路径，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $logPath = "$env:LOCALAPPDATA\SimpleViewer\logs\startup.log"
 $backup = $settings + '.bak-frz5'
@@ -25,7 +27,7 @@ try {
     taskkill /IM viewer.exe /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 900
     $mark = (Get-Item $logPath).Length
-    $proc = Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe' -PassThru
+    $proc = Start-Process $exe -PassThru
     Write-Output ('ROUND ' + $round + ' pid=' + $proc.Id)
     for ($i = 0; $i -lt 20 -and -not $frozen; $i++) {
       Start-Sleep -Seconds 3

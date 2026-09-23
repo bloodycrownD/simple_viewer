@@ -1,6 +1,8 @@
 ﻿# repro-freeze4.ps1 - 冻结自动探测 + 冻结期抓栈：最多 4 轮启动，每轮探 30s，Responding=False 即抓 dotnet-stack + 线程 CPU
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $libDir = Join-Path $env:TEMP 'sv-freeze-lib'
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 路径，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-frz4'
 # qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
@@ -23,7 +25,7 @@ try {
   for ($round = 1; $round -le 4 -and -not $frozen; $round++) {
     taskkill /IM viewer.exe /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 900
-    $proc = Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe' -PassThru
+    $proc = Start-Process $exe -PassThru
     Write-Output ('ROUND ' + $round + ' pid=' + $proc.Id)
     for ($i = 0; $i -lt 15 -and -not $frozen; $i++) {
       Start-Sleep -Seconds 2

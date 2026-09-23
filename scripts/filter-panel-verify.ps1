@@ -15,6 +15,9 @@ public class W4 {
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 [W4]::SetProcessDPIAware() | Out-Null
 
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 与输出目录，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
+$docsDir = Join-Path $PSScriptRoot '..\docs'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak2'
 # qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
@@ -34,7 +37,7 @@ function Shot($name) {
   $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-  $bmp.Save('D:\Dev\Python\simple_viewer\docs\' + $name, [System.Drawing.Imaging.ImageFormat]::Png)
+  $bmp.Save((Join-Path $docsDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
   $g.Dispose(); $bmp.Dispose()
 }
 
@@ -45,7 +48,7 @@ try {
 
   taskkill /IM viewer.exe /F 2>$null | Out-Null
   Start-Sleep -Milliseconds 900
-  Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
+  Start-Process $exe
   Start-Sleep -Seconds 9
   $proc = Get-Process viewer -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
   # short window like user's screenshot: 1350x780 physical (~900x520 logical @150%)

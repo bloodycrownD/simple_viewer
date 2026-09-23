@@ -14,6 +14,8 @@ public class W8 {
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 [W8]::SetProcessDPIAware() | Out-Null
 
+# qa/C-1 以脚本自身目录（scripts\）锚定仓库根推导 exe 路径，仓库克隆到任意路径/机器可用
+$exe = Join-Path $PSScriptRoot '..\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-s5'
 # qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
@@ -65,7 +67,7 @@ try {
 
   taskkill /IM viewer.exe /F 2>$null | Out-Null
   Start-Sleep -Milliseconds 900
-  Start-Process 'D:\Dev\Python\simple_viewer\bin\x64\Debug\net8.0-windows10.0.19041.0\viewer.exe' -ArgumentList @('-d', $libDir, '-i', '1')
+  Start-Process $exe -ArgumentList @('-d', $libDir, '-i', '1')
   Start-Sleep -Seconds 7
   $proc = Get-Process viewer -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
   [W8]::MoveWindow($proc.MainWindowHandle, 40, 40, 1500, 950, $true) | Out-Null
