@@ -96,10 +96,9 @@
                                  ActiveConditionCount 经函数绑定驱动）+ 数字徽章（小圆角计数，demo .cond-badge）。
                                  位置（batch-tag-management Step 6 / D8 重排拍板）：图库操作组（左簇）——
                                  tag-filter-tree 期「挪到工具栏尾部」的五轮走查权衡（flyout 不盖左栏）被本需求
-                                 PRD 需求 4 左簇分组覆盖；Placement=Bottom 不变，按钮位置在左簇图库组
-                                 （打开/打开图库之后），700 宽面板起点较旧左侧位右移，遮盖左栏上缘的风险
-                                 由 Step 9 实机走查复核。面板宿主 Flyout 内容由 code-behind 注入
-                                 （构造注入惯例，XAML 占位 ContentControl）。 -->
+                                 PRD 需求 4 左簇分组覆盖；按钮位置在左簇图库组（打开/打开图库之后），面板
+                                 弹出会临时遮盖左栏上缘——**2026-09-23 用户拍板：接受临时遮盖**（点外部即关，
+                                 面板宿主 Flyout 内容由 code-behind 注入，构造注入惯例，XAML 占位 ContentControl）。 -->
                             <Button
                                 x:Name="FilterToggleButton"
                                 Background="{x:Bind views:TagSidebarConverters.FilterToggleBackground(ViewModel.ActiveConditionCount), Mode=OneWay}"

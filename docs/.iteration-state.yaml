@@ -42,7 +42,8 @@ spec_deviations:
     status: closed
     desc: D10 批量删除机制订正为 SHFileOperationW P/Invoke（UIOption 无 NoUI 成员，实编译证实；spec 已订正）
 notes:
-  - ⚠ 用户走查拍板点：筛选按钮挪左簇后 flyout 实测盖左栏（重叠 367px，toolbar-catalog-verify 实锤）——PRD D8 分簇拍板与上迭代「尾部弹出防盖左栏」权衡冲突，备选=ShowAt 右移弹出/按钮挪常显右簇/接受遮盖
-  - 走查遗留：单图模式进入（Enter/双击）在 IME 环境键盘注入不稳（产品路径有历史走查覆盖，单图工具栏与图库同机制反向）；空选中删除 no-op 未自动断言（简单路径）；一条 15s UI 心跳告警（与既往观察项同款，疑误报/瞬时）
-  - Step 9 manual_user 走查清单交付用户：A1~E1 全量、双主题、大选中集体感、单图目录/单图 Delete/拖拽打标/Esc/Ctrl+A 回归、窄窗口左右栏 280+280 形态（R2）
+  - ✅ flyout 盖左栏已拍板（2026-09-23）：用户选①接受临时遮盖（点外部即关）——MainWindow.xaml 注释已更新，决策点关闭
+  - 走查遗留：单图模式进入（Enter/双击）在 IME 环境键盘注入不稳（产品路径有历史走查覆盖，单图工具栏与图库同机制反向）；空选中删除 no-op 未自动断言（简单路径）；15s 心跳告警家族已根除主源（拖拽小图 WIC-on-STA 死锁，898fe6a）+ 放大/翻页换源管线全后台化（f8f041f）
+  - Step 9 manual_user 走查清单交付用户：A1~E1 全量、双主题（浅色 ChromeBackgroundBrush #F3F3F8 为初值未实测）、大选中集体感、单图目录/单图 Delete/拖拽打标/Esc/Ctrl+A 回归、窄窗口左右栏 280+280 形态（R2）
+  - 分支未合并：feature/batch-tag-management（叠 feature/tag-filter-tree 两代成果）→ master 待走查收口后合并；合并后可议 v1.0.2 发布
   - 构建期教训候选入 RULE（dev-ready 后）：App.xaml 全局 Style TargetType=Border 致 XamlCompiler 沉默崩溃（改 Button 载体）；build.ps1 Out-Null 会吞 CS 错误只剩 MSB3073 尾巴（先跑 dotnet build -v:q 排查）
