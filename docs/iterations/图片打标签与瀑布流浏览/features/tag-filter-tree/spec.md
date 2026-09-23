@@ -93,6 +93,7 @@ public static class TagFilterState {                  // 保留类名与文件�
   > **修订（2026-09-23）**：值选择直接采用 R1 降级形态——**行内展开分组勾选区**（「＋ 标签」切换该行展开、单开语义，不再走 `Button.Flyout` 二级浮层），已拍板为既成降级决策（cr-fix-spec-2 qa/A-3 回写）。
 - 筛选条（MainWindow.xaml L198-286 现区域）：OR 徽章移除（语义已被表达式段覆盖）；chips 换为 `BuildExpression` 段序列渲染（条件段 ✕ 删节点、且/或/括号、否定红）；保留 `FilterStatsText` 与「无标签」chip（untagged 激活时）；「清空」入口恢复（面板内 `清空条件`；筛选条右侧 `清空`——demo 形态，推翻 untagged-filter-entry 期"移除清空按钮"的旧拍板，因表达式复杂后逐条删除不现实）。
 - 左栏：chip 点击改 `QuickAdd`（无修饰=追加 in 条件；已引用则忽略——demo 拍板语义，Ctrl 修饰不再特殊处理）；`IsFilterActive` 高亮 = `CollectReferencedTags` 含该标签；∅ 按钮行为不变。
+  > **修订（2026-09-24，用户拍板推翻）**：本条的「无修饰=QuickAdd 追加、Ctrl 不再特殊处理」被推翻——恢复 2026-09-19 用户拍板的 Explorer 心智：**无修饰 = 单选替换**（`SelectSingleTag`：树重建为根(Or)+单条单值 in 条件；当前恰为该标签的单选简单形态时再点取消）、**Ctrl = 加减选**（`ToggleTagInFilter`：已引用走 `RemoveTagReferences` 移除、未引用走 `QuickAdd` 并入——QuickAdd 保留，仅作为加选的并入实现）。实测 sidebar-select-verify 六断言（3→2→2 替换→Ctrl 3→Ctrl 2→取消 3）。
 
 ### D6 持久化：不落盘（拍板）
 
@@ -130,14 +131,14 @@ csproj **零改动**（Services\ 自动进 Core；新 Views/ViewModels 自动进
 | `tests\...\TagFilterStateTests.cs` | 重写 + 新增 | 测试 |
 | `docs\apm\RULE.md` | Flyout 若成为新先例，记主题处理模式 | 文档 |
 
-**既有契约变更（显式推翻，均有用户拍板依据）**：① 左栏点击三分支语义（tag-filter-select-model spec + T_TF_S01~07）→ QuickAdd；② 筛选条"无清空按钮"（untagged-filter-entry 拍板）→ 恢复清空（demo 形态）；③ OR 徽章 → 表达式段。**不变**：untagged ∅ 入口与互斥、筛选不落盘、索引层、文件名协议、遮盖式布局（Flyout 浮层不占布局槽）。
+**既有契约变更（显式推翻，均有用户拍板依据）**：① 左栏点击三分支语义（tag-filter-select-model spec + T_TF_S01~07）→ QuickAdd（**此条于 2026-09-24 被用户再推翻**——QuickAdd 仅保留为 Ctrl 加选的并入实现，无修饰恢复单选替换，见 D5 左栏条目修订）；② 筛选条"无清空按钮"（untagged-filter-entry 拍板）→ 恢复清空（demo 形态）；③ OR 徽章 → 表达式段。**不变**：untagged ∅ 入口与互斥、筛选不落盘、索引层、文件名协议、遮盖式布局（Flyout 浮层不占布局槽）。
 
 ## 详细实现步骤
 
 - Step 1 — phase-filter-tree-core — blocking: yes — qa: auto：重构 `Services\TagFilterState.cs`：按 D2 实现模型、`Evaluate`、`BuildExpression`、`CollectReferencedTags`、树编辑纯函数（含 MaxDepth=3 拒绝超深）、`QuickAdd`（demo addQuickCond 三分支同构）、`RemoveTagReferences`/`RenameTagReferences`、保留 `ToggleUntagged`。
 - Step 2 — phase-filter-tree-core — blocking: yes — qa: auto：重写 `TagFilterStateTests.cs`：删旧 T_TF_S01~07 语义，新 T_FT 系列（见测试用例）；类头中文 summary 注明出处（本 spec Step）。
 - Step 3 — phase-apply-pipeline — blocking: yes — qa: auto：`MainViewModel` 状态收敛与求值管线：`_filterRoot` 替换 `_activeFilterTags`；`ApplyFilterAsync` 单一内存求值（untagged/树/全量三分支全内存化，结果按 SortKey 排序）；`MatchesTagFilter` 换树谓词（`WaterfallViewModel.AppendChunkFromScan` 接线随之）；`HasAnyFilter`/`FilterStatsText` 适配；重开图库清树；删/改名标签走 `Remove/RenameTagReferences` + 重应用。
-- Step 4 — phase-quick-entry — blocking: yes — qa: manual_user：左栏与筛选条接入：chip 点击 = `QuickAdd`（Ctrl 分支移除）；`Rebuild` 高亮 = `CollectReferencedTags` 快照；筛选条 chips = 表达式段渲染（条件 ✕ 删节点、否定红、且/或/括号、无标签 chip 保留、清空按钮恢复）；实机走查：左栏追加/取消、筛选条单删、untagged 互斥。
+- Step 4 — phase-quick-entry — blocking: yes — qa: manual_user：左栏与筛选条接入：chip 点击 = `QuickAdd`（Ctrl 分支移除）（**2026-09-24 修订：恢复 Explorer 心智——无修饰=单选替换、Ctrl=加减选，QuickAdd 仅作并入实现，见 D5 修订**）；`Rebuild` 高亮 = `CollectReferencedTags` 快照；筛选条 chips = 表达式段渲染（条件 ✕ 删节点、否定红、且/或/括号、无标签 chip 保留、清空按钮恢复）；实机走查：左栏追加/取消、筛选条单删、untagged 互斥。
 - Step 5 — phase-filter-panel — blocking: yes — qa: manual_user：工具栏「筛选」按钮（徽章/高亮）+ `TagFilterPanelControl` 面板：组卡片嵌套（含根）、组头下拉、条件行、＋条件/＋条件组（深度 <3）、表达式预览 + 命中数 + 清空 + 完成；值选择二级浮层（首选 Flyout，不稳降级行内展开）；主题双值 + Flyout RequestedTheme 对齐；全量 Rebuild 渲染。
 - Step 6 — phase-panel-integration — blocking: yes — qa: manual_user：非模态共存与实时性：Esc 关面板、面板打开期间全局快捷键不触发图库操作（对齐 `_shortcutsEnabled` 机制改造为"面板聚焦时局部抑制"）、扫描进行中面板编辑实时反映（追加块经同一谓词）、单图模式下打开面板行为（回图库，对齐现状 `HandleTagChipTappedAsync` 先切回逻辑）。
 - Step 7 — phase-validate — blocking: yes — qa: auto：全量验证：`scripts\build.ps1` 构建通过 + `dotnet test tests\SimpleViewer.Tests\SimpleViewer.Tests.csproj` 全绿（构建后跑，勿裸 restore）。
