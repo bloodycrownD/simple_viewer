@@ -16,10 +16,14 @@
 
     <Grid>
         <!-- 画布（铺满整根）：ImageHost 即解码尺寸源（SizeChanged → VM.OnViewportSizeChangedAsync），
-             仅窗口 resize 触发——侧栏/右栏收展是 chrome 遮盖层显隐，画布几何不变（图片位置不动）。 -->
+             仅窗口 resize 触发——侧栏/右栏收展是 chrome 遮盖层显隐，画布几何不变（图片位置不动）。
+             Background=ChromeBackgroundBrush（2026-09-24 悬空修复）：画布空白区（图片比例不匹配
+             画布时的 letterbox）透出的 RootGrid 暗底与顶部横条 chrome 底色形成断层，返回按钮
+             「悬空」——填同底色后横条与画布视觉连续（走查 3 全 chrome 不透明统一的补全面）。 -->
         <Grid
             x:Name="ImageHost"
             Canvas.ZIndex="0"
+            Background="{ThemeResource ChromeBackgroundBrush}"
             Padding="8"
             PointerMoved="OnImagePointerMoved"
             PointerPressed="OnImagePointerPressed"
