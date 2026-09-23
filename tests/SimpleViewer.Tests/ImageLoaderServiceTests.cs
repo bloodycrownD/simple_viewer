@@ -16,7 +16,7 @@ public class ImageLoaderServiceTests
         Assert.Equal(1, loaded.PixelWidth);
         Assert.Equal(1, loaded.PixelHeight);
         Assert.False(loaded.IsGif);
-        Assert.NotNull(loaded.DecodedPixelData);
+        Assert.NotNull(loaded.DecodedBitmap);
         Assert.Equal(1, loaded.DecodedWidth);
         Assert.Equal(1, loaded.DecodedHeight);
     }
@@ -62,8 +62,8 @@ public class ImageLoaderServiceTests
 
         var migrated = await service.LoadAsync(renamedPath, decodeSize: 64);
 
-        // 命中迁移条目：解码像素数组共享引用（未重解码），元数据挂到新路径。
-        Assert.Same(first.DecodedPixelData, migrated.DecodedPixelData);
+        // 命中迁移条目：解码位图共享引用（未重解码），元数据挂到新路径。
+        Assert.Same(first.DecodedBitmap, migrated.DecodedBitmap);
         Assert.Equal(renamedPath, migrated.Path);
     }
 

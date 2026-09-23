@@ -390,8 +390,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 放大超过解码分辨率时按需全分辨率重解码并原地换源（2026-09-19）：
     /// fit 解码保证平移浏览性能，放大 ≥1.2× 后视口实际需要更多像素，用 decodeSize=null
-    /// 重解码原图（LRU 以 decodeSize 为键，两档共存）。换源后 WriteableBitmap 自然尺寸变大但
+    /// 重解码原图（LRU 以 decodeSize 为键，两档共存）。换源后源位图自然尺寸变大但
     /// Uniform 布局渲染尺寸不变——视觉无缝，合成器以更高分辨率纹理采样，放大区细节不再像素化。
+    /// （2026-09-23 顿挫修复：解码续体与像素拷贝均已后台线程化——LoadAsync 全链 ConfigureAwait(false)
+    /// + FromLoadedImageAsync 的 SoftwareBitmap 原生拷贝在池线程，UI 线程只剩 O(1) 换源。）
     /// </summary>
     public async Task EnsureFullResolutionAsync()
     {
@@ -422,7 +424,7 @@ public partial class MainViewModel : ObservableObject
                 return; // 等待期间用户已切图：结果丢弃（新图自会按需加载）。
             }
 
-            ImageSource = ImageSourceHelper.FromLoadedImage(full);
+            ImageSource = await ImageSourceHelper.FromLoadedImageAsync(full);
             _currentLoaded = full;
         }
         catch (Exception ex)
@@ -3320,12 +3322,12 @@ public partial class MainViewModel : ObservableObject
                 // 同图重载（未预清空）：换源后释放被替换旧源的 GIF 句柄（UriSource 指向文件，
                 // 持有会锁文件阻碍打标改名；异图路径已在加载前 ReleaseCurrentImageSource 清过）。
                 var replacedSource = ImageSource;
-                var newSource = ImageSourceHelper.FromLoadedImage(loaded);
+                var newSource = await ImageSourceHelper.FromLoadedImageAsync(loaded);
 
                 // GIF 顺修（2026-09-19）：GIF 源是 BitmapImage+UriSource（异步打开，ImageOpened 前
                 // 无像素）且不入解码缓存——直接换源则打开完成前 Image 空窗（resize 触发的 GIF 重载
                 // 每次都闪）。同图场景等 ImageOpened 再提交（带超时兜底），旧源在等待期保持显示；
-                // 非 GIF（WriteableBitmap 同步有像素）维持原状直接提交。
+                // 非 GIF（SoftwareBitmap 源在 FromLoadedImageAsync 内已就绪像素）维持直接提交。
                 if (loaded.IsGif
                     && newSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage gifBitmap)
                 {
