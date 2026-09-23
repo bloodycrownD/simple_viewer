@@ -143,6 +143,7 @@ docs\iterations\...\features\ungrouped-tags-ignore\ # 改：标注部分推翻
 ## 不变清单（既有拍板守护）
 
 - 遮盖式布局铁律：右栏/未定义区一切 UI 不改画布与瀑布流几何。
+  > **修订（2026-09-23）**：图库右栏已改为布局列（D5 同日走查修订）——收展改变瀑布流可用宽度、经窗口 resize 同路径触发重排；本条铁律仅约束单图画布侧（遮盖式防重解码）。未定义区位于左栏主滚动流内、不改瀑布流几何的口径不变。
 - 配置组区维持文件树风格（tag-group-tree-ui 拍板；chip 流式仅限未定义区）。
 - 卡片角标维持忽略无组标签口径（本 PRD 不推翻）。
 - 单图右栏（详情页）胶囊样式与行为维持现状。
@@ -162,5 +163,6 @@ base_branch: feature/tag-filter-tree @ 4d68321
 explore_summary: 四路探索（配置层CRUD与连锁管线/图库右栏与选中集/工具栏与删除管线/测试构建与历史决策）；关键发现：绑定拒绝需前移VM、两条批量管线抉择走RunTagOperationAsync(remove)、未定义/并集计算下沉Core新文件、右栏宿主定ContentAreaGrid图库Grid浮层、Ctrl+A现状仅图库（PRD误述）
 impact_files: [Services/TagProjection.cs(新), Services/FileOperationService.cs, Services/LibraryIndexService.cs, Services/TagService.cs, ViewModels/MainViewModel.cs, ViewModels/TagSidebarViewModel.cs, Views/TagSidebarControl.xaml(.cs), Views/GallerySelectionPanelControl.xaml(.cs)(新), Views/TagCatalogDialog.xaml(.cs), Views/TagEditDialog.xaml.cs, MainWindow.xaml(.cs), App.xaml, tests/(TagProjectionTests新,FileOperationServiceTests新,LibraryIndexServiceTests,TagServiceTests)]
 constraints: [遮盖式布局铁律, tag-group-tree-ui文件树拍板, 角标忽略无组标签口径, XAML硬约束全家桶, Core白名单无MVVM包, build.ps1唯一入口, MainInfoBar顺序铁律, T前缀占用清单]
+  # 修订（2026-09-23）：遮盖式布局铁律仅约束单图画布侧；图库右栏已改为布局列（走查拍板）——收展改变瀑布流可用宽度、经 resize 同路径重排
 blocking_steps: [1,2,3,4,5,6,7,9]
 ```
