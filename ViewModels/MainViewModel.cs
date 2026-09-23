@@ -1305,38 +1305,52 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var candidates = new List<GalleryItem>(paths.Count);
-        foreach (var path in paths)
-        {
-            var item = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path);
-            if (item is not null)
-            {
-                candidates.Add(item);
-            }
-        }
-
-        if (candidates.Count == 0)
-        {
-            return;
-        }
-
+        // 回执标题提前计算（vm/B-2/full/B-2：外层异常兜底 catch 需引用操作名）。
         var title = remove
             ? $"移除标签「{tagName}」"
             : group.Exclusive
                 ? $"互斥组设置「{tagName}」"
                 : $"添加标签「{tagName}」";
 
-        _isTagOperationRunning = true;
+        // 批量管线根部异常兜底（vm/B-2 + full/B-2）：本方法是全部批量打标/移除链路的统一管线
+        //（快捷键批量/拖拽/图库右栏 chip ✕/目录批量 ApplyCatalogTagToSelectionAsync——后者被
+        // TagCatalogDialog 以 `_ =` fire-and-forget 调用），管线级异常若无 catch 会静默进
+        // UnobservedTaskException，用户视角「点了没反应」。在此统一捕获并经 InfoBar 出错误回执；
+        // 内层 finally 收口先于外层 catch 执行（嵌套结构保证错误回执不被收口覆盖）。
         try
         {
-            BeginTagOperation(title, showProgress: true, candidates.Count);
-            var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove, showProgress: true);
-            ShowTagOperationResult(result, sync);
-            await RefreshTagDataAsync();
+            var candidates = new List<GalleryItem>(paths.Count);
+            foreach (var path in paths)
+            {
+                var item = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path);
+                if (item is not null)
+                {
+                    candidates.Add(item);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation(title, showProgress: true, candidates.Count);
+                var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove, showProgress: true);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+            }
+            finally
+            {
+                ClearTagOperationRunning();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            ClearTagOperationRunning();
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, title, ex.Message, []);
         }
     }
 
@@ -1390,50 +1404,64 @@ public partial class MainViewModel : ObservableObject
 
         var remove = tags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
 
-        // 打标方向预检文件名预算（即时拒绝，不进批量管线）：按互斥语义计算打标后的真实新标签集合，
-        // 组件名超 Linux 255 UTF-8 字节即拒绝并附超出字节数（批量入口由 BuildNewPath 双口径预检
-        // 拦截、失败明细自然带新文案；移除方向只减不加，天然不超，无需预检）。
-        if (!remove)
-        {
-            var newTags = TagSemantics.Apply(tags, group, tagName);
-            var budgetError = TagFilenameBudget.CheckFileNameBudget(baseName, extension, newTags);
-            if (budgetError is not null)
-            {
-                ShowInstantTagFeedback(
-                    InfoBarSeverity.Warning,
-                    "打标失败",
-                    budgetError + "可缩短标签名或改用更短的基名后重试。",
-                    []);
-                return;
-            }
-        }
+        // 回执标题提前计算（vm/B-2/full/B-2：外层异常兜底 catch 需引用操作名）。
+        var title = remove ? $"移除标签「{tagName}」" : $"添加标签「{tagName}」";
 
-        // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
-        // 不在呈现集（如 CLI 直开）时解析文件名构造最小候选（上方 TryParse 已成功，必非 null）。
-        var candidate = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path)!;
-
-        _isTagOperationRunning = true;
+        // 单图管线根部异常兜底（vm/B-2 + full/B-2）：单图右栏 ✕（RemoveCurrentImageTagAsync）与
+        // 单图目录点选（ApplyCatalogTagAsync——TagCatalogDialog 以 `_ =` fire-and-forget 调用）全部
+        // 经此管线，管线级异常若无 catch 会静默进 UnobservedTaskException，用户视角「点了没反应」。
+        // 在此统一捕获并经 InfoBar 出错误回执；内层 finally 收口先于外层 catch 执行（回执不被覆盖）。
         try
         {
-            var title = remove ? $"移除标签「{tagName}」" : $"添加标签「{tagName}」";
-            BeginTagOperation(title, showProgress: false, totalCount: 1);
-            var (result, sync) = await RunTagOperationAsync(
-                [candidate], group, tagName, remove, showProgress: false);
-            ShowTagOperationResult(result, sync);
-            await RefreshTagDataAsync();
-
-            // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
-            //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
-            // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算文件名分段与右栏信息行；
-            // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
-            if (sync.Synced > 0)
+            // 打标方向预检文件名预算（即时拒绝，不进批量管线）：按互斥语义计算打标后的真实新标签集合，
+            // 组件名超 Linux 255 UTF-8 字节即拒绝并附超出字节数（批量入口由 BuildNewPath 双口径预检
+            // 拦截、失败明细自然带新文案；移除方向只减不加，天然不超，无需预检）。
+            if (!remove)
             {
-                await RefreshCurrentAfterRenameAsync();
+                var newTags = TagSemantics.Apply(tags, group, tagName);
+                var budgetError = TagFilenameBudget.CheckFileNameBudget(baseName, extension, newTags);
+                if (budgetError is not null)
+                {
+                    ShowInstantTagFeedback(
+                        InfoBarSeverity.Warning,
+                        "打标失败",
+                        budgetError + "可缩短标签名或改用更短的基名后重试。",
+                        []);
+                    return;
+                }
+            }
+
+            // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
+            // 不在呈现集（如 CLI 直开）时解析文件名构造最小候选（上方 TryParse 已成功，必非 null）。
+            var candidate = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path)!;
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation(title, showProgress: false, totalCount: 1);
+                var (result, sync) = await RunTagOperationAsync(
+                    [candidate], group, tagName, remove, showProgress: false);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+
+                // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
+                //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
+                // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算文件名分段与右栏信息行；
+                // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
+                if (sync.Synced > 0)
+                {
+                    await RefreshCurrentAfterRenameAsync();
+                }
+            }
+            finally
+            {
+                ClearTagOperationRunning();
             }
         }
-        finally
+        catch (Exception ex)
         {
-            ClearTagOperationRunning();
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, title, ex.Message, []);
         }
     }
 
@@ -1504,52 +1532,65 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        // 确认对话框：影响张数取计数快照（chip 上的计数同源，确认口径与所见一致）；
-        // 宿主未注入回调（组装期防御）视为未确认直接返回。
-        if (ConfirmUndefinedDeleteAsync is null
-            || !await ConfirmUndefinedDeleteAsync(tagName, GetTagCount(tagName)))
-        {
-            return;
-        }
-
-        // 无索引守卫（对齐 RenameFilesAsync 现口径）：未开图库时未定义区本就为空（计数快照
-        // 来自索引聚合），天然不触发；此处防御返回 + InfoBar 提示而非静默失败。
-        if (_indexService is null)
-        {
-            ShowInstantTagFeedback(
-                InfoBarSeverity.Warning,
-                $"移除标签「{tagName}」",
-                "尚未打开图库（无索引可用）。",
-                []);
-            return;
-        }
-
-        var queried = await _indexService.QueryByTagsAsync([tagName]);
-        if (queried.Count == 0)
-        {
-            return; // 计数竞态兜底：确认期间引用已被其他路径清空，无需动作。
-        }
-
-        // 候选转换（ApplyTagToPathsAsync 同口径）：优先呈现集中同路径项（宽高/排序 key 继承，
-        // 瀑布流卡片就地更新不失真）；索引行本身即完整 GalleryItem，未命中呈现集时直接可用。
-        var candidates = new List<GalleryItem>(queried.Count);
-        foreach (var queriedItem in queried)
-        {
-            candidates.Add(FindPresentedItemByPath(queriedItem.Path) ?? queriedItem);
-        }
-
-        _isTagOperationRunning = true;
+        // 未定义区连锁删除的调用方（TagSidebarViewModel 以 `_ =` fire-and-forget 丢弃 Task）使
+        // 本方法任何管线级异常——确认对话框宿主回调、索引查询、批量移除管线——都会静默进
+        // UnobservedTaskException，用户视角「点了没反应」（vm/B-2）。方法体最外层捕获并经
+        // InfoBar 出错误回执，与 [RelayCommand] 路径的全局异常回执行为对齐；内层 finally 收口
+        // 先于外层 catch 执行（嵌套结构保证错误回执不被收口覆盖）。
         try
         {
-            BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
-            var (result, sync) = await RunTagOperationAsync(
-                candidates, FindGroupByTagName(tagName), tagName, remove: true, showProgress: true);
-            ShowTagOperationResult(result, sync);
-            await RefreshTagDataAsync();
+            // 确认对话框：影响张数取计数快照（chip 上的计数同源，确认口径与所见一致）；
+            // 宿主未注入回调（组装期防御）视为未确认直接返回。
+            if (ConfirmUndefinedDeleteAsync is null
+                || !await ConfirmUndefinedDeleteAsync(tagName, GetTagCount(tagName)))
+            {
+                return;
+            }
+
+            // 无索引守卫（对齐 RenameFilesAsync 现口径）：未开图库时未定义区本就为空（计数快照
+            // 来自索引聚合），天然不触发；此处防御返回 + InfoBar 提示而非静默失败。
+            if (_indexService is null)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    $"移除标签「{tagName}」",
+                    "尚未打开图库（无索引可用）。",
+                    []);
+                return;
+            }
+
+            var queried = await _indexService.QueryByTagsAsync([tagName]);
+            if (queried.Count == 0)
+            {
+                return; // 计数竞态兜底：确认期间引用已被其他路径清空，无需动作。
+            }
+
+            // 候选转换（ApplyTagToPathsAsync 同口径）：优先呈现集中同路径项（宽高/排序 key 继承，
+            // 瀑布流卡片就地更新不失真）；索引行本身即完整 GalleryItem，未命中呈现集时直接可用。
+            var candidates = new List<GalleryItem>(queried.Count);
+            foreach (var queriedItem in queried)
+            {
+                candidates.Add(FindPresentedItemByPath(queriedItem.Path) ?? queriedItem);
+            }
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
+                var (result, sync) = await RunTagOperationAsync(
+                    candidates, FindGroupByTagName(tagName), tagName, remove: true, showProgress: true);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+            }
+            finally
+            {
+                ClearTagOperationRunning();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            ClearTagOperationRunning();
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, $"移除标签「{tagName}」", ex.Message, []);
         }
     }
 
@@ -1571,26 +1612,38 @@ public partial class MainViewModel : ObservableObject
             return; // 宿主未注入回调（组装期防御）。
         }
 
-        var (groupId, dialogError) = await PickAbsorbGroupAsync(tagName);
-        if (dialogError is not null)
+        // 未定义区收纳的调用方（TagSidebarViewModel 以 `_ =` fire-and-forget 丢弃 Task）使本方法
+        // 任何管线级异常——目标组对话框宿主回调（PickAbsorbGroupAsync）与执行段——都会静默进
+        // UnobservedTaskException，用户视角「点了没反应」（vm/B-2）。方法体最外层捕获并经
+        // InfoBar 出错误回执，与 [RelayCommand] 路径的全局异常回执行为对齐。
+        try
         {
-            // 对话框侧已回显（如重名即时提示），此处不重复弹。
-            return;
-        }
+            var (groupId, dialogError) = await PickAbsorbGroupAsync(tagName);
+            if (dialogError is not null)
+            {
+                // 对话框侧已回显（如重名即时提示），此处不重复弹。
+                return;
+            }
 
-        if (groupId is null)
-        {
-            return; // 用户取消。
-        }
+            if (groupId is null)
+            {
+                return; // 用户取消。
+            }
 
-        var error = await AbsorbUndefinedTagAsync(tagName, groupId);
-        if (error is not null)
+            var error = await AbsorbUndefinedTagAsync(tagName, groupId);
+            if (error is not null)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    "收纳标签失败",
+                    error,
+                    []);
+            }
+        }
+        catch (Exception ex)
         {
-            ShowInstantTagFeedback(
-                InfoBarSeverity.Warning,
-                "收纳标签失败",
-                error,
-                []);
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, "收纳标签失败", ex.Message, []);
         }
     }
 
