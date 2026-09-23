@@ -1149,7 +1149,8 @@ public partial class MainViewModel : ObservableObject
     /// <param name="tagId">快捷键绑定引用的标签稳定 Id（<see cref="TagDefinition.Id"/>）。</param>
     public async Task ApplyTagByShortcutAsync(string? tagId)
     {
-        if (string.IsNullOrWhiteSpace(tagId) || _isTagOperationRunning)
+        // 打标管线互斥闸（vm/B-1）：打标自身防重入 + 删除选中集进行中禁止打标（双向互斥，见 DeleteSelectionAsync）。
+        if (string.IsNullOrWhiteSpace(tagId) || _isTagOperationRunning || _isDeleteSelectionRunning)
         {
             return;
         }
@@ -1264,6 +1265,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 打标管线互斥闸（vm/B-1）：拖放目标即打标管线入口——打标进行中或删除选中集进行中
+        // 均拒绝（双向互斥，见 DeleteSelectionAsync）；payload 已消费不留残留，Drop 手势按 no-op 落地。
+        if (_isTagOperationRunning || _isDeleteSelectionRunning)
+        {
+            return;
+        }
+
         // 2026-09-19 口径：原「未分组虚拟组」兜底（ownerGroup ?? 合成兼容组）随虚拟组移除成死分支已删；
         // 理论上 ownerGroup 必非空，防御性 null（调用方异常构造的 chip）直接忽略本次拖放。
         if (ownerGroup is null)
@@ -1289,7 +1297,10 @@ public partial class MainViewModel : ObservableObject
     private async Task ApplyTagToPathsAsync(
         IReadOnlyList<string> paths, TagGroup group, string tagName, bool remove = false)
     {
-        if (paths.Count == 0 || _isTagOperationRunning || string.IsNullOrWhiteSpace(tagName))
+        // 打标管线互斥闸（vm/B-1）：统一批量管线的根部守卫——打标自身防重入 + 删除选中集
+        // 进行中禁止打标（双向互斥，见 DeleteSelectionAsync）；覆盖快捷键/拖拽/图库右栏 chip ✕/目录批量各上游。
+        if (paths.Count == 0 || _isTagOperationRunning || _isDeleteSelectionRunning
+            || string.IsNullOrWhiteSpace(tagName))
         {
             return;
         }
@@ -1356,7 +1367,10 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task ToggleTagOnCurrentImageAsync(TagGroup group, string tagName)
     {
+        // 单图打标管线根部守卫（vm/B-1 ② + full/B-1）：打标自身防重入 + 删除选中集进行中禁止
+        // 单图打标（双向互斥，见 DeleteSelectionAsync）——单图右栏 ✕、目录点选等全部单图入口在此收口。
         if (_isTagOperationRunning
+            || _isDeleteSelectionRunning
             || _currentIndex < 0
             || _currentIndex >= _imageFiles.Count)
         {
@@ -1667,7 +1681,9 @@ public partial class MainViewModel : ObservableObject
     /// <param name="tagName">标签名（chip 显示拼写）。</param>
     public async Task RemoveTagFromSelectionAsync(string tagName)
     {
-        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
+        // 打标管线互斥闸（vm/B-1）：图库右栏 chip ✕ 同为改文件管线——打标自身防重入 +
+        // 删除选中集进行中禁止移除（双向互斥，见 DeleteSelectionAsync）；下游 ApplyTagToPathsAsync 根部同守卫双保险。
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning || _isDeleteSelectionRunning)
         {
             return;
         }
@@ -2911,7 +2927,10 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteSelectionAsync()
     {
-        if (_isDeleteSelectionRunning)
+        // 双向互斥闸（vm/B-1）：除自身防重入外，批量打标进行中（_isTagOperationRunning=true，
+        // 非模态）禁止并发删除——TagService 改名与 SHFileOperationW 回收站删除作用于同一选中集
+        // 会交错出幽灵卡片（SyncRenamedItemsAsync 双探测读到旧不在/新在但即将被删）与失败口径混乱。
+        if (_isDeleteSelectionRunning || _isTagOperationRunning)
         {
             return;
         }
