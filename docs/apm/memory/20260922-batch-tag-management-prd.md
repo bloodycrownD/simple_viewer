@@ -142,3 +142,9 @@ user:
 
 assistant:
 **重大纠错轮（2026-09-24，7ed23cf）**：用户是对的，查记忆实锤——①2026-09-19 用户拍板「左侧栏标签的选择逻辑也和图片一样，ctrl+点击多选、默认单选」（tag-filter-select-model a6f9274 已实现）；②tag-filter-tree spec 把左栏点击改成「一律 QuickAdd 追加」，声称「均有用户拍板依据」实际只覆盖 demo 面板内部行为、被越权扩大到左栏，**推翻了用户的直接拍板**；③2026-09-23 走查第二轮用户抱怨「左侧栏多选逻辑变了」时，调查查错了对象（去查图库卡片 WaterfallView/SelectSingleCard，而非左栏标签），以「疑 Ctrl 卡键」结案——糊弄实锤。**修复**：恢复 Explorer 心智——TagFilterState 新增 SelectSingleTag（单选替换：树重建为根(Or)+单条单值 in；恰为单选简单形态再点取消——「唯一激活」判定用形态匹配而非引用集计数，引用集会把 in+notIn 同标签的复杂树误判可取消）+ ToggleTagInFilter（Ctrl 加减选：移除走 RemoveTagReferences、并入走 QuickAdd）；OnChipClicked 恢复 Ctrl 检测（只查 Down）；删 ToggleTagFilter 死通道。T_FT15/16 新增（120/120）；实机 sidebar-select-verify 六断言全过。**顺手可达性**：左栏标签行+瀑布流卡片补 AutomationProperties.Name（实测 WinUI Button 内容文本不自动聚合 Name，卡片 Button Name 恒空；卡片 DisplayName=基名+扩展名已剥离标签段——脚本按名定位的口径）。spec 三处回写「2026-09-24 用户拍板推翻」；CHANGELOG 1.0.2 修正。**教训入 RULE 候选**：走查调查必须锚定用户说的控件对象（「左侧栏」≠图库卡片），查错对象+巧合解释=糊弄；spec 的「有用户拍板依据」必须核对拍板原文的适用范围，demo 内部行为拍板不得外推到其它入口；**历史拍板被后续迭代推翻时，必须与用户显式确认**（本次就是没确认的暗推翻）。v1.0.2 tag 移至 7ed23cf+ 重推（draft 未 Publish，重跑 CI 更新 zip 与 notes），本机 release 重打。
+
+user:
+「当瀑布屏有一个筛选时，详情页的返回就会悬空」（附截图）；中途追问「怎么感觉图片折叠了？你再重试下，我看看」「为什么返回图库按钮被禁用了？」
+
+assistant:
+悬空修复轮（2026-09-24，9214543）：用户截图像素剖面破译（图像分析 MCP 被内容过滤误拦，PowerShell GetPixel 逐行/列扫描替代）→ 复现取证闭环：**根因=单图画布层 ImageHost 无底色填充，图片比例不匹配画布时 letterbox 空白透出 RootGrid 暗底（~32,31,38），与顶部横条 chrome 底（39,39,46）形成断层**，返回按钮「悬空」于异色空白上（走查 3 全 chrome 不透明的漏面；「有筛选时」是用户场景描述，真实变量=图片宽高比）。修=ImageHost 补 ChromeBackgroundBrush。验证：repro-strip-float3 剖面断层消除（CHROME 连续 217px 直接接图带）+ zoom-path/walkthrough2/120 测试无回归。方法论沉淀：①**PrintWindow(hwnd, dc, 2) 截窗口本体**——CopyFromScreen 会被用户前台窗口遮挡（用户正在操作电脑时必踩）；②像素剖面分段法（颜色带识别 CHROME/DARKBG/内容色）定位视觉 bug 极有效；③raw 双击注入在本机不触发 WinUI DoubleTapped、Enter 注入 IME 不稳——**-d -i 直开是单图态唯一可靠注入**（代价：HasGallery=false 返回按钮灰态，需向用户说明非 bug——走查 5 拍板口径）；④复现未命中时先怀疑测试图宽高比（4:3 恰好铺满画布会掩盖 letterbox 类 bug）。用户中途的「图片折叠」=他看到复现窗口里超宽测试图 fit 后的形态（正是悬空的触发条件）。v1.0.2 tag 需再次移至 9214543 重推（连续走查修复期，发布收尾等用户点头本轮后执行）。
