@@ -1,8 +1,8 @@
 ---
-date: 2026-09-23 23:47
-title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除（冻结死锁+换源管线）
-keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板
-abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，HEAD=dd9cdb6，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索 D1~D12→spec-check 一轮 Go→code-dev-loop 13 波次 dev-ready（118/118）→九轮实机走查修复（右栏布局列/铺满颜色/标签区照详情页重构/全 chrome 不透明/InfoBar 暗缝/单图顶部横条）→两项性能根除（拖拽小图 WIC-on-STA 互等死锁=8 次 ≥15s 冻结元凶，懒生成+后台线程化；单图换源管线全后台化=解码直出 SoftwareBitmap UI 只剩 O(1)）→flyout 盖左栏拍板①接受。待用户：走查尾款（浅色主题初值未实测/未定义区操作实机/回归族/大选中集/窄窗）→合并 master→可选 v1.0.2。
+date: 2026-09-23 22:14
+title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除→CR 首轮（fix-spec-2 落盘）
+keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板, code-review-loop, fix-spec-2, 互斥闸, 备份还原窗口
+abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索 D1~D12→spec-check 一轮 Go→code-dev-loop 13 波次 dev-ready（118/118）→九轮实机走查修复→两项性能根除（WIC-on-STA 冻结死锁+换源管线全后台化）→flyout 拍板①→CR 首轮（diff 模式四路评审，13 条 must-fix：P1=2 删除/打标互斥闸+脚本备份还原窗口，P2=11；fix-spec-2 已落盘待用户确认执行；4 条 spec_deviations 待拍板回写 spec）。后续：执行 fix-spec→走查尾款五项→合并 master→可选 v1.0.2。
 ---
 
 user:
@@ -112,3 +112,15 @@ user:
 
 assistant:
 压缩前全局状态备查（2026-09-23 21:47，HEAD=dd9cdb6，工作区干净）：①**分支链**——feature/batch-tag-management（base=f6bc6a1）叠 feature/tag-filter-tree（base=b8b2511@master）两代成果均未合并 master；②**本迭代已交付**——batch-tag-management 全功能（删定义不连锁/未定义区/图库右栏/工具栏分簇/删选中集）dev-ready + 九轮走查修复（右栏布局列、宿主 Stretch 铺满、标签区照详情页结构、全 chrome ChromeBackgroundBrush 不透明、InfoBar Margin 暗缝、单图顶部横条整宽+返回图库收进横条）+ 性能两修（898fe6a WIC-on-STA 死锁根除=8 次 ≥15s 冻结元凶，f8f041f 换源管线全后台化）+ flyout 拍板①；测试 118/118；③**待用户**——走查尾款五项（浅色主题实测/未定义区操作实机/回归族/大选中集/窄窗）→点头后合并 master→可选 v1.0.2（release.ps1+Actions draft 流程，注意 tests 还原顺序铁律）；④**开放项**——DEV-2 筛选面板两态按钮 vs 下拉未拍板；按需优化清单（大 PNG 预缩小/缓存字节预算/标题栏着色）在 iteration-state notes；⑤**恢复上下文路径**——RULE.md（新增：WIC-on-STA 死锁铁律/SoftwareBitmap CreateCopyFromBuffer 池线程不渲染坑/UIA 优先按钮注入/Responding 假活判读）+ 本记忆 + docs\.iteration-state.yaml（终态 notes 全量）；走查/复现脚本族在 scripts\（undefined-panel/toolbar-catalog/walkthrough2/single-strip/zoom-path/repro-freeze1~5）。
+
+user:
+（记忆恢复后）将当前分支和主分支比较，进入 cr 阶段——code-review-loop。
+
+assistant:
+CR 首轮完成（2026-09-23 22:14，diff 模式）：BASE=b8b2511(master)→HEAD=233dc19，28 提交 67 文件 +7903/-793，四路并行 readonly 评审（review-svc 服务层 / review-vm VM 层 / review-ui XAML 层 / review-qa 测试与文档）。结论：svc、ui scope-ready，vm、qa not-ready。**13 条 must-fix**（P0=0/P1=2/P2=11）已落盘 docs\iterations\图片打标签与瀑布流浏览\cr-fix-spec-2.md（draft，行号对工作树核实过）：P1 两条=①vm/B-1 删除选中集与打标管线无互斥闸——批量打标进行中可点删除，两条并发改文件管线交错产出幽灵卡片（卡片/索引指向已进回收站路径）；②qa/B-1 12 个验证脚本 settings 备份还原有「崩溃残留→好备份被毁」窗口（先删后拷/Copy-Item -Force 两变体同病，RULE 已转正该模式且本迭代实战踩踏过一次）。P2 要点：未定义区命令 fire-and-forget 吞异常、连锁删除候选转换 O(N×M) 全库放大、批量目录/收纳对话框无单开守卫、FlyoutPresenterStyle 死代码双源、TagEditKind 注释旧语义、面板宽度双轨、死 AutomationId、chip ✕ 无 UIA Name、遮盖铁律三处文档残留矛盾、12 脚本硬编码本机路径。**4 条 spec_deviations open 待用户拍板**（均建议回写 spec：D4「不可变树」字面 vs 实现可变树+全量重建/demo 同构、D5 下拉 vs 两态按钮、值选择直接行内展开未走 Flyout 首选、PresentsExactly 跳过重置纯增强未记录）。open_questions 11 条不阻塞（SoftwareBitmap GC 生命周期、EXIF 宽高互换等）。执行注意：修复须遵守 RULE（脚本 PS5.1 需 BOM、XAML 中文 BOM、交互用 Click）；vm/B-1 修复后走查补「打标中点删除 no-op」断言。待用户：确认 fix-spec 后另开实现任务执行；spec_deviations 四条拍板。
+
+user:
+「not ready 你停什么？听不懂什么叫继续吗？」——要求 not-ready 时自主推进循环直至 ready，不要停下来要确认。
+
+assistant:
+循环推进至 **fix-spec-ready**（2026-09-23 22:45）：round2 = spec-fix 子代理补 qa/A-3（tag-filter-tree spec 四处回写：D4 可变树+全量重建 / D5 两态按钮 / 值选择行内展开降级 / PresentsExactly 跳过重置锚 D1）+ 4 条 spec_deviations 置 fixed（用户「继续」指令视同授权按回写处置）→ review-full 终校验（14 条逐项核对 100% 吻合：行号全中、改法可执行、验收可判定；qa/A-3 与 DEV-CR 一一对应）但发现 2 条 round1 漏网新问题：**full/B-1 [P1] 互斥闸漏单图管线根入口 ToggleTagOnCurrentImageAsync**（MainViewModel.cs:1359——删除进行中经 OpenImageAsSingle 进单图后右栏 ✕/目录点选直达打标，vm/B-1 原清单只拦快捷键路径）、**full/B-2 [P2] 目录对话框 `_ =` fire-and-forget 漏面**（TagCatalogDialog.xaml.cs:257-259）→ trivial 豁免主代理直接闭合（两条增补写入 + vm/B-2 措辞修正 + qa/A-3 第四处锚点明确化 D1 + 元信息状态转 fix-spec-ready，dag_version=4）。终态：**16 条 must-fix（P0=0/P1=3/P2=13），无 open spec_deviations**。流程教训：not-ready 的收口（spec-fix→review-full→闭合）应在循环内自主推进，把「待拍板项有明确唯一合理处置」的（如本例四条 deviation 均只能回写）视为已授权，仅真正多方案分歧才请用户。下一步：按 cr-fix-spec-2.md 执行修复（另开实现任务/code-dev-loop），P1 三条（vm/B-1+full/B-1 互斥闸、qa/B-1 备份还原守卫）优先；执行后走查补「打标中点删除 no-op」断言。
