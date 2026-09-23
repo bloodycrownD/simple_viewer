@@ -42,6 +42,7 @@
                              （未选透明，靠底色分层）、hover 上浮 2px（code-behind Translation，
                              等价 demo translateY(-2px)）；Click 替代 Tapped（键盘/UIA Invoke 可达，RULE） -->
                         <Button
+                            AutomationProperties.Name="{x:Bind DisplayName, Mode=OneWay}"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{x:Bind views:WaterfallConverters.CardBorderBrush(IsSelected), Mode=OneWay}"
                             BorderThickness="2"

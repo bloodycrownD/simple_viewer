@@ -214,7 +214,7 @@ public sealed partial class MainWindow : Window
     /// 显示，Esc/light-dismiss 可用前已生效）；单图模式下先切回图库让筛选结果可见（对齐
     /// HandleTagChipTapped / ToggleUntaggedFilter 先例；CLI 直开无图库时保持单图——无命中集
     /// 可看，切回只见空态）；面板内容根主题对齐（popup 层不认 RootGrid.RequestedTheme 运行时
-    /// 覆盖，ApplyDialogTheme 同款坑位）+ 拉最新快照全量重建（面板关闭期间左栏 QuickAdd /
+    /// 覆盖，ApplyDialogTheme 同款坑位）+ 拉最新快照全量重建（面板关闭期间左栏点击筛选 /
     /// 筛选条 ✕ / 标签删改名等外部入口可能已改树，打开即呈现现状）。
     /// </summary>
     private void OnFilterFlyoutOpening(object? sender, object e)

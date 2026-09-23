@@ -2,12 +2,12 @@
 //       行悬停浮现管理按钮（RowCommands 容器 Opacity 切换）与拖拽卡片到标签行打标。
 //       （WrapPanel 与 TagSidebarConverters 已拆出为独立文件，cr/P2-8。）
 // 不变量：无交互逻辑（分流/命令全部在视图模型）；标签行/组行点击经 Tag 槽位回查 VM（ItemsRepeater 不设置
-//         DataContext）；标签行点击 = 往根组 QuickAdd 一条「包含该标签」条件（tag-filter-tree，
-//         旧单选/Ctrl 加减选语义废弃，不再读修饰键）；
+//         DataContext）；标签行点击 = Explorer 筛选心智（2026-09-24 恢复 09-19 拍板：无修饰=单选替换、
+//         Ctrl=加减选，推翻 tag-filter-tree QuickAdd 一致语义）；
 //         画刷惰性初始化仅 UI 线程访问；
 //         符号字符按钮（＋⇄✎✕）不使用 FontIcon/SymbolIcon Glyph（XamlCompiler 规避清单）。
 // 调用链：MainWindow（Column0 宿主注入）→ TagSidebarControl → TagSidebarViewModel.HandleChipTappedAsync
-//         → MainViewModel.HandleTagChipTapped（快捷追加筛选；单图模式额外回切图库）。
+//         → MainViewModel.HandleTagChipTapped（单选替换/加减选；单图模式额外回切图库）。
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -36,18 +36,30 @@ public sealed partial class TagSidebarControl : UserControl
     }
 
     /// <summary>
-    /// 标签行点击转发（点击一律 = 筛选）：Tag 槽位回查 chip VM 交视图模型转发。
+    /// 标签行点击转发：Tag 槽位回查 chip VM 交视图模型转发。
     /// 用 Click 而非 Tapped（2026-09-17 走查修复）：Click 对鼠标/触摸/键盘/自动化调用均触发，
     /// Tapped 仅真实指针手势触发，键盘与辅助功能路径会静默失效。
-    /// 修饰键不再特殊处理（tag-filter-tree：旧 Ctrl 加减选语义随条件树化废弃，
-    /// 点击统一 = 往根组 QuickAdd 一条「包含该标签」条件）。
+    /// Explorer 心智（2026-09-24 恢复 2026-09-19 用户拍板，推翻 tag-filter-tree「点击一律 QuickAdd」）：
+    /// 无修饰 = 单选替换筛选（唯一激活再点取消）；Ctrl = 加减选 toggle。
     /// </summary>
     private void OnChipClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: TagChipViewModel chip })
         {
-            _ = ViewModel.HandleChipTappedAsync(chip);
+            _ = ViewModel.HandleChipTappedAsync(chip, IsControlKeyDown());
         }
+    }
+
+    /// <summary>
+    /// Ctrl 修饰键检测（与 WaterfallView 同款）：只查 <see cref="Windows.UI.Core.CoreVirtualKeyStates.Down"/>，
+    /// 勿加 || Locked——Locked 是 Caps/Num 类 toggle 位，对 Ctrl 无意义，但中文 IME 切中英文会置位
+    /// Shift/Ctrl 的 toggle 位导致普通点击被误判（2026-09-18 实锤，RULE 铁律）。
+    /// </summary>
+    private static bool IsControlKeyDown()
+    {
+        var state = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Control);
+        return state.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
     /// <summary>

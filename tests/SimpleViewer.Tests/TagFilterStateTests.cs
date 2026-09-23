@@ -302,6 +302,63 @@ public class TagFilterStateTests
         Assert.False(TagFilterState.MatchesUntagged(["风景"]));
     }
 
+    [Fact]
+    public void T_FT15_SelectSingleTagExplorerSemantics()
+    {
+        // 左栏无修饰点击（2026-09-24 恢复 09-19 用户拍板的 Explorer 单选心智）：
+        // 空树/复杂树点击 → 单选替换为根(Or)+单条单值 In 条件（旧树整体丢弃）。
+        var root = Group(FilterOp.And,
+            Cond(FilterMatcher.In, "风景", "街拍"),
+            Group(FilterOp.Or, Cond(FilterMatcher.NotIn, "已修")));
+        Assert.True(TagFilterState.SelectSingleTag(root, "星标"));
+        Assert.Equal(FilterOp.Or, root.Op);
+        var only = Assert.IsType<FilterConditionNode>(Assert.Single(root.Children));
+        Assert.Equal(FilterMatcher.In, only.Matcher);
+        Assert.Equal(["星标"], only.Values);
+
+        // 换选：唯一激活「星标」时点「风景」→ 替换（非追加）。
+        Assert.True(TagFilterState.SelectSingleTag(root, "风景"));
+        only = Assert.IsType<FilterConditionNode>(Assert.Single(root.Children));
+        Assert.Equal(["风景"], only.Values);
+
+        // 再点取消：唯一激活即本标签（忽略大小写）→ 清空树回默认空态。
+        Assert.True(TagFilterState.SelectSingleTag(root, "风景"));
+        Assert.Empty(root.Children);
+        Assert.Equal(FilterOp.And, root.Op);
+
+        // 空标签名 no-op。
+        Assert.False(TagFilterState.SelectSingleTag(root, " "));
+
+        // 唯一性判定按引用集计数：树里同标签出现在两个条件 → 不算「唯一激活」，点它=替换为单条。
+        root = Group(FilterOp.Or,
+            Cond(FilterMatcher.In, "风景"),
+            Cond(FilterMatcher.NotIn, "风景"));
+        Assert.True(TagFilterState.SelectSingleTag(root, "风景"));
+        var replaced = Assert.IsType<FilterConditionNode>(Assert.Single(root.Children));
+        Assert.Equal(["风景"], replaced.Values);
+    }
+
+    [Fact]
+    public void T_FT16_ToggleTagInFilterAddRemove()
+    {
+        // 左栏 Ctrl+点击加减选（toggle）：未引用 → 经 QuickAdd 并入（尊重现有树结构，根 Or 合并单值行）。
+        var root = Group(FilterOp.Or, Cond(FilterMatcher.In, "风景"));
+        Assert.True(TagFilterState.ToggleTagInFilter(root, "星标"));
+        var merged = Assert.IsType<FilterConditionNode>(root.Children.Single());
+        Assert.Equal(["风景", "星标"], merged.Values);
+
+        // 已引用 → 全树移除引用（清空的条件保留为未启用恒真行，不隐式删行）。
+        Assert.True(TagFilterState.ToggleTagInFilter(root, "星标"));
+        Assert.Equal(["风景"], merged.Values);
+        Assert.True(TagFilterState.ToggleTagInFilter(root, "风景"));
+        Assert.Empty(merged.Values);
+        Assert.True(TagFilterState.Evaluate(root, ["任意"]));    // 空树恒真=回全量
+
+        // 无改动分支：既未引用（QuickAdd 命中）返回 true；空白名返回 false。
+        Assert.True(TagFilterState.ToggleTagInFilter(root, "新标签"));
+        Assert.False(TagFilterState.ToggleTagInFilter(root, ""));
+    }
+
     /// <summary>构造条件节点（测试速记）。</summary>
     private static FilterConditionNode Cond(FilterMatcher matcher, params string[] values)
         => new() { Matcher = matcher, Values = [.. values] };

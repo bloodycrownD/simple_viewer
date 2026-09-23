@@ -219,13 +219,13 @@ public partial class TagSidebarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发，2026-09-19 交互重构）：
-    /// 点击一律 = 筛选（tag-filter-tree：QuickAdd 追加条件；已引用则忽略）；打标走拖拽/详情页右栏/快捷键。
-    /// 旧 Ctrl 加减选语义已随条件树化废弃，不再读修饰键。
+    /// chip 点击转发入口（TagSidebarControl.OnChipClicked 转发）：
+    /// Explorer 心智（2026-09-24 恢复 2026-09-19 用户拍板，推翻 tag-filter-tree QuickAdd 一致语义）——
+    /// 无修饰 = 单选替换筛选、Ctrl = 加减选（修饰键检测在视图层，只查 Down）；打标走拖拽/详情页右栏/快捷键。
     /// </summary>
-    public Task HandleChipTappedAsync(TagChipViewModel chip)
+    public Task HandleChipTappedAsync(TagChipViewModel chip, bool additive)
     {
-        _owner.HandleTagChipTapped(chip.Name);
+        _owner.HandleTagChipTapped(chip.Name, additive);
         return Task.CompletedTask;
     }
 

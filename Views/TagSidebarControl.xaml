@@ -22,7 +22,8 @@
               按钮字符使用 BMP 常用符号（U+FF0B/U+21C4/U+270E/U+2715），规避 XamlCompiler 沉默崩溃码点
               （PUA 字形与 U+00AB/BB 禁用；图标一律不用 FontIcon/SymbolIcon Glyph）。
               交互不变量：标签行主点击经 OnChipClicked 转发 = 筛选——无修饰 = 单选筛选（唯一选中再点取消）、
-              Ctrl+点击 = 加减选（多标签 OR；键状态只判 Down，与实现一致，cr/P2-7 注释对齐）；
+              Ctrl+点击 = 加减选（并入/移出条件树，键状态只判 Down，cr/P2-7 注释对齐；
+              2026-09-24 恢复 2026-09-19 用户拍板，推翻 tag-filter-tree「点击一律 QuickAdd 追加」）；
               打标走拖拽卡片到标签行 / 单图详情右栏 / 快捷键；Click 直达事件不冒泡，
               内嵌 ✎✕ 按钮不误触；Esc 三态等已验证行为保持。 -->
 
@@ -180,6 +181,7 @@
                                              DropOverlay 在 TagTreeRowButtonStyle 模板内，视觉树按名回查） -->
                                         <Button
                                             AllowDrop="True"
+                                            AutomationProperties.Name="{x:Bind Name}"
                                             Background="{x:Bind views:TagSidebarConverters.TagRowBackground(IsFilterActive)}"
                                             Click="OnChipClicked"
                                             DragLeave="OnTagRowDragLeave"
@@ -189,7 +191,7 @@
                                             PointerExited="OnRowPointerExited"
                                             Style="{StaticResource TagTreeRowButtonStyle}"
                                             Tag="{x:Bind}"
-                                            ToolTipService.ToolTip="点击：按该标签筛选（多标签任一命中，再点取消）&#10;拖拽图片到此行：为图片打该标签">
+                                            ToolTipService.ToolTip="点击：只筛选该标签（再点取消）&#10;Ctrl+点击：加/减入筛选条件&#10;拖拽图片到此行：为图片打该标签">
                                             <Grid ColumnSpacing="6">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />

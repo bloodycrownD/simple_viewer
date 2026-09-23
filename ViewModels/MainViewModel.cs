@@ -1117,7 +1117,9 @@ public partial class MainViewModel : ObservableObject
     private const int MaxFailureDetails = 20;
 
     /// <summary>
-    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选；tag-filter-tree：QuickAdd 追加）：
+    /// 侧栏标签 chip 点击入口（2026-09-24 恢复 2026-09-19 用户拍板的 Explorer 心智，
+    /// 推翻 tag-filter-tree「点击一律 QuickAdd 追加」的左栏语义）：
+    /// 无修饰 = 单选替换（当前唯一激活该标签时再点取消）；Ctrl = 加减选 toggle。
     /// 单图模式下额外切回图库让筛选结果可见
     /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
     /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）；
@@ -1125,7 +1127,8 @@ public partial class MainViewModel : ObservableObject
     /// 重启同名方法——语义为选中集批量移除标签，非旧 Shift+点击口径）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    public void HandleTagChipTapped(string tagName)
+    /// <param name="additive">是否 Ctrl 加减选（false = 单选替换）。</param>
+    public void HandleTagChipTapped(string tagName, bool additive)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
@@ -1137,7 +1140,15 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        ToggleTagFilter(tagName);
+        var changed = additive
+            ? TagFilterState.ToggleTagInFilter(_filterRoot, tagName)
+            : TagFilterState.SelectSingleTag(_filterRoot, tagName);
+        if (changed)
+        {
+            // 树编辑成功：互斥清无标签位（spec D4 反方向互斥由本类持有该标志实现）。
+            IsUntaggedFilterActive = false;
+            ApplyTagFilter();
+        }
     }
 
     /// <summary>
@@ -2075,28 +2086,6 @@ public partial class MainViewModel : ObservableObject
         IsUntaggedFilterActive = TagFilterState.ToggleUntagged(_filterRoot, IsUntaggedFilterActive);
 
         ApplyTagFilter();
-    }
-
-    /// <summary>
-    /// 点击侧栏标签 = 快捷追加筛选条件（tag-filter-tree，demo addQuickCond 拍板语义）：
-    /// 往根组追加一条单值 in 条件；根组 Or 且已有单值 in 行则合并进该行；
-    /// 已存在含该值的 in 条件（全树）则忽略（返回 false 静默——「已在筛选中」）。
-    /// 旧三分支语义（单选重置/Ctrl 加减选/唯一选中再点取消）随条件树化废弃，不再读修饰键。
-    /// </summary>
-    /// <param name="tagName">标签名。</param>
-    public void ToggleTagFilter(string tagName)
-    {
-        if (string.IsNullOrWhiteSpace(tagName))
-        {
-            return;
-        }
-
-        if (TagFilterState.QuickAdd(_filterRoot, tagName))
-        {
-            // 树编辑成功：互斥清无标签位（spec D4 反方向互斥由本类持有该标志实现）。
-            IsUntaggedFilterActive = false;
-            ApplyTagFilter();
-        }
     }
 
     // ==================== 筛选面板编辑入口（tag-filter-tree Step 5：薄包装集中一处，不动既有筛选逻辑） ====================

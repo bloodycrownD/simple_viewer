@@ -318,6 +318,60 @@ public static class TagFilterState
     }
 
     /// <summary>
+    /// 左栏简单轨道——无修饰点击（2026-09-24 恢复 2026-09-19 用户拍板的 Explorer 单选心智，
+    /// 推翻 tag-filter-tree「点击一律 QuickAdd 追加」的左栏语义）：
+    /// 单选替换——树清空重建为根（Or）+ 单条单值 In 条件；
+    /// 当前筛选恰好唯一激活该标签时清空树（再点取消，回全量）。
+    /// </summary>
+    /// <returns>树是否变化（恒 true，除非标签名空白）。</returns>
+    public static bool SelectSingleTag(FilterGroupNode root, string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName))
+        {
+            return false;
+        }
+
+        // 再点取消：仅当树恰为本函数产出的「单选简单形态」（根 Or + 唯一单值 In 条件 = 本标签）——
+        // 复杂树（如 in+notIn 同时涉及该标签）不算「唯一激活」，点它仍是替换（单选筛选）。
+        if (root.Op == FilterOp.Or
+            && root.Children.Count == 1
+            && root.Children[0] is FilterConditionNode { Matcher: FilterMatcher.In } sole
+            && sole.Values.Count == 1
+            && string.Equals(sole.Values[0], tagName, StringComparison.OrdinalIgnoreCase))
+        {
+            Clear(root);
+            return true;
+        }
+
+        root.Children.Clear();
+        root.Op = FilterOp.Or;
+        root.Children.Add(new FilterConditionNode
+        {
+            Matcher = FilterMatcher.In,
+            Values = [tagName],
+        });
+        return true;
+    }
+
+    /// <summary>
+    /// 左栏简单轨道——Ctrl+点击加减选（toggle）：
+    /// 已引用 → RemoveTagReferences 全树移除（清空的条件保留为未启用恒真行，面板可见可再赋值）；
+    /// 未引用 → QuickAdd 三分支并入（尊重现有树结构——复杂筛选是简单筛选的超集）。
+    /// </summary>
+    /// <returns>树是否变化。</returns>
+    public static bool ToggleTagInFilter(FilterGroupNode root, string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName))
+        {
+            return false;
+        }
+
+        return CollectReferencedTags(root).Contains(tagName, StringComparer.OrdinalIgnoreCase)
+            ? RemoveTagReferences(root, tagName)
+            : QuickAdd(root, tagName);
+    }
+
+    /// <summary>
     /// 标签删除联动：全树移除该标签的全部引用（OrdinalIgnoreCase）。
     /// 被清空的条件保留为「未启用」恒真行（面板可见、可再赋值；不隐式删行）。
     /// 返回是否发生了改动（调用方据此决定是否重应用筛选）。
