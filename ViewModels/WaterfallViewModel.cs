@@ -44,8 +44,9 @@ public partial class WaterfallViewModel : ObservableObject
 
     /// <summary>
     /// 追加一个扫描块（扫描渐进呈现；必须在 UI 线程调用——MainViewModel 经 Progress 回投）。
-    /// 任一筛选激活（标签 OR 或无标签，untagged-filter-entry）时块内项先经筛选谓词过滤
-    /// （Step 9：筛选态与渐进追加互不干扰）；过滤后再按已呈现路径集查重（cr/P1-2）。
+    /// 任一筛选激活（条件树或无标签，tag-filter-tree）时块内项先经筛选谓词过滤
+    /// （MainViewModel.MatchesTagFilter——与筛选应用共用同一树求值，spec D1 单一求值器）；
+    /// 过滤后再按已呈现路径集查重（cr/P1-2）。
     /// </summary>
     public void AppendChunkFromScan(IReadOnlyList<GalleryItem> chunk)
     {
@@ -98,6 +99,29 @@ public partial class WaterfallViewModel : ObservableObject
         Items.ResetWith(snapshot.Select(item => new GalleryItemViewModel(item, this, _thumbnailService)));
         _presentedPaths.ResetWith(snapshot.Select(item => item.Path));
         ItemsChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 当前呈现集是否与给定目标序列完全一致（逐项 Path 相等、顺序敏感）。
+    /// 供筛选应用前判断「命中结果没变」——面板添加空条件/未启用编辑等场景跳过整体
+    /// 重置（实机走查修复：无变化的重置会整墙闪跳 + 无谓清空选中集）。
+    /// </summary>
+    public bool PresentsExactly(IReadOnlyList<GalleryItem> items)
+    {
+        if (Items.Count != items.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (!string.Equals(Items[i].Item.Path, items[i].Path, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>卡片双击转发（以单图模式打开）。</summary>

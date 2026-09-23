@@ -3,6 +3,8 @@ date: 2026-09-19
 dependency: iterations/图片打标签与瀑布流浏览/prd.md
 ---
 
+> **2026-09-22 部分推翻**：本特性『聚合类 UI 完全忽略无组标签』的拍板已被 features/batch-tag-management 推翻——左栏新增【未定义标签】区展示无组标签。**未推翻项**：单图右栏 chips 显示无组标签可 ✕（本文件验收项）与卡片角标不计入无组标签，口径均维持。
+
 # ungrouped-tags-ignore Feature PRD
 
 ## 背景与变更动机

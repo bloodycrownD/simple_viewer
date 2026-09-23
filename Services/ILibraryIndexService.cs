@@ -3,7 +3,9 @@
 //             查询采用左右补空格的 LIKE 写法（防子串误命中）；空标签列表查询返回全量；
 //             结果按预分词自然排序 key 排序（D15）；库文件损坏自动删除重建空库；单连接长驻（WAL）。
 // Call chain: MainViewModel（Step 7 打开图库）→ UpsertChunkAsync 渐进写入；TagService 打标后 ReplacePathAsync 行更新；
-//             Step 9 标签栏 → TagCountsAsync 计数；Step 11 筛选条 → QueryByTagsAsync / QueryUntaggedAsync 驱动瀑布流。
+//             Step 9 标签栏 → TagCountsAsync 计数；QueryByTagsAsync 现服务标签重命名连锁候选集
+//             （RenameFilesAsync，batch-tag-management Step 2 起重命名专用——删除标签/组已纯化为配置操作），
+//             筛选自 tag-filter-tree 起改内存条件树求值（不再走索引查询）。
 
 using SimpleViewer.Models;
 
@@ -42,6 +44,15 @@ public interface ILibraryIndexService : IDisposable
     /// <param name="path">要删除的文件全路径。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task RemovePathAsync(string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 批量删除指定 path 集合的行（单事务包裹：一次调用内全部 DELETE 作为一个事务提交，D10）。
+    /// 图库删除选中集（文件已批量移入回收站）后的索引清理入口；
+    /// path 不存在的条目静默忽略（DELETE 天然幂等）；空列表为无操作。
+    /// </summary>
+    /// <param name="paths">要删除的文件全路径集合。</param>
+    /// <param name="cancellationToken">取消令牌（仅在任务调度前生效；进行中的 SQLite 写入不可中断）。</param>
+    Task RemovePathsAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 就地重写指定行的标签列（path 未变化的场景，如外部修正文件名后重新解析）。

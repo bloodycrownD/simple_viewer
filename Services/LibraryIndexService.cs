@@ -91,6 +91,22 @@ public sealed class LibraryIndexService : ILibraryIndexService
     }
 
     /// <inheritdoc />
+    public Task RemovePathsAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ThrowIfDisposed();
+
+        // 空列表 no-op（守卫口径与 UpsertChunkAsync 一致：null 拒绝、空集短路返回）。
+        if (paths.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        // 单事务批量删（仿 UpsertChunkAsync 的 Task.Run + RunCommand 包裹写法），全部批次在一个事务内提交。
+        return Task.Run(() => RunCommand(connection => RemovePathsCore(connection, paths)), cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Task ClearAllItemsAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
@@ -375,6 +391,26 @@ public sealed class LibraryIndexService : ILibraryIndexService
         command.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// 批量删行核心（单事务包裹）：一次调用内全部 DELETE 批次在同一事务提交
+    /// （图库删除选中集入口，仿 UpsertCore 的事务口径；对账管线走 <see cref="DeletePathsCore"/> 的无总事务口径）。
+    /// </summary>
+    private static void RemovePathsCore(SqliteConnection connection, IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        using var transaction = connection.BeginTransaction();
+        foreach (var batch in paths.Chunk(RebuildBatchSize))
+        {
+            DeletePathsBatch(connection, transaction, batch);
+        }
+
+        transaction.Commit();
+    }
+
     /// <summary>就地重写标签列（path 未变场景；path 已变请用 ReplacePathCore）。</summary>
     private static void UpdateTagsCore(SqliteConnection connection, string path, string tagsValue)
     {
@@ -524,7 +560,7 @@ public sealed class LibraryIndexService : ILibraryIndexService
         return paths;
     }
 
-    /// <summary>批量删除孤儿行（DELETE ... IN 分批，批大小不超过 SQLite 变量数安全上限）。</summary>
+    /// <summary>批量删除孤儿行（DELETE ... IN 分批，批大小不超过 SQLite 变量数安全上限；对账管线无总事务要求）。</summary>
     private static int DeletePathsCore(SqliteConnection connection, IReadOnlyList<string> paths)
     {
         if (paths.Count == 0)
@@ -535,24 +571,31 @@ public sealed class LibraryIndexService : ILibraryIndexService
         var deleted = 0;
         foreach (var batch in paths.Chunk(RebuildBatchSize))
         {
-            using var command = connection.CreateCommand();
-            var sql = new StringBuilder("DELETE FROM items WHERE path IN (");
-            for (var i = 0; i < batch.Length; i++)
-            {
-                sql.Append(i == 0 ? "@p" : ", @p").Append(i);
-            }
-
-            sql.Append(')');
-            command.CommandText = sql.ToString();
-            for (var i = 0; i < batch.Length; i++)
-            {
-                command.Parameters.Add("@p" + i, SqliteType.Text).Value = batch[i];
-            }
-
-            deleted += command.ExecuteNonQuery();
+            deleted += DeletePathsBatch(connection, transaction: null, batch);
         }
 
         return deleted;
+    }
+
+    /// <summary>单批 DELETE ... IN 执行（事务可空：null 走隐式事务，批量原子性口径由调用方决定）。</summary>
+    private static int DeletePathsBatch(SqliteConnection connection, SqliteTransaction? transaction, string[] batch)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        var sql = new StringBuilder("DELETE FROM items WHERE path IN (");
+        for (var i = 0; i < batch.Length; i++)
+        {
+            sql.Append(i == 0 ? "@p" : ", @p").Append(i);
+        }
+
+        sql.Append(')');
+        command.CommandText = sql.ToString();
+        for (var i = 0; i < batch.Length; i++)
+        {
+            command.Parameters.Add("@p" + i, SqliteType.Text).Value = batch[i];
+        }
+
+        return command.ExecuteNonQuery();
     }
 
     // ---------- 行读写辅助 ----------

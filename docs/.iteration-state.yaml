@@ -1,0 +1,50 @@
+# batch-tag-management 开发编排状态（code-dev-loop）
+# spec: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/spec.md
+# prd: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/prd.md
+# 前态：spec-check-loop 第 1 轮 Go（trivial 豁免闭合 P1+6 P2，f6bc6a1）；tag-filter-tree dev-ready（DEV-2 open 留用户走查）见 git 历史
+
+spec_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/spec.md
+prd_path: docs/iterations/图片打标签与瀑布流浏览/features/batch-tag-management/prd.md
+branch: feature/batch-tag-management
+base_sha: f6bc6a1
+head_sha: c2b3f71
+status: dev-ready（走查修复轮1：右栏浮层遮盖→布局列，HEAD 见新提交）
+spec_summary: 两层语义重构（删定义不连锁/绑定拒绝前移/未定义标签区 chip 流式+连锁真删+收纳）、图库右栏（ContentAreaGrid 布局列 280/36、选中集并集+计数+✕ 批量移除+目录批量三态）、工具栏左右簇模式显隐、图库删除选中集（SHFileOperationW 无 UI 批量回收站+索引批量删+快捷键分流）；Core 下沉 TagProjection；D1~D12 拍板
+
+dag_version: 3
+review_round: 1   # spec-check-loop 已收敛（Go）
+wave_plan: [[impl-core, impl-delete-services], [fix-wave0], [verify-wave0], [cr-func-wave0], [impl-config-delete], [impl-undefined-zone], [impl-gallery-panel], [cr-func-mid], [verify-ui-mid], [impl-catalog-toolbar], [impl-delete-selection, impl-doc-sync], [verify-full], [cr-func-final]]
+node_status:
+  impl-core: { status: done, head_sha: 3b0d169, executor: subagent }
+  impl-delete-services: { status: done, head_sha: 5269700, executor: subagent }
+  fix-wave0: { status: done, head_sha: 480238f, executor: main, note: trivial 豁免——UIOption 无 NoUI 成员（实编译证实），批量删除改 SHFileOperationW P/Invoke；spec D10 同步订正 }
+  verify-wave0: { status: done, executor: main, evidence: 'build 绿 + 119/119' }
+  cr-func-wave0: { status: done, func_ready: yes }
+  impl-config-delete: { status: done, head_sha: a5848e9, executor: subagent, evidence: 'build 绿 + 118/118（T_ST_05 删 1、T_TG_05 语义重写）' }
+  impl-undefined-zone: { status: done, head_sha: 0be6c59, executor: subagent, evidence: 'build 绿 + 118/118；主滚动流方案；双层重名检查' }
+  impl-gallery-panel: { status: done, head_sha: 3304e69, executor: subagent, evidence: 'build 绿 + 118/118；子代理二分修掉两真因（Border 全局样式 XamlCompiler 崩溃、XAML 字节损坏）' }
+  cr-func-mid: { status: done, func_ready: yes, evidence: 'Step 2/3/4 矩阵全✓；3 偏差均等价实现 closed' }
+  verify-ui-mid: { status: done, executor: main, head_sha: 5377efa, evidence: 'undefined-panel-verify 实机：未定义区三 chip/右栏展开已选0→6/并集 chip/✕移除端到端（仅命中文件改名）' }
+  impl-catalog-toolbar: { status: done, head_sha: '644bc3c+cf64a25', executor: subagent, evidence: 'build 绿 + 118/118×2；单图回归八项 diff 证明；三态改独立 Catalog* 函数' }
+  impl-delete-selection: { status: done, head_sha: 23f422c, executor: subagent, evidence: 'build 绿 + 118/118；独立防重入闸；TrimImageFilesAfterDeletion 索引校正' }
+  impl-doc-sync: { status: done, head_sha: 39aa726, executor: subagent, evidence: '9 文件纯文档+注释零逻辑改动；父 PRD 三处回写+ungrouped 部分推翻标注+Ctrl+A 修正+两 P2 闭合+spec 措辞对齐' }
+  verify-full: { status: done, executor: main, head_sha: c2b3f71, evidence: 'wave9 小修后 build 0 警告 + 118/118；toolbar-catalog-verify 实机：图库工具栏 D1 11断言/批量目录 C3 端到端（4 张追加风景旧标签保留+并集 chip）/删除选中集 D2 端到端（确认→回收站→已选0）；中途还原踩踏按 RULE 定向串行还原处置' }
+  cr-func-final: { status: done, func_ready: yes, evidence: '9 Step 矩阵终核全✓（文件:行实读）；12 条 blocking 测试在库；不变清单七项抽查全过（重命名连锁/单图 DeleteAsync/角标口径/MainInfoBar 顺序/FontIcon/BOM/ThemeResource）；三条偏差 closed 落点核实；A1~E1 覆盖清单：C1/C2/C3/D1/D2 auto 已证，其余代码已证+留走查；无 must-fix' }
+open_must_fix: []
+spec_deviations:
+  - id: DEV-BT-1
+    status: closed
+    desc: 未定义区滚动=主滚动流（spec 原文 MaxHeight 限高滚动）——防嵌套滚动，PRD 标注实现细节级，spec 措辞已同步
+  - id: DEV-BT-2
+    status: closed
+    desc: 右栏 Gallery 模式限定靠宿主位于 GalleryVisibility 层天然隐藏（等价实现，少一条通知链）
+  - id: DEV-BT-3
+    status: closed
+    desc: D10 批量删除机制订正为 SHFileOperationW P/Invoke（UIOption 无 NoUI 成员，实编译证实；spec 已订正）
+notes:
+  - CR 修复轮（2026-09-23 晚，code-dev-loop 执行 cr-fix-spec-2）：16 条 must-fix 全闭合 + 3 处意图完备增补（b9f4ea5×2/9adb45d×1），HEAD=9adb45d；build 0 警告 + 118/118 + 12 脚本语法 + filter-panel/walkthrough2/undefined-panel 三实机复跑通过；cr-func-final func-ready。manual_user 留白：vm/B-1 时序断言（打标中点删除 no-op）、vm/B-2 注入抛错回执；观察项：RenameFilesAsync 重命名管线无互斥闸（vm/B-1 同构，下轮 CR 认定）
+  - ✅ flyout 盖左栏已拍板（2026-09-23）：用户选①接受临时遮盖（点外部即关）——MainWindow.xaml 注释已更新，决策点关闭
+  - 走查遗留：单图模式进入（Enter/双击）在 IME 环境键盘注入不稳（产品路径有历史走查覆盖，单图工具栏与图库同机制反向）；空选中删除 no-op 未自动断言（简单路径）；15s 心跳告警家族已根除主源（拖拽小图 WIC-on-STA 死锁，898fe6a）+ 放大/翻页换源管线全后台化（f8f041f）
+  - Step 9 manual_user 走查清单交付用户：A1~E1 全量、双主题（浅色 ChromeBackgroundBrush #F3F3F8 为初值未实测）、大选中集体感、单图目录/单图 Delete/拖拽打标/Esc/Ctrl+A 回归、窄窗口左右栏 280+280 形态（R2）
+  - 分支未合并：feature/batch-tag-management（叠 feature/tag-filter-tree 两代成果）→ master 待走查收口后合并；合并后可议 v1.0.2 发布
+  - 构建期教训候选入 RULE（dev-ready 后）：App.xaml 全局 Style TargetType=Border 致 XamlCompiler 沉默崩溃（改 Button 载体）；build.ps1 Out-Null 会吞 CS 错误只剩 MSB3073 尾巴（先跑 dotnet build -v:q 排查）

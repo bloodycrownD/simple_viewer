@@ -1,5 +1,5 @@
 // 职责：瀑布流「已呈现路径集合」（cr/P1-2）——路径级去重，防同一图片出现两张卡片。
-// 背景：筛选 ResetFrom（索引查询命中集）与扫描渐进 AppendChunkFromScan（uiBuffer 攒批窗口内
+// 背景：筛选 ResetFrom（内存求值命中集，tag-filter-tree 起）与扫描渐进 AppendChunkFromScan（uiBuffer 攒批窗口内
 //       「已入索引但尚未投递 UI」的项）会发生重叠；重叠项若不查重会重复追加卡片。
 // 纯逻辑下沉 Core（tests 只引用 Core，可单测）；仅 UI 线程使用（与 GallerySource 相同的线程亲和性）。
 // 调用链：WaterfallViewModel（ResetFrom 重建 / AppendChunkFromScan 追加前查重）。

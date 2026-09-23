@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>筛选器设计稿 — Simple Viewer 原型</title>
+<link rel="stylesheet" href="filter.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶栏 -->
+  <header id="topbar">
+    <div class="app-title">Simple Viewer 原型 <span class="proto-badge">筛选器设计稿</span></div>
+    <div class="topbar-actions">
+      <button class="ghost-btn" id="themeBtn" title="切换亮/暗主题">◐ 主题</button>
+      <button class="ghost-btn danger" id="resetBtn" title="清空本地改动重新开始">重置数据</button>
+    </div>
+  </header>
+
+  <!-- 工具栏 -->
+  <div id="toolbar">
+    <div class="library-info">
+      <span class="library-path">D:\pics\travel（模拟数据 140 张）</span>
+      <span class="scan-status done">扫描完成</span>
+    </div>
+    <div class="toolbar-actions">
+      <span id="hitStats" class="hit-stats"></span>
+      <div class="filter-anchor">
+        <button class="filter-toggle" id="filterToggle">⧩ 筛选 <span class="cond-badge" id="condBadge" hidden></span> ▾</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 筛选条（应用后显示人话表达式） -->
+  <div id="filterBar" class="empty">
+    <div id="activeFilters" class="active-filters"></div>
+    <div class="filter-right">
+      <button class="link-btn" id="editFilterBtn">编辑</button>
+      <button class="link-btn" id="clearFilterBtn">清空</button>
+    </div>
+  </div>
+
+  <!-- 主区：左标签树 + 右瀑布流 -->
+  <div id="mainRow">
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <span>标签</span>
+        <span class="head-hint">点击 = 加入筛选</span>
+      </div>
+      <div id="groupList"></div>
+    </aside>
+    <main id="wallWrap">
+      <div id="wall"></div>
+      <div id="wallEmpty" class="wall-empty" hidden>没有图片命中当前筛选条件</div>
+    </main>
+  </div>
+</div>
+
+<!-- 筛选面板（flyout，锚定筛选按钮） -->
+<div id="flyout" class="flyout" hidden>
+  <div class="flyout-head">
+    <span class="flyout-title">⧩ 筛选</span>
+    <span class="flyout-sub">条件实时生效</span>
+    <button class="icon-btn" id="flyoutClose" title="关闭">✕</button>
+  </div>
+  <div class="flyout-body" id="flyoutBody"><!-- 条件树渲染区 --></div>
+  <div class="flyout-foot">
+    <div class="expr-preview">
+      <span class="expr-label">表达式</span>
+      <span id="exprText" class="expr-text"></span>
+    </div>
+    <div class="flyout-foot-actions">
+      <span id="panelHits" class="panel-hits"></span>
+      <button class="ghost-btn small" id="clearCondBtn">清空条件</button>
+      <button class="primary-btn" id="doneBtn">完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- 标签值选择弹层 -->
+<div id="popover" class="popover" hidden></div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="filter.js"></script>
+</body>
+</html>

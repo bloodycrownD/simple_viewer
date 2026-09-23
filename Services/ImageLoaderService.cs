@@ -42,34 +42,39 @@ public sealed class ImageLoaderService : IImageLoaderService
         var fileInfo = new FileInfo(path);
         var isGif = string.Equals(Path.GetExtension(path), ".gif", StringComparison.OrdinalIgnoreCase);
 
-        var storageFile = await StorageFile.GetFileFromPathAsync(path);
+        // WinRT await 全链 ConfigureAwait(false)（2026-09-23 放大/翻页顿挫修复）：本方法无任何 UI
+        // 依赖，续体（含全分辨率档 ~192MB 的 DetachPixelData）留在 UI 线程是换源顿挫主源之一；
+        // 调用方不配 ConfigureAwait，其续体仍回 UI 执行 VM 状态更新。
+        var storageFile = await StorageFile.GetFileFromPathAsync(path).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var stream = await storageFile.OpenAsync(FileAccessMode.Read);
+        using var stream = await storageFile.OpenAsync(FileAccessMode.Read).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var decoder = await BitmapDecoder.CreateAsync(stream);
+        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var pixelWidth = (int)decoder.PixelWidth;
         var pixelHeight = (int)decoder.PixelHeight;
 
-        byte[]? decodedPixels = null;
+        SoftwareBitmap? decodedBitmap = null;
         var decodedWidth = pixelWidth;
         var decodedHeight = pixelHeight;
 
         if (!isGif)
         {
             var transform = CreateTransform(decoder.PixelWidth, decoder.PixelHeight, decodeSize);
-            var pixelData = await decoder.GetPixelDataAsync(
+            // 解码直出 SoftwareBitmap（2026-09-23 换源管线）：解码+降采样+EXIF 方向全在 WIC（池线程）
+            // 完成，零中间托管数组——原 GetPixelDataAsync→DetachPixelData 的 ~192MB（全分辨率档）
+            // 托管分配/拷贝消失。全链 ConfigureAwait(false)，不回 UI 线程。
+            decodedBitmap = await decoder.GetSoftwareBitmapAsync(
                 BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Premultiplied,
                 transform,
                 ExifOrientationMode.RespectExifOrientation,
-                ColorManagementMode.DoNotColorManage);
+                ColorManagementMode.DoNotColorManage).AsTask().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
-            decodedPixels = pixelData.DetachPixelData();
             decodedWidth = transform.ScaledWidth > 0 ? (int)transform.ScaledWidth : pixelWidth;
             decodedHeight = transform.ScaledHeight > 0 ? (int)transform.ScaledHeight : pixelHeight;
         }
@@ -81,7 +86,7 @@ public sealed class ImageLoaderService : IImageLoaderService
             IsGif = isGif,
             PixelWidth = pixelWidth,
             PixelHeight = pixelHeight,
-            DecodedPixelData = decodedPixels,
+            DecodedBitmap = decodedBitmap,
             DecodedWidth = decodedWidth,
             DecodedHeight = decodedHeight,
             ImageSource = null,
@@ -149,7 +154,7 @@ public sealed class ImageLoaderService : IImageLoaderService
         // 同图改名迁移（打标重命名，字节未变）：锁内完成，与 LoadAsync/TryGetCached/AddToCache 串行——
         // 防 prefetch 并发读旧键或插入新键的竞态。旧键条目移除（路径已失效，留着只会白占 LRU 容量）；
         // 迁移后的新条目复制出新 LoadedImage（Path 挂新路径，命中返回的元数据口径与请求路径一致；
-        // 解码像素数组共享引用——LoadedImage 不可变，安全）。
+        // 解码位图共享引用——LoadedImage 不可变，安全）。
         // GIF 不入缓存（LoadAsync 只对非 GIF AddToCache），此处天然无操作。
         // 迁移后仍在途的旧路径 prefetch 若完成落缓存，会重新插入旧键条目——LRU 自然逐出，无害。
         lock (_cacheLock)
@@ -186,7 +191,7 @@ public sealed class ImageLoaderService : IImageLoaderService
                     IsGif = source.IsGif,
                     PixelWidth = source.PixelWidth,
                     PixelHeight = source.PixelHeight,
-                    DecodedPixelData = source.DecodedPixelData,
+                    DecodedBitmap = source.DecodedBitmap,
                     DecodedWidth = source.DecodedWidth,
                     DecodedHeight = source.DecodedHeight,
                     ImageSource = source.ImageSource,

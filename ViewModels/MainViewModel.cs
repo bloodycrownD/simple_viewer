@@ -2,9 +2,9 @@
 //       瀑布流数据源驱动（渐进追加）与卡片选中集（Ctrl/Shift 连选/Ctrl+A，Step 10）、
 //       打标管线（快捷键 / 拖拽卡片到标签行 / 单图详情右栏；2026-09-19 交互重构后侧栏点击不再打标）
 //       与 InfoBar 进度/回执状态（Step 10，D13）、
-//       标签筛选（OR 语义）与筛选条状态（chip/单删/命中统计，Step 11；「清空筛选」按钮已移除——
-//       取消筛选路径 = 二次点击标签 / chip ✕ / 无标签按钮二次点击，untagged-filter-entry）、
-//       无标签筛选（与标签筛选互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
+//       标签筛选（tag-filter-tree：条件树单一内存求值 + 筛选条表达式段 chips/单删/命中统计/清空 +
+//       筛选面板编辑入口 EditFilter——树编辑→互斥清 untagged→重应用集中一处管线，Step 5）、
+//       无标签筛选（与条件树互斥，侧栏标题行 ∅ 按钮 toggle）、标签栏数据/编辑执行（Step 9）、
 //       单图详情右栏数据（结构化信息行 + 当前图标签 chips）。
 // 不变量：Prev/Next 环绕且重置旋转；仅视口解码尺寸变化时重载；
 //         单图翻页列表 = 进入单图时的瀑布流呈现集快照（Step 11：筛选态翻页在命中集内环绕循环）；
@@ -14,13 +14,15 @@
 //         批量打标分批走 TagService（内部 Task.Run），批间回 UI 线程推进 InfoBar 进度（D13）；成功不回滚；
 //         打标后就地同步（索引 ReplacePath + 卡片 VM UpdateFrom + 单图列表路径替换）——卡片 VM 实例不变，
 //         选中集引用天然保持（Step 10：打标后选中集不丢，路径换新）；
-//         标签筛选集与命中数在本类：筛选变化 → 索引 QueryByTagsAsync / QueryUntaggedAsync → 瀑布流整体替换
-//         （筛选态不渐进追加），取消筛选恢复扫描全量（不清空索引）；筛选条 chip（组名：标签名；
-//         无标签模式为「无标签」chip）随侧栏重建同步重建；无标签筛选与标签筛选互斥（点标签自动退出、
-//         激活无标签清空标签集），untagged-filter-entry；
-//         扫描期间追加的块经筛选谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         标签筛选条件树与命中数在本类（tag-filter-tree spec D1/D4，单一内存求值器）：
+//         筛选变化 → TagFilterState.Evaluate/MatchesUntagged 对 _galleryItems 全量谓词过滤 →
+//         命中按 SortKey 自然序排序后瀑布流整体替换（对齐原索引查询分支口径；索引层零改动，
+//         QueryByTagsAsync 留给 RenameFilesAsync（重命名连锁专用）编辑候选集）；取消筛选恢复扫描全量（发现序，不清空索引）；
+//         扫描期间追加的块经同一谓词过滤后入瀑布流（筛选态与渐进追加互不干扰）；
+//         筛选条 chips = BuildExpression 表达式段形态（条件/且或/括号；untagged 激活时为「无标签」chip，
+//         与条件树互斥——任一方向激活清另一方）；重开图库清树（会话态不落盘）；
 //         重开图库先 Cancel + await 旧扫描任务再清资源（cr/P1-1），旧扫描迟到的 UI 回投经代次校验丢弃；
-//         标签/组编辑（重命名/删除）前置 ValidateTagGroups 预检（同口径）再动文件，避免“文件已改、配置被拒”分裂；
+//         标签/组编辑前置 ValidateTagGroups 预检（同口径）再动文件/保存配置，避免“文件已改、配置被拒”分裂（删除标签/组已纯化为配置操作、绑定引用前置拒绝，batch-tag-management Step 2）；
 //         侧栏重建（ObservableCollection 写）一律经 DispatcherQueue 回投 UI 线程；
 //         CLI/单图直开不触发图库扫描，扫描仅由「打开图库」触发。
 // 调用链：App → MainWindow → MainViewModel → FileBrowser / ImageLoader / FileOperation / TagFilename / TagService /
@@ -37,6 +39,7 @@ using SimpleViewer.Models;
 using SimpleViewer.Services;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Windows.Input;
 
 namespace SimpleViewer.ViewModels;
 
@@ -70,8 +73,12 @@ public partial class MainViewModel : ObservableObject
     private string? _currentDirectory;
     private CancellationTokenSource? _loadCts;
 
-    // 图库状态：_galleryItems 为扫描全量暂存（后台线程写，UI 消费走 Waterfall 渐进追加）。
+    // 图库状态：_galleryItems 为扫描全量暂存（后台扫描线程逐项 Add，cr/P1-1 单写者）。
+    // UI 侧消费：Waterfall 渐进追加（Progress 回投）与筛选管线——Step 6 后枚举点一律经
+    // _galleryItemsLock 锁内拷贝（SnapshotGalleryItems）防 List 枚举版本冲突；Count 单读
+    // 为原子引用读免锁（FilterStatsText 等高频绑定）。
     private readonly List<GalleryItem> _galleryItems = [];
+    private readonly object _galleryItemsLock = new();
     private CancellationTokenSource? _scanCts;
 
     // 扫描任务句柄与代次（cr/P1-1 重开图库竞态收口）：重开时先 Cancel + await 旧任务（吞异常）
@@ -92,6 +99,11 @@ public partial class MainViewModel : ObservableObject
     // 批量打标/移除防重入闸（操作进行中忽略新的侧栏 chip 打标请求）。
     private bool _isTagOperationRunning;
 
+    // 图库删除选中集防重入闸（batch-tag-management Step 7，D9）：独立标志位、不复用
+    // _isTagOperationRunning——置打标标志会联动「视口尺寸忽略 + 收口补判定」与
+    // LoadCurrentAsync 的改名竞态兜底等打标专属语义，删除管线不得借用。
+    private bool _isDeleteSelectionRunning;
+
     // 打标期间的视口尺寸记录与补判定（2026-09-19 打标刷新竞态修复）：打标开始时 InfoBar
     // 弹出会引发布局抖动 → ImageHost 尺寸瞬时变化 → 解码尺寸变化 → 立即重载会读到改名前的
     // 旧路径（File.Move 已落盘、同步阶段尚未替换 _imageFiles）→ FileNotFound 清空视图。
@@ -100,13 +112,15 @@ public partial class MainViewModel : ObservableObject
     private int _lastViewportHeight;
     private bool _pendingDecodeSizeRefresh;
 
-    // 标签筛选集（标签名，OR 语义；命中数与筛选条 UI 属 Step 11，本步最小反馈见 GalleryStatusText）。
-    private readonly HashSet<string> _activeFilterTags = new(StringComparer.OrdinalIgnoreCase);
+    // 标签筛选条件树（tag-filter-tree spec D4：会话态不落盘、重开图库清空；初始空根 And）。
+    // 单棵可变树 + 编辑后全量重应用/重建 UI（demo refreshAll 同构）；「有有效条件」以
+    // CollectReferencedTags 非空判定（空 Values 条件 = 未启用不约束，不贡献引用）。
+    private readonly FilterGroupNode _filterRoot = new();
 
     /// <summary>
-    /// 「无标签」筛选是否激活（untagged-filter-entry，2026-09-19，与标签筛选互斥）：
-    /// 激活时瀑布流只显示无任何标签的图片（索引 QueryUntaggedAsync 整体替换）；
-    /// 点任何标签筛选自动退出本模式（ToggleTagFilterAsync 开头清位）。
+    /// 「无标签」筛选是否激活（untagged-filter-entry，与条件树互斥——spec D4）：
+    /// 激活时瀑布流只显示无任何标签的图片（内存谓词 MatchesUntagged）；
+    /// 树任何编辑（QuickAdd 成功/面板编辑入口）自动清本位；激活即清树（ToggleUntagged）。
     /// </summary>
     [ObservableProperty]
     private bool _isUntaggedFilterActive;
@@ -180,11 +194,35 @@ public partial class MainViewModel : ObservableObject
     /// <summary>宿主提供的标签目录选择器（单图详情右栏「＋」；含快捷键屏蔽，由 MainWindow 注入）。</summary>
     public Func<Task>? ShowTagCatalogAsync { get; set; }
 
+    /// <summary>宿主提供的批量标签目录选择器（图库右栏「＋ 添加标签」，batch-tag-management Step 5；
+    /// 含快捷键屏蔽，由 MainWindow 注入）。</summary>
+    public Func<Task>? ShowSelectionTagCatalogAsync { get; set; }
+
     /// <summary>宿主提供的图库根目录选择器（FolderPicker）；由 <see cref="MainWindow"/> 注入。</summary>
     public Func<Task<string?>>? PickLibraryFolderAsync { get; set; }
 
     /// <summary>宿主提供的删除确认对话框；返回 true 表示继续删除。</summary>
     public Func<Task<bool>>? ConfirmDeleteAsync { get; set; }
+
+    /// <summary>
+    /// 宿主提供的图库删除选中集确认对话框（batch-tag-management Step 7，D9，MainWindow 注入）：
+    /// 参数 = 选中张数，文案含张数与回收站提示；返回 true 表示继续删除。null 时跳过确认直行
+    /// （对齐 <see cref="ConfirmDeleteAsync"/> 的可空注入形态）。
+    /// </summary>
+    public Func<int, Task<bool>>? ConfirmDeleteSelectionAsync { get; set; }
+
+    /// <summary>
+    /// 宿主提供的未定义标签连锁删除确认对话框（batch-tag-management Step 3，MainWindow 注入）：
+    /// 文案含影响张数与不可逆提示；返回 true 表示继续删除。
+    /// </summary>
+    public Func<string, int, Task<bool>>? ConfirmUndefinedDeleteAsync { get; set; }
+
+    /// <summary>
+    /// 宿主提供的收纳目标组选择对话框（batch-tag-management Step 3，MainWindow 注入）：
+    /// 返回 (GroupId, Error)——GroupId 非 null = 确认收纳；GroupId null = 取消；
+    /// Error 非 null = 对话框侧拒绝（重名即时提示等，由对话框内自行回显，执行侧不再弹）。
+    /// </summary>
+    public Func<string, Task<(string? GroupId, string? Error)>>? PickAbsorbGroupAsync { get; set; }
 
     /// <summary>宿主提供的设置对话框打开回调。</summary>
     public Func<Task>? OpenSettingsAsync { get; set; }
@@ -248,6 +286,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>瀑布流卡片选中数。</summary>
     [ObservableProperty]
     private int _selectedCardCount;
+
+    /// <summary>工具栏「选择」按钮文案（全选 ⇄ 取消全选，随选中态与呈现集切换；六轮用户需求：常用功能入工具栏）。</summary>
+    [ObservableProperty]
+    private string _selectAllToggleText = "全选";
 
     /// <summary>批量打标 InfoBar 是否打开（D13：主窗口内嵌回执区；用户关闭经 TwoWay 写回）。</summary>
     [ObservableProperty]
@@ -348,8 +390,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 放大超过解码分辨率时按需全分辨率重解码并原地换源（2026-09-19）：
     /// fit 解码保证平移浏览性能，放大 ≥1.2× 后视口实际需要更多像素，用 decodeSize=null
-    /// 重解码原图（LRU 以 decodeSize 为键，两档共存）。换源后 WriteableBitmap 自然尺寸变大但
+    /// 重解码原图（LRU 以 decodeSize 为键，两档共存）。换源后源位图自然尺寸变大但
     /// Uniform 布局渲染尺寸不变——视觉无缝，合成器以更高分辨率纹理采样，放大区细节不再像素化。
+    /// （2026-09-23 顿挫修复：解码续体与像素拷贝均已后台线程化——LoadAsync 全链 ConfigureAwait(false)
+    /// + FromLoadedImageAsync 的 SoftwareBitmap 原生拷贝在池线程，UI 线程只剩 O(1) 换源。）
     /// </summary>
     public async Task EnsureFullResolutionAsync()
     {
@@ -380,7 +424,7 @@ public partial class MainViewModel : ObservableObject
                 return; // 等待期间用户已切图：结果丢弃（新图自会按需加载）。
             }
 
-            ImageSource = ImageSourceHelper.FromLoadedImage(full);
+            ImageSource = await ImageSourceHelper.FromLoadedImageAsync(full);
             _currentLoaded = full;
         }
         catch (Exception ex)
@@ -644,17 +688,19 @@ public partial class MainViewModel : ObservableObject
         _indexService?.Dispose();
         _indexService = indexService;
 
-        _galleryItems.Clear();
+        lock (_galleryItemsLock)
+        {
+            _galleryItems.Clear();
+        }
         ClearCardSelection();
-        _activeFilterTags.Clear();
-        IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐标签筛选清空口径）
+        TagFilterState.Clear(_filterRoot); // 筛选会话态：重开图库清空（spec D4，不落盘）
+        IsUntaggedFilterActive = false; // 重开图库退出无标签筛选（对齐条件树清空口径）
         _latestTagCounts = new Dictionary<string, int>();
         _waterfall.ResetFrom([]);
         WaterfallEmptyText = string.Empty;
         IsScanning = true;
         ScanStatusText = "扫描中 · 已发现 0 张";
         OnPropertyChanged(nameof(FilterBarVisibility));
-        OnPropertyChanged(nameof(OrBadgeVisibility));
         OnPropertyChanged(nameof(FilterStatsText));
 
         // Progress 构造于 UI 线程：Report 回调自动回投 UI 线程（仅更新状态文本与渐进追加瀑布流）；
@@ -718,7 +764,12 @@ public partial class MainViewModel : ObservableObject
                 await foreach (var item in _scanService.ScanAsync(root, progress, token))
                 {
                     // 全量暂存 List + 分块 upsert 索引；瀑布流经 chunkProgress 渐进追加（UI 线程）。
-                    _galleryItems.Add(item);
+                    // 后台线程写：与 UI 侧筛选管线快照读取（SnapshotGalleryItems）经锁互斥
+                    // （tag-filter-tree Step 6 扫描中面板编辑实时生效的竞态收口；无竞争锁纳秒级）。
+                    lock (_galleryItemsLock)
+                    {
+                        _galleryItems.Add(item);
+                    }
                     chunk.Add(item);
                     uiBuffer.Add(item);
                     if (chunk.Count >= LibraryScanService.ChunkSize)
@@ -833,6 +884,21 @@ public partial class MainViewModel : ObservableObject
     private void ToggleInfoPanel()
     {
         IsInfoPanelCollapsed = !IsInfoPanelCollapsed;
+    }
+
+    /// <summary>
+    /// 图库右栏（选中集标签面板）是否处于折叠态（默认展开；batch-tag-management Step 4，
+    /// 全仿 <see cref="IsInfoPanelCollapsed"/> 先例）。仅图库模式可见——面板宿主随 GalleryVisibility
+    /// 显隐，单图模式天然隐藏，本状态跨模式保持（回图库恢复原收展态）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isGallerySelectionPanelCollapsed;
+
+    /// <summary>折叠/展开图库右栏（选中集标签面板）。</summary>
+    [RelayCommand]
+    private void ToggleGallerySelectionPanel()
+    {
+        IsGallerySelectionPanelCollapsed = !IsGallerySelectionPanelCollapsed;
     }
 
     /// <summary>
@@ -956,6 +1022,32 @@ public partial class MainViewModel : ObservableObject
         SelectedCardCount = _selectedCards.Count;
     }
 
+    /// <summary>当前呈现集是否已全部选中（全选态判定；呈现集为空恒 false）。</summary>
+    private bool IsAllCardsSelected
+        => _waterfall.Items.Count > 0 && SelectedCardCount >= _waterfall.Items.Count;
+
+    /// <summary>
+    /// 工具栏「选择」按钮（六轮用户需求，常用功能）：智能切换——未全选 → 全选当前呈现集
+    /// （与 Ctrl+A 同管线）；已全选 → 清空（与 Esc 同管线）。2026-09-19 拍板移除过的
+    /// 「清除选择」按钮是图库状态行内的一次性权衡，本按钮为工具栏常驻全选/取消一体入口，口径已由用户新决策覆盖。
+    /// </summary>
+    [RelayCommand]
+    private void ToggleSelectAll()
+    {
+        if (IsAllCardsSelected)
+        {
+            ClearCardSelection();
+        }
+        else
+        {
+            SelectAllCards();
+        }
+    }
+
+    /// <summary>按选中数与呈现集刷新「选择」按钮文案（全选 ⇄ 取消全选）。</summary>
+    private void UpdateSelectAllToggleText()
+        => SelectAllToggleText = IsAllCardsSelected ? "取消全选" : "全选";
+
     /// <summary>
     /// 回车进入单图（PRD 需求 4「双击或回车进入单图」；MainWindow PreviewKeyDown 仿 Ctrl+A 口径接线，
     /// cr/P1-4）：取选中集首项——按当前呈现序找第一张选中卡（选中集为 HashSet 无序，呈现序口径确定）；
@@ -1025,16 +1117,15 @@ public partial class MainViewModel : ObservableObject
     private const int MaxFailureDetails = 20;
 
     /// <summary>
-    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选）：
+    /// 侧栏标签 chip 点击入口（2026-09-19 交互重构：点击一律 = 筛选；tag-filter-tree：QuickAdd 追加）：
     /// 单图模式下额外切回图库让筛选结果可见
     /// （CLI 直开无图库时保持单图——无索引可查，切回只会看到空态）。
-    /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）。
-    /// 原 Shift+点击“从选中集移除”入口随之取消——移除走详情页右栏 chip 的 ✕（原
-    /// RemoveTagFromSelectionAsync 已删除，需要时 git 历史可找回）。
+    /// 打标入口已移交：拖拽卡片到标签行 / 单图详情右栏 / 快捷键（ApplyTagByShortcutAsync）；
+    /// 批量移除入口 = 图库右栏 chip ✕（RemoveTagFromSelectionAsync，batch-tag-management Step 4
+    /// 重启同名方法——语义为选中集批量移除标签，非旧 Shift+点击口径）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
-    /// <param name="ctrl">Ctrl 按下 = 加/减选（多标签 OR）；否则单选筛选（见 <see cref="ToggleTagFilterAsync"/>）。</param>
-    public async Task HandleTagChipTappedAsync(string tagName, bool ctrl)
+    public void HandleTagChipTapped(string tagName)
     {
         if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
         {
@@ -1046,7 +1137,7 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        await ToggleTagFilterAsync(tagName, ctrl);
+        ToggleTagFilter(tagName);
     }
 
     /// <summary>
@@ -1058,7 +1149,8 @@ public partial class MainViewModel : ObservableObject
     /// <param name="tagId">快捷键绑定引用的标签稳定 Id（<see cref="TagDefinition.Id"/>）。</param>
     public async Task ApplyTagByShortcutAsync(string? tagId)
     {
-        if (string.IsNullOrWhiteSpace(tagId) || _isTagOperationRunning)
+        // 打标管线互斥闸（vm/B-1）：打标自身防重入 + 删除选中集进行中禁止打标（双向互斥，见 DeleteSelectionAsync）。
+        if (string.IsNullOrWhiteSpace(tagId) || _isTagOperationRunning || _isDeleteSelectionRunning)
         {
             return;
         }
@@ -1173,6 +1265,13 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 打标管线互斥闸（vm/B-1）：拖放目标即打标管线入口——打标进行中或删除选中集进行中
+        // 均拒绝（双向互斥，见 DeleteSelectionAsync）；payload 已消费不留残留，Drop 手势按 no-op 落地。
+        if (_isTagOperationRunning || _isDeleteSelectionRunning)
+        {
+            return;
+        }
+
         // 2026-09-19 口径：原「未分组虚拟组」兜底（ownerGroup ?? 合成兼容组）随虚拟组移除成死分支已删；
         // 理论上 ownerGroup 必非空，防御性 null（调用方异常构造的 chip）直接忽略本次拖放。
         if (ownerGroup is null)
@@ -1184,47 +1283,74 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 按路径集批量打标（选中集快捷键与拖拽共用入口）：路径 → 候选 GalleryItem——优先在当前呈现集中
-    /// 查同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；不在呈现集（如拖拽中途瀑布流被重置）
-    /// 时解析文件名构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+    /// 按路径集批量打标/移除（选中集快捷键、拖拽与图库右栏 chip ✕ 共用入口）：路径 → 候选 GalleryItem——
+    /// 优先在当前呈现集中查同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；不在呈现集
+    /// （如拖拽中途瀑布流被重置）时解析文件名构造最小候选（未知宽高回退 1:1，索引行由后续对账重建纠正）。
+    /// remove 变体（batch-tag-management Step 4）：组参数仅满足签名不消费组语义（RunTagOperationAsync
+    /// remove 分支按名移除），调用方传 <see cref="FindGroupByTagName"/> 兜底组；回执标题用移除口径
+    /// 「移除标签「X」」（与单图 ✕ :1348 同文案）。
     /// </summary>
-    private async Task ApplyTagToPathsAsync(IReadOnlyList<string> paths, TagGroup group, string tagName)
+    /// <param name="paths">目标路径集。</param>
+    /// <param name="group">标签所属配置组（remove 路径仅占位）。</param>
+    /// <param name="tagName">标签名。</param>
+    /// <param name="remove">true = 移除标签（图库右栏 chip ✕）；false = 添加标签（默认，原行为）。</param>
+    private async Task ApplyTagToPathsAsync(
+        IReadOnlyList<string> paths, TagGroup group, string tagName, bool remove = false)
     {
-        if (paths.Count == 0 || _isTagOperationRunning || string.IsNullOrWhiteSpace(tagName))
+        // 打标管线互斥闸（vm/B-1）：统一批量管线的根部守卫——打标自身防重入 + 删除选中集
+        // 进行中禁止打标（双向互斥，见 DeleteSelectionAsync）；覆盖快捷键/拖拽/图库右栏 chip ✕/目录批量各上游。
+        if (paths.Count == 0 || _isTagOperationRunning || _isDeleteSelectionRunning
+            || string.IsNullOrWhiteSpace(tagName))
         {
             return;
         }
 
-        var candidates = new List<GalleryItem>(paths.Count);
-        foreach (var path in paths)
-        {
-            var item = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path);
-            if (item is not null)
-            {
-                candidates.Add(item);
-            }
-        }
+        // 回执标题提前计算（vm/B-2/full/B-2：外层异常兜底 catch 需引用操作名）。
+        var title = remove
+            ? $"移除标签「{tagName}」"
+            : group.Exclusive
+                ? $"互斥组设置「{tagName}」"
+                : $"添加标签「{tagName}」";
 
-        if (candidates.Count == 0)
-        {
-            return;
-        }
-
-        var title = group.Exclusive
-            ? $"互斥组设置「{tagName}」"
-            : $"添加标签「{tagName}」";
-
-        _isTagOperationRunning = true;
+        // 批量管线根部异常兜底（vm/B-2 + full/B-2）：本方法是全部批量打标/移除链路的统一管线
+        //（快捷键批量/拖拽/图库右栏 chip ✕/目录批量 ApplyCatalogTagToSelectionAsync——后者被
+        // TagCatalogDialog 以 `_ =` fire-and-forget 调用），管线级异常若无 catch 会静默进
+        // UnobservedTaskException，用户视角「点了没反应」。在此统一捕获并经 InfoBar 出错误回执；
+        // 内层 finally 收口先于外层 catch 执行（嵌套结构保证错误回执不被收口覆盖）。
         try
         {
-            BeginTagOperation(title, showProgress: true, candidates.Count);
-            var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove: false, showProgress: true);
-            ShowTagOperationResult(result, sync);
-            await RefreshTagDataAsync();
+            var candidates = new List<GalleryItem>(paths.Count);
+            foreach (var path in paths)
+            {
+                var item = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path);
+                if (item is not null)
+                {
+                    candidates.Add(item);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation(title, showProgress: true, candidates.Count);
+                var (result, sync) = await RunTagOperationAsync(candidates, group, tagName, remove, showProgress: true);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+            }
+            finally
+            {
+                ClearTagOperationRunning();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            ClearTagOperationRunning();
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, title, ex.Message, []);
         }
     }
 
@@ -1255,7 +1381,10 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task ToggleTagOnCurrentImageAsync(TagGroup group, string tagName)
     {
+        // 单图打标管线根部守卫（vm/B-1 ② + full/B-1）：打标自身防重入 + 删除选中集进行中禁止
+        // 单图打标（双向互斥，见 DeleteSelectionAsync）——单图右栏 ✕、目录点选等全部单图入口在此收口。
         if (_isTagOperationRunning
+            || _isDeleteSelectionRunning
             || _currentIndex < 0
             || _currentIndex >= _imageFiles.Count)
         {
@@ -1275,50 +1404,64 @@ public partial class MainViewModel : ObservableObject
 
         var remove = tags.Contains(tagName, StringComparer.OrdinalIgnoreCase);
 
-        // 打标方向预检文件名预算（即时拒绝，不进批量管线）：按互斥语义计算打标后的真实新标签集合，
-        // 组件名超 Linux 255 UTF-8 字节即拒绝并附超出字节数（批量入口由 BuildNewPath 双口径预检
-        // 拦截、失败明细自然带新文案；移除方向只减不加，天然不超，无需预检）。
-        if (!remove)
-        {
-            var newTags = TagSemantics.Apply(tags, group, tagName);
-            var budgetError = TagFilenameBudget.CheckFileNameBudget(baseName, extension, newTags);
-            if (budgetError is not null)
-            {
-                ShowInstantTagFeedback(
-                    InfoBarSeverity.Warning,
-                    "打标失败",
-                    budgetError + "可缩短标签名或改用更短的基名后重试。",
-                    []);
-                return;
-            }
-        }
+        // 回执标题提前计算（vm/B-2/full/B-2：外层异常兜底 catch 需引用操作名）。
+        var title = remove ? $"移除标签「{tagName}」" : $"添加标签「{tagName}」";
 
-        // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
-        // 不在呈现集（如 CLI 直开）时解析文件名构造最小候选（上方 TryParse 已成功，必非 null）。
-        var candidate = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path)!;
-
-        _isTagOperationRunning = true;
+        // 单图管线根部异常兜底（vm/B-2 + full/B-2）：单图右栏 ✕（RemoveCurrentImageTagAsync）与
+        // 单图目录点选（ApplyCatalogTagAsync——TagCatalogDialog 以 `_ =` fire-and-forget 调用）全部
+        // 经此管线，管线级异常若无 catch 会静默进 UnobservedTaskException，用户视角「点了没反应」。
+        // 在此统一捕获并经 InfoBar 出错误回执；内层 finally 收口先于外层 catch 执行（回执不被覆盖）。
         try
         {
-            var title = remove ? $"移除标签「{tagName}」" : $"添加标签「{tagName}」";
-            BeginTagOperation(title, showProgress: false, totalCount: 1);
-            var (result, sync) = await RunTagOperationAsync(
-                [candidate], group, tagName, remove, showProgress: false);
-            ShowTagOperationResult(result, sync);
-            await RefreshTagDataAsync();
-
-            // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
-            //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
-            // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算文件名分段与右栏信息行；
-            // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
-            if (sync.Synced > 0)
+            // 打标方向预检文件名预算（即时拒绝，不进批量管线）：按互斥语义计算打标后的真实新标签集合，
+            // 组件名超 Linux 255 UTF-8 字节即拒绝并附超出字节数（批量入口由 BuildNewPath 双口径预检
+            // 拦截、失败明细自然带新文案；移除方向只减不加，天然不超，无需预检）。
+            if (!remove)
             {
-                await RefreshCurrentAfterRenameAsync();
+                var newTags = TagSemantics.Apply(tags, group, tagName);
+                var budgetError = TagFilenameBudget.CheckFileNameBudget(baseName, extension, newTags);
+                if (budgetError is not null)
+                {
+                    ShowInstantTagFeedback(
+                        InfoBarSeverity.Warning,
+                        "打标失败",
+                        budgetError + "可缩短标签名或改用更短的基名后重试。",
+                        []);
+                    return;
+                }
+            }
+
+            // 候选优先取呈现集中同路径项（宽高/排序 key 继承，瀑布流卡片就地更新不失真）；
+            // 不在呈现集（如 CLI 直开）时解析文件名构造最小候选（上方 TryParse 已成功，必非 null）。
+            var candidate = FindPresentedItemByPath(path) ?? TryBuildCandidateFromPath(path)!;
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation(title, showProgress: false, totalCount: 1);
+                var (result, sync) = await RunTagOperationAsync(
+                    [candidate], group, tagName, remove, showProgress: false);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+
+                // 改名成功：同图改名不重载——图片字节未变，保持 ImageSource/_currentLoaded/缩放态
+                //（2026-09-19 管线修复：旧实现走 LoadCurrentAsync，先置空 ImageSource 再按新路径
+                // 全量重解码，造成闪空、解码缓存 miss 与缩放复位）。仅按新路径重算文件名分段与右栏信息行；
+                // 解码缓存已在 SyncRenamedItemsAsync 阶段二迁移到新路径键（翻页回来命中）。
+                if (sync.Synced > 0)
+                {
+                    await RefreshCurrentAfterRenameAsync();
+                }
+            }
+            finally
+            {
+                ClearTagOperationRunning();
             }
         }
-        finally
+        catch (Exception ex)
         {
-            ClearTagOperationRunning();
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, title, ex.Message, []);
         }
     }
 
@@ -1327,8 +1470,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 移除当前图的一个标签（右栏 chip 的 ✕）：按标签名解析所属配置组（未命中 = 兜底组）后走单图
     /// toggle 管线——当前图必含该标签（chips 即当前标签集），toggle 即移除。
-    /// 2026-09-19 用户拍板：右栏 chips 保留显示全部标签（含无组）且 ✕ 可移除——这是清理文件名中
-    /// 无组脏数据的<b>唯一 UI 出口</b>（有意偏差 demo，demo 也跳过无组）；remove 分支按名操作文件、
+    /// 2026-09-19 用户拍板：右栏 chips 保留显示全部标签（含无组）且 ✕ 可移除（有意偏差 demo，
+    /// demo 也跳过无组）；2026-09-22 batch-tag-management 修订——无组标签清理出口：单图右栏 ✕ /
+    /// 图库右栏并集 chip ✕ 批量移除 / 未定义区连锁删除；remove 分支按名操作文件、
     /// 不消费组语义，故兜底组仅作 toggle 管线的非空参数（见 <see cref="FindGroupByTagName"/>）。
     /// </summary>
     /// <param name="tagName">标签名。</param>
@@ -1370,6 +1514,280 @@ public partial class MainViewModel : ObservableObject
                 Exclusive = false,
             };
 
+    // ==================== 未定义标签区执行管线（batch-tag-management Step 3：连锁删除 D3 / 收纳 D4） ====================
+
+    /// <summary>
+    /// 未定义标签连锁删除（D3，spec Step 3）：确认对话框（宿主回调，含影响张数与不可逆提示）→
+    /// <see cref="ILibraryIndexService.QueryByTagsAsync"/> 取候选 → 空候选直接返回（计数竞态兜底）→
+    /// 候选转 GalleryItem（照 <see cref="ApplyTagToPathsAsync"/> 的 FindPresentedItemByPath 口径）→
+    /// 批量移除统一管线（RunTagOperationAsync remove:true，分批 25/就地同步/回执口径与批量打标一致）→
+    /// 计数刷新。未定义标签必不在配置组——组参数用 <see cref="FindGroupByTagName"/> 兜底组占位
+    /// （remove 分支按名操作文件、不消费组语义）。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    public async Task RemoveTagFromLibraryAsync(string tagName)
+    {
+        // 连锁删除走 RunTagOperationAsync(remove) 打标管线改同一文件集，与删除选中集互斥（vm/B-1 意图，
+        // 入口清单增补）：删除进行中触发会与回收站删除交错产出幽灵卡片。
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning || _isDeleteSelectionRunning)
+        {
+            return;
+        }
+
+        // 未定义区连锁删除的调用方（TagSidebarViewModel 以 `_ =` fire-and-forget 丢弃 Task）使
+        // 本方法任何管线级异常——确认对话框宿主回调、索引查询、批量移除管线——都会静默进
+        // UnobservedTaskException，用户视角「点了没反应」（vm/B-2）。方法体最外层捕获并经
+        // InfoBar 出错误回执，与 [RelayCommand] 路径的全局异常回执行为对齐；内层 finally 收口
+        // 先于外层 catch 执行（嵌套结构保证错误回执不被收口覆盖）。
+        try
+        {
+            // 确认对话框：影响张数取计数快照（chip 上的计数同源，确认口径与所见一致）；
+            // 宿主未注入回调（组装期防御）视为未确认直接返回。
+            if (ConfirmUndefinedDeleteAsync is null
+                || !await ConfirmUndefinedDeleteAsync(tagName, GetTagCount(tagName)))
+            {
+                return;
+            }
+
+            // 无索引守卫（对齐 RenameFilesAsync 现口径）：未开图库时未定义区本就为空（计数快照
+            // 来自索引聚合），天然不触发；此处防御返回 + InfoBar 提示而非静默失败。
+            if (_indexService is null)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    $"移除标签「{tagName}」",
+                    "尚未打开图库（无索引可用）。",
+                    []);
+                return;
+            }
+
+            var queried = await _indexService.QueryByTagsAsync([tagName]);
+            if (queried.Count == 0)
+            {
+                return; // 计数竞态兜底：确认期间引用已被其他路径清空，无需动作。
+            }
+
+            // 候选转换（ApplyTagToPathsAsync 同口径）：优先呈现集中同路径项（宽高/排序 key 继承，
+            // 瀑布流卡片就地更新不失真）；索引行本身即完整 GalleryItem，未命中呈现集时直接可用。
+            // vm/B-3：候选集来自 QueryByTagsAsync 全库命中（误打大标签可达数万~十万级），原先
+            // 每项 FindPresentedItemByPath 线性扫描 = 命中数×呈现集 次 UI 线程字符串比较（O(N×M)，
+            // 分钟级冻结）；改为循环前对呈现集预建路径字典一次 O(M)（OrdinalIgnoreCase，与
+            // FindPresentedItemByPath 同比较口径；呈现集路径唯一，索引器覆盖赋值无语义差），
+            // 循环内 O(1) 查找，总 O(N+M)，常规场景零行为变化。
+            var presentedByPath = new Dictionary<string, GalleryItem>(
+                _waterfall.Items.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var viewModel in _waterfall.Items)
+            {
+                presentedByPath[viewModel.Item.Path] = viewModel.Item;
+            }
+
+            var candidates = new List<GalleryItem>(queried.Count);
+            foreach (var queriedItem in queried)
+            {
+                candidates.Add(presentedByPath.GetValueOrDefault(queriedItem.Path) ?? queriedItem);
+            }
+
+            _isTagOperationRunning = true;
+            try
+            {
+                BeginTagOperation($"移除标签「{tagName}」", showProgress: true, candidates.Count);
+                var (result, sync) = await RunTagOperationAsync(
+                    candidates, FindGroupByTagName(tagName), tagName, remove: true, showProgress: true);
+                ShowTagOperationResult(result, sync);
+                await RefreshTagDataAsync();
+            }
+            finally
+            {
+                ClearTagOperationRunning();
+            }
+        }
+        catch (Exception ex)
+        {
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, $"移除标签「{tagName}」", ex.Message, []);
+        }
+    }
+
+    /// <summary>
+    /// 未定义标签收纳入口（D4 编排，侧栏 chip「收纳进组」命令目标）：弹目标组选择对话框
+    /// （宿主回调，重名在对话框内即时提示）→ 取消/对话框侧拒绝则返回 → 执行配置层收纳。
+    /// 执行侧错误（竞态防御，正常流程不可达）经 InfoBar 回显。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    public async Task AbsorbUndefinedTagAsync(string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(tagName))
+        {
+            return;
+        }
+
+        if (PickAbsorbGroupAsync is null)
+        {
+            return; // 宿主未注入回调（组装期防御）。
+        }
+
+        // 未定义区收纳的调用方（TagSidebarViewModel 以 `_ =` fire-and-forget 丢弃 Task）使本方法
+        // 任何管线级异常——目标组对话框宿主回调（PickAbsorbGroupAsync）与执行段——都会静默进
+        // UnobservedTaskException，用户视角「点了没反应」（vm/B-2）。方法体最外层捕获并经
+        // InfoBar 出错误回执，与 [RelayCommand] 路径的全局异常回执行为对齐。
+        try
+        {
+            var (groupId, dialogError) = await PickAbsorbGroupAsync(tagName);
+            if (dialogError is not null)
+            {
+                // 对话框侧已回显（如重名即时提示），此处不重复弹。
+                return;
+            }
+
+            if (groupId is null)
+            {
+                return; // 用户取消。
+            }
+
+            var error = await AbsorbUndefinedTagAsync(tagName, groupId);
+            if (error is not null)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    "收纳标签失败",
+                    error,
+                    []);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 管线级异常回执（vm/B-2）：异常进 InfoBar 错误回执，而非静默丢进 UnobservedTaskException。
+            ShowInstantTagFeedback(InfoBarSeverity.Error, "收纳标签失败", ex.Message, []);
+        }
+    }
+
+    /// <summary>
+    /// 未定义标签收纳执行（D4）：Load settings → 找目标组 → 前置重名检查（任何组已有同名标签即拒
+    /// ——对齐 <see cref="SettingsService.ValidateTagGroups"/> 的组内/跨组重名口径，未前置则 Save 时
+    /// 被校验以更生硬文案拒绝）→ 组内新建 TagDefinition（新 Id 生成方式照 ExecuteAddTag 现状）→
+    /// <see cref="SaveSettingsAndRebuildSidebar"/>。0 文件改名（收编语义：按名匹配配置自然生效）。
+    /// 返回 null = 成功；非 null = 拒绝文案。
+    /// </summary>
+    /// <param name="tagName">未定义标签名（计数键拼写）。</param>
+    /// <param name="targetGroupId">目标配置组 Id（对话框选定）。</param>
+    public async Task<string?> AbsorbUndefinedTagAsync(string tagName, string targetGroupId)
+    {
+        if (_settingsService is null)
+        {
+            return "设置服务未初始化。";
+        }
+
+        // 纯配置操作无 await 点，保持 async 签名对齐编排入口（对话框确认后的续体语义）。
+        await Task.CompletedTask;
+        var settings = _settingsService.Load();
+        var group = FindGroup(settings.TagGroups, targetGroupId);
+        if (group is null)
+        {
+            return "目标标签组不存在（配置可能已被外部修改）。";
+        }
+
+        // 前置重名检查（B3）：查全部组而非仅目标组——ValidateTagGroups 拒绝跨组重名，只查目标组
+        // 会把拒绝推迟到 Save 时以「跨组标签重名」文案弹出。未定义标签理论上必不在任何组
+        // （投影差集已排除），此检查是对话框快照与当前配置竞态的防御。
+        var conflict = settings.TagGroups.FirstOrDefault(g => g.Tags.Any(t =>
+            string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)));
+        if (conflict is not null)
+        {
+            return $"组「{conflict.Name}」已存在同名标签「{tagName}」，文件名标签不允许跨组重名。";
+        }
+
+        group.Tags.Add(new TagDefinition { Id = Guid.NewGuid().ToString("N"), Name = tagName });
+        return SaveSettingsAndRebuildSidebar(settings);
+    }
+
+    // ==================== 图库右栏：选中集标签并集（batch-tag-management Step 4，D6） ====================
+
+    /// <summary>
+    /// 图库右栏并集 chip 集合：选中集全部图片标签的并集（含未定义标签——C2 数据层），
+    /// 计数 = 选中集内含该标签的图片数（如 30 张中 18 张含 Z → 「Z 18」）。计数降序、
+    /// 同计数按名 Ordinal（TagProjection 排序口径）；随选中集变化与标签操作收口全量重建（UI 线程）。
+    /// </summary>
+    public ObservableCollection<TagCountEntry> SelectionTagUnion { get; } = [];
+
+    /// <summary>选中集并集是否非空（右栏 chip 区/空态文案互斥可见性）。</summary>
+    public bool HasSelectionTags => SelectionTagUnion.Count > 0;
+
+    /// <summary>右栏标题行文本：「已选 N 张」（随选中数刷新）。</summary>
+    public string SelectionPanelTitleText => $"已选 {SelectedCardCount} 张";
+
+    /// <summary>
+    /// 全量重算选中集标签并集（D6）：<see cref="TagProjection.ComputeSelectionTagUnion"/> 纯函数 →
+    /// 集合先清后加重建。锁不需要——<see cref="_selectedCards"/> 只在 UI 线程动；容忍
+    /// SelectSingleCard/SelectCardRange 先清后加的 0→n 中间态通知（重算幂等，中间态闪变可接受，D6）。
+    /// 三个挂点（改标签的所有路径汇入这些收口；<b>不在</b> ReplaceGalleryItemState 内部逐文件触发
+    /// ——防 N 次重算放大 O(N²)，D6 拍板）：
+    /// ① <see cref="OnSelectedCardCountChanged"/>——选中集增减（点选/Ctrl/Shift/Ctrl+A/Esc 清空）；
+    /// ② <see cref="RunTagOperationAsync"/> 返回前——批量打标/移除统一管线收口（单图 ✕、选中集快捷键
+    ///    打标、拖拽打标、图库右栏 chip ✕、未定义区连锁删全汇入），完成后一次；
+    /// ③ <see cref="RenameFilesAsync"/> 尾部——重命名标签连锁改标签，完成后一次。
+    /// </summary>
+    public void RecomputeSelectionTagUnion()
+    {
+        SelectionTagUnion.Clear();
+        foreach (var entry in TagProjection.ComputeSelectionTagUnion(
+                     _selectedCards.Select(static vm => vm.Item.Tags)))
+        {
+            SelectionTagUnion.Add(entry);
+        }
+
+        OnPropertyChanged(nameof(HasSelectionTags));
+    }
+
+    /// <summary>
+    /// 图库右栏 chip ✕ 批量移除（C1）：选中集中 <see cref="Models.GalleryItem.Tags"/> 含该标签
+    /// （OrdinalIgnoreCase）的文件路径 → <see cref="ApplyTagToPathsAsync"/> remove 变体（统一批量管线：
+    /// 分批 25/就地同步/回执口径与批量打标一致）。仅选中集内命中的文件被移除；选中集保持——
+    /// ReplaceGalleryItemState 卡片 VM 实例不变（UpdateFrom 就地更新）天然保选中。
+    /// 无命中（计数竞态：chip 显示后标签已被其他路径移除）静默返回。
+    /// </summary>
+    /// <param name="tagName">标签名（chip 显示拼写）。</param>
+    public async Task RemoveTagFromSelectionAsync(string tagName)
+    {
+        // 打标管线互斥闸（vm/B-1）：图库右栏 chip ✕ 同为改文件管线——打标自身防重入 +
+        // 删除选中集进行中禁止移除（双向互斥，见 DeleteSelectionAsync）；下游 ApplyTagToPathsAsync 根部同守卫双保险。
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning || _isDeleteSelectionRunning)
+        {
+            return;
+        }
+
+        var paths = _selectedCards
+            .Where(vm => vm.Item.Tags.Contains(tagName, StringComparer.OrdinalIgnoreCase))
+            .Select(static vm => vm.Item.Path)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            return; // 计数竞态兜底：选中集已无该标签，无需动作。
+        }
+
+        await ApplyTagToPathsAsync(paths, FindGroupByTagName(tagName), tagName, remove: true);
+    }
+
+    /// <summary>
+    /// 图库右栏「＋ 添加标签」按钮（batch-tag-management Step 5 接线，替换 Step 4 no-op 占位，C4）：
+    /// 空选中 → Information 轻提示「请先选择图片」（按钮可点但引导先选择，PRD C4 空态口径）；
+    /// 有选中 → 宿主回调打开批量标签目录（TagCatalogDialog 批量三态变体，
+    /// Title「为选中图片添加标签」，ApplyDialogTheme + _shortcutsEnabled 模式）。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSelectionTagCatalogAsync()
+    {
+        if (SelectedCardCount == 0)
+        {
+            ShowInstantTagFeedback(InfoBarSeverity.Informational, "批量打标", "请先选择图片。", []);
+            return;
+        }
+
+        if (ShowSelectionTagCatalogAsync is not null)
+        {
+            await ShowSelectionTagCatalogAsync();
+        }
+    }
+
     /// <summary>
     /// 标签目录快照（TagCatalogDialog 构造时一次性取用）：配置组序列 + 当前图标签集
     /// （判已选态）。快照口径——对话框生命周期内配置不变（编辑入口都在侧栏，对话框打开期间互斥）。
@@ -1386,6 +1804,18 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public async Task ApplyCatalogTagAsync(TagGroup group, string tagName)
         => await ToggleTagOnCurrentImageAsync(group, tagName);
+
+    /// <summary>
+    /// 对选中集应用目录选中的标签（TagCatalogDialog 批量变体行点击转发，batch-tag-management Step 5，C3）：
+    /// 选中集路径集（<see cref="_selectedCards"/> 全部 Item.Path）→ 统一批量打标管线
+    /// （<see cref="ApplyTagToPathsAsync"/> remove:false——互斥组替换语义与回执标题「互斥组设置「X」」
+    /// 天然沿用）。完成后并集重算已有收口挂点（<see cref="RunTagOperationAsync"/> 返回前统一触发，D6），
+    /// 无需额外挂点。打开对话框后选中集被清空的中间态（计数竞态）直接返回。
+    /// </summary>
+    public Task ApplyCatalogTagToSelectionAsync(TagGroup group, string tagName)
+        => _selectedCards.Count == 0
+            ? Task.CompletedTask
+            : ApplyTagToSelectionAsync(group, tagName);
 
     /// <summary>
     /// 同图改名后的轻量刷新：不重走解码管线（字节未变），仅按新路径重算文件名分段与右栏信息行
@@ -1453,6 +1883,11 @@ public partial class MainViewModel : ObservableObject
                 TagFeedbackMessage = $"正在处理 {processed}/{candidates.Count} 张";
             }
         }
+
+        // 图库右栏挂点②（D6）：批量打标/移除统一管线收口——所有改标签路径（批量打标/单图右栏 ✕/
+        // 图库右栏 chip ✕/未定义区连锁删）汇入本管线，完成后重算一次选中集并集
+        // （SyncRenamedItemsAsync 已就地更新选中卡片的 Item.Tags；不在其内部逐文件触发，防 O(N²)）。
+        RecomputeSelectionTagUnion();
 
         return (new BatchOperationResult(succeeded, failures), new SyncResult(syncedTotal, failedTotal));
     }
@@ -1564,56 +1999,66 @@ public partial class MainViewModel : ObservableObject
         return null;
     }
 
-    // ==================== 标签筛选（Step 9：点击侧栏标签 = 切换筛选，OR 语义；Step 11：筛选条 UI；untagged-filter-entry：无标签筛选） ====================
+    // ==================== 标签筛选（tag-filter-tree：条件树单一内存求值 + 表达式段筛选条；untagged ∅ 独立位互斥） ====================
 
-    /// <summary>任一筛选是否激活（标签集非空或无标签模式；筛选条可见性与扫描追加块过滤依据）。</summary>
-    public bool HasAnyFilter => _activeFilterTags.Count > 0 || IsUntaggedFilterActive;
+    /// <summary>任一筛选是否激活（条件树有有效条件或无标签模式；筛选条可见性与扫描追加块过滤依据）。
+    /// 「树有有效条件」= CollectReferencedTags 非空（空 Values 条件 = 未启用，不约束不计数）。</summary>
+    public bool HasAnyFilter
+        => TagFilterState.CollectReferencedTags(_filterRoot).Count > 0 || IsUntaggedFilterActive;
+
+    /// <summary>条件树当前条件行数（含未启用行；BuildExpression 条件段计数，工具栏徽章 Step 5 接线用）。</summary>
+    public int ActiveConditionCount
+        => TagFilterState.BuildExpression(_filterRoot).OfType<CondSegment>().Count();
 
     /// <summary>
-    /// 瀑布流追加块的筛选谓词（薄包装，状态机下沉 Core——cr/P2-3）：
-    /// 无标签态 = 无任何标签命中；否则 OR 命中任一激活标签。
+    /// 瀑布流追加块的筛选谓词（spec D1 单一求值器：筛选应用与扫描追加块过滤共用同一树求值）：
+    /// 无标签态 = MatchesUntagged；否则条件树 Evaluate（无有效条件时树恒真 = 全过，等价不过滤）。
     /// </summary>
     public bool MatchesTagFilter(GalleryItem item)
-        => TagFilterState.Matches(item.Tags, _activeFilterTags, IsUntaggedFilterActive);
-
-    /// <summary>当前激活的筛选标签集快照（侧栏 chip 高亮依据）。</summary>
-    public IReadOnlyCollection<string> ActiveFilterTags => _activeFilterTags;
+        => IsUntaggedFilterActive
+            ? TagFilterState.MatchesUntagged(item.Tags)
+            : TagFilterState.Evaluate(_filterRoot, item.Tags);
 
     /// <summary>从最近一次计数快照取指定标签计数（编辑对话框影响张数）。</summary>
     public int GetTagCount(string tagName)
         => _latestTagCounts.TryGetValue(tagName, out var count) ? count : 0;
 
-    /// <summary>筛选条 chip 集合（激活标签；随筛选集/配置组变化全量重建，UI 线程）。</summary>
+    /// <summary>筛选条 chip 集合（表达式段形态；随筛选态/配置组变化全量重建，UI 线程）。</summary>
     public ObservableCollection<FilterChipViewModel> FilterChips { get; } = [];
 
-    /// <summary>筛选条可见性（任一筛选激活——标签或无标签；Step 11）。</summary>
+    /// <summary>筛选条可见性（任一筛选激活——条件树或无标签）。</summary>
     public Visibility FilterBarVisibility =>
         HasAnyFilter ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>多标签 OR 语义徽章可见性（两个及以上激活标签）。</summary>
-    public Visibility OrBadgeVisibility =>
-        _activeFilterTags.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>筛选统计文本：命中 X / 已发现 Y 张（命中 = 当前呈现数；已发现 = 扫描全量暂存数）。</summary>
     public string FilterStatsText =>
         $"命中 {_waterfall.Items.Count} / 已发现 {_galleryItems.Count} 张";
 
-    /// <summary>移除单个筛选标签（筛选条 chip 的 ✕；Step 11 单删）。</summary>
-    public async Task RemoveTagFilterAsync(string tagName)
+    /// <summary>删除单个条件行（筛选条条件 chip 的 ✕；按节点引用删除，RemoveNode）。</summary>
+    private void RemoveTagFilter(FilterConditionNode node)
     {
-        if (!string.IsNullOrWhiteSpace(tagName) && _activeFilterTags.Remove(tagName))
+        if (TagFilterState.RemoveNode(_filterRoot, node))
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
+    }
+
+    /// <summary>清空全部筛选（筛选条右侧「清空」按钮，demo 形态）：条件树清空 + 无标签位复位回全量。</summary>
+    [RelayCommand]
+    private void ClearTagFilter()
+    {
+        TagFilterState.Clear(_filterRoot);
+        IsUntaggedFilterActive = false;
+        ApplyTagFilter();
     }
 
     /// <summary>
     /// 切换「无标签」筛选（untagged-filter-entry；侧栏标题行 ∅ 按钮入口）：
-    /// 激活 = 清空标签筛选（互斥）并只显示无任何标签的图片；再点取消回全量。
-    /// 单图模式下先切回图库让筛选结果可见（对齐 HandleTagChipTappedAsync 行为）。
+    /// 激活 = 清空条件树（互斥）并只显示无任何标签的图片；再点取消回全量。
+    /// 单图模式下先切回图库让筛选结果可见（对齐 HandleTagChipTapped 行为）。
     /// </summary>
     [RelayCommand]
-    private async Task ToggleUntaggedFilterAsync()
+    private void ToggleUntaggedFilter()
     {
         if (_isTagOperationRunning)
         {
@@ -1625,80 +2070,130 @@ public partial class MainViewModel : ObservableObject
             CurrentMode = ViewerMode.Gallery;
         }
 
-        // 状态机语义下沉 Core（cr/P2-3）：激活 = 清空标签筛选（互斥清集）；再点取消回全量。
-        var (untoggledTags, untagged) = TagFilterState.ToggleUntagged(_activeFilterTags, IsUntaggedFilterActive);
-        WriteFilterState(untoggledTags, untagged);
+        // 状态机语义（TagFilterState.ToggleUntagged）：未激活 → 激活 = 互斥清树；
+        // 已激活 → 再点关闭回全量（激活期间树恒被清空，无需恢复）。
+        IsUntaggedFilterActive = TagFilterState.ToggleUntagged(_filterRoot, IsUntaggedFilterActive);
 
-        await ApplyTagFilterAsync();
+        ApplyTagFilter();
     }
 
     /// <summary>
-    /// 点击侧栏标签 = 筛选（2026-09-19 对齐卡片 Explorer 心智）：
-    /// 无修饰 = 单选重置（替换为该标签；当前唯一选中就是它时再点 = 取消回全量，保留既有习惯）；
-    /// Ctrl+点击 = 加/减选切换（多标签 OR 语义）。
-    /// 与「无标签」筛选互斥（拍板）：点任何标签筛选自动退出无标签模式。
-    /// 筛选态下瀑布流只显示命中（索引 QueryByTags 全量命中集整体替换，不渐进追加）；
-    /// 命中数经筛选条反馈（Step 11）。
+    /// 点击侧栏标签 = 快捷追加筛选条件（tag-filter-tree，demo addQuickCond 拍板语义）：
+    /// 往根组追加一条单值 in 条件；根组 Or 且已有单值 in 行则合并进该行；
+    /// 已存在含该值的 in 条件（全树）则忽略（返回 false 静默——「已在筛选中」）。
+    /// 旧三分支语义（单选重置/Ctrl 加减选/唯一选中再点取消）随条件树化废弃，不再读修饰键。
     /// </summary>
-    public async Task ToggleTagFilterAsync(string tagName, bool ctrl = false)
+    /// <param name="tagName">标签名。</param>
+    public void ToggleTagFilter(string tagName)
     {
         if (string.IsNullOrWhiteSpace(tagName))
         {
             return;
         }
 
-        // 状态机语义下沉 Core（cr/P2-3，零行为变化）：互斥清位 / Ctrl 加减选 /
-        // 唯一选中再点取消 / 无修饰单选重置，语义详见 TagFilterState.Toggle。
-        var (tags, untagged) = TagFilterState.Toggle(_activeFilterTags, IsUntaggedFilterActive, tagName, ctrl);
-        WriteFilterState(tags, untagged);
+        if (TagFilterState.QuickAdd(_filterRoot, tagName))
+        {
+            // 树编辑成功：互斥清无标签位（spec D4 反方向互斥由本类持有该标志实现）。
+            IsUntaggedFilterActive = false;
+            ApplyTagFilter();
+        }
+    }
 
-        await ApplyTagFilterAsync();
+    // ==================== 筛选面板编辑入口（tag-filter-tree Step 5：薄包装集中一处，不动既有筛选逻辑） ====================
+
+    /// <summary>
+    /// 筛选面板树编辑统一管线（Step 5 集中入口，demo refreshAll 同构）：
+    /// <paramref name="editAction"/> 收到根组引用，在其闭包内完成本次树编辑
+    /// （TagFilterState 编辑函数 + 面板持有的节点引用定位目标）；
+    /// 编辑后统一互斥清无标签位（spec D4 反方向互斥）并 <see cref="ApplyTagFilter"/>
+    /// （chips / 侧栏 / 瀑布流 / 命中数一次到位，条件实时生效无应用按钮）。
+    /// 面板不得缓存根组引用绕过本管线改树（只读读取走 <see cref="ReadFilter"/>）。
+    /// </summary>
+    /// <param name="editAction">本次树编辑动作（参数 = 根组引用，仅闭包内使用）。</param>
+    public void EditFilter(Action<FilterGroupNode> editAction)
+    {
+        editAction(_filterRoot);
+        IsUntaggedFilterActive = false;
+        ApplyTagFilter();
     }
 
     /// <summary>
-    /// 写回筛选状态机结果（cr/P2-3）：集合原位替换——_activeFilterTags 实例引用保持稳定
-    /// （侧栏重建 / chip 高亮持有同一 HashSet）；无标签位经属性 setter 走既有变更通知。
+    /// 筛选面板只读快照构建入口（面板 Rebuild 用）：<paramref name="readFunc"/> 收到根组引用
+    /// 仅做遍历读取（构建不可变渲染快照 / 判空）；树修改一律经 <see cref="EditFilter"/>。
     /// </summary>
-    private void WriteFilterState(IEnumerable<string> tags, bool untagged)
-    {
-        _activeFilterTags.Clear();
-        foreach (var tag in tags)
-        {
-            _activeFilterTags.Add(tag);
-        }
+    /// <typeparam name="T">读取结果类型。</typeparam>
+    /// <param name="readFunc">只读函数（参数 = 根组引用）。</param>
+    public T ReadFilter<T>(Func<FilterGroupNode, T> readFunc) => readFunc(_filterRoot);
 
-        IsUntaggedFilterActive = untagged;
+    /// <summary>
+    /// 筛选面板值选择候选快照（与侧栏 RebuildTagSidebar / TagCatalogDialog 同源）：
+    /// 配置组序列（组名 / 互斥标记 / 组内标签）+ 最近一次索引标签计数（_latestTagCounts）。
+    /// </summary>
+    public (IReadOnlyList<TagGroup> Groups, IReadOnlyDictionary<string, int> Counts) GetFilterTagChoices()
+        => (_settingsService?.Load().TagGroups ?? [], _latestTagCounts);
+
+    /// <summary>
+    /// 取 <see cref="_galleryItems"/> 稳定快照（tag-filter-tree Step 6 扫描实时性收口）：
+    /// 扫描进行中后台线程仍在逐项 Add（面板编辑实时生效的前提是随时可重应用筛选），
+    /// UI 线程筛选管线直接枚举活集合会触发 List 枚举版本冲突（InvalidOperationException，
+    /// UI 线程未捕获即崩溃）；锁内拷贝后枚举快照——扫描中面板每次编辑（EditFilter →
+    /// ApplyTagFilter）即取一次，与后台 Add 短暂互斥（拷贝 10 万量级毫秒级，攒批投递
+    /// 300ms 粒度不受感）。WaterfallViewModel.ResetFrom 的「快照后复用」只保证自身两次
+    /// 枚举一致，不消除枚举中的并发修改，故收口在本层完成。
+    /// </summary>
+    private List<GalleryItem> SnapshotGalleryItems()
+    {
+        lock (_galleryItemsLock)
+        {
+            return [.. _galleryItems];
+        }
     }
 
     /// <summary>
-    /// 按当前筛选态刷新瀑布流（重置视图；选中集清空——卡片 VM 将全部重建）。
-    /// 三分流（untagged-filter-entry）：无标签 → QueryUntaggedAsync；标签集非空 → QueryByTagsAsync；否则全量。
+    /// 按当前筛选态刷新瀑布流。三分支全内存化（spec D1，索引层零改动）：无标签 →
+    /// MatchesUntagged 谓词；树有有效条件 → Evaluate 谓词；否则全量（发现序）。命中结果按
+    /// SortKey 自然序排序（对齐原索引查询分支口径；GalleryItemNaturalComparer 与索引查询同款）。
+    /// 枚举源统一为锁内快照（Step 6）：扫描进行中后台 Add 与本管线枚举的竞态收口。
+    /// 命中序列与当前呈现完全一致时跳过整体重置（实机走查修复）：无变化的重置会整墙
+    /// 闪跳（卡片 VM 全部重建、缩略图重新加载）+ 无谓清空选中集——面板添加空条件、
+    /// 切换未启用条件的操作符等编辑不应惊动图墙（demo renderWall 平滑重排同因：内容不变无感知）。
     /// </summary>
-    private async Task ApplyTagFilterAsync()
+    private void ApplyTagFilter()
     {
-        if (_indexService is not null && IsUntaggedFilterActive)
+        var gallery = SnapshotGalleryItems();
+
+        List<GalleryItem> target;
+        if (IsUntaggedFilterActive)
         {
-            var hits = await _indexService.QueryUntaggedAsync();
-            ClearCardSelection();
-            _waterfall.ResetFrom(hits);
-            WaterfallEmptyText = hits.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
+            target = gallery
+                .Where(i => TagFilterState.MatchesUntagged(i.Tags))
+                .OrderBy(static i => i, GalleryItemNaturalComparer.Instance)
+                .ToList();
         }
-        else if (_indexService is not null && _activeFilterTags.Count > 0)
+        else if (TagFilterState.CollectReferencedTags(_filterRoot).Count > 0)
         {
-            var hits = await _indexService.QueryByTagsAsync([.. _activeFilterTags]);
-            ClearCardSelection();
-            _waterfall.ResetFrom(hits);
-            WaterfallEmptyText = hits.Count == 0 ? "当前筛选条件下没有命中图片" : string.Empty;
+            target = gallery
+                .Where(i => TagFilterState.Evaluate(_filterRoot, i.Tags))
+                .OrderBy(static i => i, GalleryItemNaturalComparer.Instance)
+                .ToList();
         }
         else
         {
-            // 无筛选（或尚未建立索引）：回到扫描全量（发现顺序，D15）。
-            ClearCardSelection();
-            _waterfall.ResetFrom(_galleryItems);
-            WaterfallEmptyText = HasGallery && _galleryItems.Count == 0 && !IsScanning
-                ? "未在所选目录发现图片"
-                : string.Empty;
+            // 无有效条件：回到扫描全量（发现顺序，D15）。
+            target = gallery;
         }
+
+        if (!_waterfall.PresentsExactly(target))
+        {
+            ClearCardSelection();
+            _waterfall.ResetFrom(target);
+        }
+
+        WaterfallEmptyText = target.Count == 0
+            ? (IsUntaggedFilterActive || TagFilterState.CollectReferencedTags(_filterRoot).Count > 0
+                ? "当前筛选条件下没有命中图片"
+                : (HasGallery && !IsScanning ? "未在所选目录发现图片" : string.Empty))
+            : string.Empty;
 
         OnPropertyChanged(nameof(GalleryStatusText));
         OnPropertyChanged(nameof(FilterBarVisibility));
@@ -1740,12 +2235,14 @@ public partial class MainViewModel : ObservableObject
     {
         var configGroups = _settingsService?.Load().TagGroups ?? [];
         var counts = _latestTagCounts;
-        var filters = _activeFilterTags;
+        // 侧栏高亮 = 条件树引用标签快照（spec D4：CollectReferencedTags，OrdinalIgnoreCase 集合，
+        // 侧栏 Rebuild 的 Contains 判定直接可用；全量重建惯例——不持有树内集合引用）。
+        var filters = TagFilterState.CollectReferencedTags(_filterRoot);
 
         void Rebuild()
         {
             var tagHuesChanged = TagSidebar.Rebuild(configGroups, counts, filters);
-            RebuildFilterChips(configGroups);
+            RebuildFilterChips();
 
             if (tagHuesChanged)
             {
@@ -1774,40 +2271,51 @@ public partial class MainViewModel : ObservableObject
     public void RefreshThemeDependentVisuals() => RebuildTagSidebar();
 
     /// <summary>
-    /// 重建筛选条 chip 集合（Step 11）：激活标签 → 「组名：标签名」chip + 单删命令；
-    /// 呈现顺序按组名 + 标签名稳定排序（筛选集为 HashSet，需确定序）。仅在 UI 线程调用。
-    /// 2026-09-19 口径：_activeFilterTags 不落盘且激活入口仅剩侧栏配置组行（未分组筛选入口
-    /// 已随虚拟组移除），标签必属配置组、组名恒可解析；查不到组（配置被外部修改的防御）时
-    /// 组名段为空串，chip 显示「：标签名」（理论不可达）。
-    /// untagged-filter-entry：无标签模式激活时在最前插入「无标签」chip（与标签筛选互斥，
-    /// 两者不同时存在），✕ = 再点取消（绑 ToggleUntaggedFilterCommand；组名空串，
-    /// 文本/颜色转换器按空组名特判——FilterChipText 只显示「无标签」、chip 颜色取中性灰）。
+    /// 重建筛选条 chip 集合（tag-filter-tree：表达式段形态，demo exprChips 同构）：
+    /// 条件段 = 「标签：a / b」胶囊（否定 NotIn 加「非」前缀 + 红前景，✕ 删该条件节点）；
+    /// 连接词段「且/或」与括号段「( )」为轻量文本；均在 UI 线程调用。
+    /// 空值条件仍产段（「标签：未选」——面板可见可再赋值，demo 同构）。
+    /// untagged：无标签模式激活时在最前插入「无标签」chip（与条件树互斥，两者不同时存在），
+    /// ✕ = 再点取消（绑 ToggleUntaggedFilterCommand）。
     /// </summary>
-    private void RebuildFilterChips(List<TagGroup> configGroups)
+    private void RebuildFilterChips()
     {
         FilterChips.Clear();
         if (IsUntaggedFilterActive)
         {
-            FilterChips.Add(new FilterChipViewModel(
-                string.Empty,
-                "无标签",
-                ToggleUntaggedFilterCommand));
+            FilterChips.Add(FilterChipViewModel.Untagged(ToggleUntaggedFilterCommand));
         }
 
-        foreach (var tagName in _activeFilterTags
-                     .OrderBy(t => t, StringComparer.CurrentCulture))
+        foreach (var segment in TagFilterState.BuildExpression(_filterRoot))
         {
-            var groupName = configGroups
-                .FirstOrDefault(g => g.Tags.Any(t =>
-                    string.Equals(t.Name, tagName, StringComparison.OrdinalIgnoreCase)))
-                ?.Name ?? string.Empty;
-            FilterChips.Add(new FilterChipViewModel(
-                groupName,
-                tagName,
-                new AsyncRelayCommand(() => RemoveTagFilterAsync(tagName))));
+            switch (segment)
+            {
+                case CondSegment cond:
+                    FilterChips.Add(FilterChipViewModel.Condition(
+                        cond.Node,
+                        CondChipText(cond),
+                        cond.Negated,
+                        new RelayCommand(() => RemoveTagFilter(cond.Node))));
+                    break;
+                case OpSegment op:
+                    FilterChips.Add(FilterChipViewModel.Op(op.Op));
+                    break;
+                case ParenSegment paren:
+                    FilterChips.Add(FilterChipViewModel.Paren(paren.Open));
+                    break;
+            }
         }
 
-        OnPropertyChanged(nameof(OrBadgeVisibility));
+        OnPropertyChanged(nameof(ActiveConditionCount));
+    }
+
+    /// <summary>条件 chip 文本（demo chipLabel 同构）：「标签：a / b」，空值集显示「未选」，否定加「非」前缀。</summary>
+    private static string CondChipText(CondSegment segment)
+    {
+        var label = segment.Values.Count == 0
+            ? "标签：未选"
+            : $"标签：{string.Join(" / ", segment.Values)}";
+        return segment.Negated ? $"非 {label}" : label;
     }
 
     // ==================== 标签/组编辑执行（Step 9：TagEditDialog 的执行委托） ====================
@@ -1833,8 +2341,8 @@ public partial class MainViewModel : ObservableObject
                 TagEditKind.RenameGroup => ExecuteRenameGroup(request, input),
                 TagEditKind.ToggleExclusive => ExecuteToggleExclusive(request),
                 TagEditKind.RenameTag => await ExecuteRenameTagAsync(request, input),
-                TagEditKind.DeleteTag => await ExecuteDeleteTagAsync(request),
-                TagEditKind.DeleteGroup => await ExecuteDeleteGroupAsync(request),
+                TagEditKind.DeleteTag => ExecuteDeleteTag(request),
+                TagEditKind.DeleteGroup => ExecuteDeleteGroup(request),
                 _ => "未知操作。",
             };
         }
@@ -1937,6 +2445,11 @@ public partial class MainViewModel : ObservableObject
             return renameResult; // 整体拒绝。
         }
 
+        // 筛选树联动（tag-filter-tree 新增能力）：树内旧名引用统一改新拼写，有改动则重应用筛选
+        // （旧 HashSet 时代无此联动——重命名后筛选集残留旧名静默失效，条件树化后按名联动收口）。
+        var filterChanged = TagFilterState.RenameTagReferences(
+            _filterRoot, request.TagName, input.Name);
+
         // 原「未分组标签重命名 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
         // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
         if (group is not null && tag is not null)
@@ -1948,31 +2461,37 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
+        if (filterChanged)
+        {
+            ApplyTagFilter();
+        }
+
         return null;
     }
 
-    /// <summary>删除标签：候选（索引命中）→ TagService 落盘移除 → 同步索引/瀑布流/筛选集 → 配置移除保存。</summary>
-    private async Task<string?> ExecuteDeleteTagAsync(TagEditRequest request)
+    /// <summary>
+    /// 删除标签定义（batch-tag-management Step 2 纯化，D2）：纯配置操作、0 文件改名——
+    /// 文件上的该标签保留，之后出现在未定义标签区。前置快捷键绑定引用整体拒绝（A2 口径：
+    /// 文案沿用原 TagService.DeleteTagAsync 原文；不前移则 ValidateBindings 会在 Save 时以
+    /// 「引用的标签不存在」错误文案拒绝悬空绑定，口径不符）。
+    /// 通过后：筛选树引用摘除 → 配置移除标签定义 → 保存重建侧栏 → 筛选有变化则重应用。
+    /// </summary>
+    private string? ExecuteDeleteTag(TagEditRequest request)
     {
         var settings = _settingsService!.Load();
         var group = FindGroup(settings.TagGroups, request.GroupId);
         var tag = group?.Tags.FirstOrDefault(t =>
             string.Equals(t.Name, request.TagName, StringComparison.Ordinal));
 
-        var deleteResult = await RenameFilesAsync(
-            statusPrefix: $"删除标签「{request.TagName}」",
-            candidateTagNames: [request.TagName],
-            executeAsync: paths => _tagService.DeleteTagAsync(
-                paths, tag ?? new TagDefinition { Name = request.TagName }),
-            transform: tags => RemoveTag(tags, request.TagName));
-
-        if (deleteResult is not null)
+        // 前置绑定引用拒绝：整体拒绝（TagEditDialog 保持打开回显错误，不走任何文件管线）。
+        if (tag is not null && IsTagReferencedByBindings(settings, tag.Id))
         {
-            return deleteResult; // 整体拒绝（如被快捷键绑定引用）。
+            return $"标签“{tag.Name}”被快捷键绑定引用，请先修改或移除相关绑定再删除。";
         }
 
-        // 筛选集清理：已删除的标签不再可筛选（在筛选集中则重查）。
-        var filterChanged = _activeFilterTags.Remove(request.TagName);
+        // 筛选树联动：已删除的标签引用全树移除（被清空条件保留为未启用恒真行），
+        // 有改动则重应用筛选（命中集可能变化）。
+        var filterChanged = TagFilterState.RemoveTagReferences(_filterRoot, request.TagName);
 
         // 原「未分组标签显式删除 → ForgetUngroupedTag」分支已删（2026-09-19 口径：侧栏移除未分组
         // 虚拟组与「曾见即留」记忆后，GroupId 仅由配置组行构造，group 必非空、无记忆可摘）。
@@ -1988,14 +2507,19 @@ public partial class MainViewModel : ObservableObject
 
         if (filterChanged)
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         return null;
     }
 
-    /// <summary>删除标签组：候选（组内全部标签 OR 命中）→ 级联落盘移除 → 同步 → 配置移除组保存。</summary>
-    private async Task<string?> ExecuteDeleteGroupAsync(TagEditRequest request)
+    /// <summary>
+    /// 删除标签组定义（batch-tag-management Step 2 纯化，D2）：纯配置操作、0 文件改名——
+    /// 组内标签在文件上保留，之后出现在未定义标签区。组内任一标签被快捷键绑定引用即整体拒绝
+    /// （D2 新增：原 DeleteGroupAsync 无绑定校验，不前置将落进 ValidateBindings 悬空绑定错误文案）。
+    /// 通过后：逐标签摘筛选树引用（聚合 changed）→ 配置移除组 → 保存重建侧栏 → 筛选有变化则重应用。
+    /// </summary>
+    private string? ExecuteDeleteGroup(TagEditRequest request)
     {
         var settings = _settingsService!.Load();
         var group = FindGroup(settings.TagGroups, request.GroupId);
@@ -2004,23 +2528,18 @@ public partial class MainViewModel : ObservableObject
             return "目标标签组不存在（配置可能已被外部修改）。";
         }
 
-        var groupTagNames = group.Tags.Select(t => t.Name).ToList();
-        var groupSnapshot = group; // 执行时组标签名单快照（防迭代中被修改）。
-        var deleteResult = await RenameFilesAsync(
-            statusPrefix: $"删除标签组「{request.GroupName}」",
-            candidateTagNames: groupTagNames,
-            executeAsync: paths => _tagService.DeleteGroupAsync(paths, groupSnapshot),
-            transform: tags => tags.Where(t => !groupTagNames.Contains(t, StringComparer.OrdinalIgnoreCase)).ToArray());
-
-        if (deleteResult is not null)
+        // 前置绑定引用拒绝：组内任一标签被引用即整体拒绝（与删除标签同一文案口径）。
+        var referencedTag = group.Tags.FirstOrDefault(t => IsTagReferencedByBindings(settings, t.Id));
+        if (referencedTag is not null)
         {
-            return deleteResult;
+            return $"标签“{referencedTag.Name}”被快捷键绑定引用，请先修改或移除相关绑定再删除。";
         }
 
+        // 筛选树联动：组内全部标签的引用逐一移除（RemoveTagReferences 幂等，聚合有改动标记）。
         var filterChanged = false;
-        foreach (var tagName in groupTagNames)
+        foreach (var tagName in group.Tags.Select(t => t.Name).ToList())
         {
-            filterChanged |= _activeFilterTags.Remove(tagName);
+            filterChanged |= TagFilterState.RemoveTagReferences(_filterRoot, tagName);
         }
 
         settings.TagGroups.Remove(group);
@@ -2032,17 +2551,29 @@ public partial class MainViewModel : ObservableObject
 
         if (filterChanged)
         {
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         return null;
     }
 
     /// <summary>
-    /// 统一的重命名落盘管线：索引取候选 → TagService 批量执行（成功不回滚）→
-    /// 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ InfoBar 回执
+    /// 判定标签 Id 是否被快捷键绑定引用（ApplyTag + TagId 命中；原 TagService 构造注入的同名
+    /// 谓词随 DeleteTagAsync 删除迁此）。A2 口径：拒绝文案沿用原 DeleteTagAsync 原文；
+    /// 不前移则 ValidateBindings 以「引用的标签不存在」错误文案拒绝悬空绑定。
+    /// </summary>
+    private static bool IsTagReferencedByBindings(AppSettings settings, string tagId)
+        => settings.Shortcuts.Any(b =>
+            b.Command == ViewerCommand.ApplyTag
+            && string.Equals(b.TagId, tagId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// 统一的重命名落盘管线（batch-tag-management Step 2 起为重命名连锁专用——删除标签/组已纯化为
+    /// 配置删除、不再走文件管线，唯一调用方 ExecuteRenameTagAsync）：索引取候选 → TagService 批量执行
+    /// （成功不回滚）→ 逐文件同步索引行与瀑布流卡片（就地更新，保滚动位置与选中态，D15）→ InfoBar 回执
     ///（全成功静默、有失败弹 Warning；原状态栏回执已随状态栏移除迁移至此，2026-09-19）。
-    /// 返回 null = 已执行（含部分失败，回执进 InfoBar）；非 null = 整体拒绝（对话框内显示）。
+    /// 返回 null = 已执行（含部分失败，回执进 InfoBar）；非 null = 整体拒绝（对话框内显示；
+    /// 重命名管线现状不产生整体拒绝——Reject 语义已随 DeleteTagAsync 删除迁 VM，识别分支保留作防御）。
     /// </summary>
     /// <param name="statusPrefix">InfoBar 回执前缀（操作名）。</param>
     /// <param name="candidateTagNames">候选集的标签（OR 命中）。</param>
@@ -2069,7 +2600,7 @@ public partial class MainViewModel : ObservableObject
         var result = await executeAsync(paths);
         if (result.Failures.Count == 1 && result.Failures[0].Path.Length == 0)
         {
-            return result.Failures[0].Reason; // 整体拒绝（如标签被快捷键绑定引用）。
+            return result.Failures[0].Reason; // 整体拒绝（拒绝语义已随 DeleteTagAsync 迁 VM，重命名现状不产生；防御保留）。
         }
 
         // 索引与瀑布流就地同步：仅当旧路径消失且预测新路径存在（该文件实际改名成功）。
@@ -2089,6 +2620,10 @@ public partial class MainViewModel : ObservableObject
 
         // 索引已同步：刷新计数快照并重建侧栏（后续配置保存路径的 Rebuild 复用新快照）。
         await RefreshTagDataAsync();
+
+        // 图库右栏挂点③（D6）：重命名连锁改标签（唯一改标签而不经 RunTagOperationAsync 的路径），
+        // 尾部重算一次选中集并集（SyncRenamedItemsAsync 已就地更新选中卡片的 Item.Tags）。
+        RecomputeSelectionTagUnion();
         return null;
     }
 
@@ -2300,12 +2835,17 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private void ReplaceGalleryItemState(string oldPath, GalleryItem newItem)
     {
-        for (var i = 0; i < _galleryItems.Count; i++)
+        // 索引替换与后台扫描 Add 的数组扩容竞态经锁互斥（Step 6；扫描中打标/改名走本路径；
+        // for 索引访问虽无枚举版本检查，但与 Add 的内部数组重分配并发写会丢更新）。
+        lock (_galleryItemsLock)
         {
-            if (string.Equals(_galleryItems[i].Path, oldPath, StringComparison.OrdinalIgnoreCase))
+            for (var i = 0; i < _galleryItems.Count; i++)
             {
-                _galleryItems[i] = newItem;
-                break;
+                if (string.Equals(_galleryItems[i].Path, oldPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _galleryItems[i] = newItem;
+                    break;
+                }
             }
         }
 
@@ -2407,23 +2947,172 @@ public partial class MainViewModel : ObservableObject
 
         // 磁盘事实已变（2026-09-18 走查修复：旧实现只删内存列表，文件从未进回收站，
         // 重开图库"已删"图片复活）。图库打开时同步列表/索引/瀑布流呈现，事实源永远是磁盘。
-        var galleryIndex = _galleryItems.FindIndex(item =>
-            string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
-        if (galleryIndex >= 0)
+        // FindIndex + RemoveAt 为原子段：与后台扫描 Add 经锁互斥（Step 6，扫描中单图删除场景）。
+        bool removedFromGallery;
+        lock (_galleryItemsLock)
         {
-            _galleryItems.RemoveAt(galleryIndex);
+            var galleryIndex = _galleryItems.FindIndex(item =>
+                string.Equals(item.Path, path, StringComparison.OrdinalIgnoreCase));
+            removedFromGallery = galleryIndex >= 0;
+            if (removedFromGallery)
+            {
+                _galleryItems.RemoveAt(galleryIndex);
+            }
+        }
+
+        if (removedFromGallery)
+        {
             if (_indexService is not null)
             {
                 await _indexService.RemovePathAsync(path);
             }
 
-            // 扫描计数文案同步（ApplyTagFilterAsync 只重建瀑布流不刷新 ScanStatusText，
+            // 扫描计数文案同步（ApplyTagFilter 只重建瀑布流不刷新 ScanStatusText，
             // 否则状态栏残留删除前的"共 N 张"）。
             ScanStatusText = $"共 {_galleryItems.Count} 张";
-            await ApplyTagFilterAsync();
+            ApplyTagFilter();
         }
 
         await RemoveCurrentImageAfterFileOperationAsync();
+    }
+
+    /// <summary>
+    /// 图库「删除选中集」（batch-tag-management Step 7，D9 / PRD 核心需求 5）：
+    /// 确认（含张数与回收站提示）→ 批量回收站删除（服务层逐文件聚合失败、成功不回滚）→
+    /// 锁内 <see cref="_galleryItems"/> 移除成功路径 → 索引批量删行 → ScanStatusText 刷新 →
+    /// <see cref="ApplyTagFilter"/>（内含选中清空/命中数/侧栏重建——必须经它而非自绘同步）→
+    /// <see cref="_imageFiles"/> 裁剪校正索引（防回单图撞 FileNotFound，见
+    /// <see cref="TrimImageFilesAfterDeletion"/>）。
+    /// 回执口径（沿用批量回执拍板）：全成功静默；全失败 Error 且不动任何内存状态（可重试）；
+    /// 部分失败 Warning（成功 N 失败 M + 明细）。空选中 no-op（PRD D3——不加 CanExecute）；
+    /// 防重入闸为独立标志位（<see cref="_isDeleteSelectionRunning"/>，不置
+    /// <see cref="_isTagOperationRunning"/>——该标志联动打标专属语义，见字段注释）。
+    /// 扫描中边界：<see cref="_galleryItems"/> 移除全程锁内（与后台扫描 Add 互斥）；迟到
+    /// upsert 的索引复活是既有口径（spec R4，单图删除同在，重开图库 ClearAllItemsAsync
+    /// 兜底）——本期不修。
+    /// </summary>
+    [RelayCommand]
+    private async Task DeleteSelectionAsync()
+    {
+        // 双向互斥闸（vm/B-1）：除自身防重入外，批量打标进行中（_isTagOperationRunning=true，
+        // 非模态）禁止并发删除——TagService 改名与 SHFileOperationW 回收站删除作用于同一选中集
+        // 会交错出幽灵卡片（SyncRenamedItemsAsync 双探测读到旧不在/新在但即将被删）与失败口径混乱。
+        if (_isDeleteSelectionRunning || _isTagOperationRunning)
+        {
+            return;
+        }
+
+        // 路径集快照（选中集卡片 → Item.Path；确认对话框期间选中集可能被清，须先固化）。
+        var paths = _selectedCards.Select(static vm => vm.Item.Path).ToList();
+        if (paths.Count == 0)
+        {
+            return; // 空选中 no-op（PRD D3）。
+        }
+
+        _isDeleteSelectionRunning = true;
+        try
+        {
+            if (ConfirmDeleteSelectionAsync is not null && !await ConfirmDeleteSelectionAsync(paths.Count))
+            {
+                return;
+            }
+
+            var result = await _fileOperations.DeleteToRecycleBin(paths);
+
+            // 全失败（成功 0 且有失败）：不动任何内存状态（图库/索引/选中集原样），Error 回执可重试。
+            if (result.SucceededCount == 0 && result.Failures.Count > 0)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Error,
+                    "删除选中图片",
+                    $"全部 {result.Failures.Count} 张删除失败，图库未改动（失败项可重试）。",
+                    BuildFailureDetails(result.Failures));
+                return;
+            }
+
+            // 成功路径 = 传入路径 − 失败明细路径（整体拒绝的空 Path 不参与差集；
+            // 批量删除服务逐文件聚合、不产生整体拒绝，此为口径自证而非防御分支）。
+            var failurePaths = result.Failures
+                .Select(static failure => failure.Path)
+                .Where(static p => p.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var succeededPaths = paths
+                .Where(p => !failurePaths.Contains(p))
+                .ToList();
+
+            // 锁内移除成功路径（OrdinalIgnoreCase 同单图删除 FindIndex 口径；扫描中与后台 Add 互斥）。
+            var succeededPathSet = succeededPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            lock (_galleryItemsLock)
+            {
+                _galleryItems.RemoveAll(item => succeededPathSet.Contains(item.Path));
+            }
+
+            if (_indexService is not null)
+            {
+                await _indexService.RemovePathsAsync(succeededPaths);
+            }
+
+            // 扫描计数文案同步（ApplyTagFilter 只重建瀑布流不刷新 ScanStatusText；Count 单读免锁口径）。
+            ScanStatusText = $"共 {_galleryItems.Count} 张";
+            ApplyTagFilter();
+
+            // 单图翻页列表裁剪（须在 ApplyTagFilter 之后：选中清空与瀑布流重建不依赖本列表）。
+            TrimImageFilesAfterDeletion(succeededPathSet);
+
+            // 部分失败 Warning（全成功静默——批量回执拍板，删除结果在瀑布流就地可见）。
+            if (result.Failures.Count > 0)
+            {
+                ShowInstantTagFeedback(
+                    InfoBarSeverity.Warning,
+                    "删除选中图片",
+                    $"成功 {result.SucceededCount} 张，失败 {result.Failures.Count} 张（成功项不回滚，失败项可重试）。",
+                    BuildFailureDetails(result.Failures));
+            }
+        }
+        finally
+        {
+            _isDeleteSelectionRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// 批量删除后就地裁剪单图翻页列表并校正索引（D9）：已删路径若在 <see cref="_imageFiles"/>
+    /// 中则移除——防回单图时 <see cref="CurrentImagePath"/> 指向已删文件撞 FileNotFound
+    /// （删除管线不置 <see cref="_isTagOperationRunning"/>，LoadCurrentAsync 的重试兜底
+    /// 不适用，必须在此收口）。索引校正参考 <see cref="RemoveCurrentImageAfterFileOperationAsync"/>
+    /// 的回退逻辑：删的都在当前索引前 → 索引左移；当前指向被删 → 索引停在原位指向下一张
+    /// （RemoveAll 就地左移，原位即下一张）；越界钳到末尾；清空则 ClearViewer。
+    /// 仅裁列表不重载当前图（本命令只在图库模式派发，单图视图此刻不可见）；不整体清解码
+    /// 缓存——会误伤存活图片的缓存命中，已删路径的孤儿缓存条目交 LRU 自然淘汰。
+    /// </summary>
+    /// <param name="deletedPathSet">已删除成功的路径集（OrdinalIgnoreCase）。</param>
+    private void TrimImageFilesAfterDeletion(HashSet<string> deletedPathSet)
+    {
+        // 移除前先快照判定：统计当前索引之前被删的数量（决定左移量）。当前项本身被删无需
+        // 标记——索引停在原位即原下一张（RemoveAll 就地左移，见下方校正注释）。
+        var removedBeforeCurrent = 0;
+        for (var i = 0; i < _currentIndex && i < _imageFiles.Count; i++)
+        {
+            if (deletedPathSet.Contains(_imageFiles[i]))
+            {
+                removedBeforeCurrent++;
+            }
+        }
+
+        _imageFiles.RemoveAll(deletedPathSet.Contains);
+        if (_imageFiles.Count == 0)
+        {
+            ClearViewer();
+            return;
+        }
+
+        // 索引校正：先扣掉当前索引之前被删的数量；当前项被删时索引停在原位即原下一张
+        //（RemoveAll 就地左移，无需再调）；最后越界钳到末尾（删到尾部的场景）。
+        _currentIndex -= removedBeforeCurrent;
+        if (_currentIndex >= _imageFiles.Count)
+        {
+            _currentIndex = _imageFiles.Count - 1;
+        }
     }
 
     /// <summary>
@@ -2480,6 +3169,10 @@ public partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SingleVisibility));
         OnPropertyChanged(nameof(GalleryVisibility));
+
+        // 工具栏场景化按钮组（batch-tag-management Step 6，D8）：随模式切换通知派生可见性。
+        OnPropertyChanged(nameof(GalleryOnlyControlsVisibility));
+        OnPropertyChanged(nameof(SingleOnlyControlsVisibility));
     }
 
     partial void OnHasGalleryChanged(bool value)
@@ -2517,6 +3210,13 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(InfoPanelCollapsedVisibility));
     }
 
+    partial void OnIsGallerySelectionPanelCollapsedChanged(bool value)
+    {
+        // 图库右栏收展派生可见性（batch-tag-management Step 4，全仿单图右栏先例）。
+        OnPropertyChanged(nameof(GallerySelectionPanelExpandedVisibility));
+        OnPropertyChanged(nameof(GallerySelectionPanelCollapsedVisibility));
+    }
+
     public Visibility ImageVisibility => HasImage ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility EmptyStateVisibility => HasImage ? Visibility.Collapsed : Visibility.Visible;
@@ -2530,6 +3230,21 @@ public partial class MainViewModel : ObservableObject
     /// <summary>图库视图可见性（D14：与 SingleVisibility 互斥）。</summary>
     public Visibility GalleryVisibility =>
         CurrentMode == ViewerMode.Gallery ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 工具栏「图库组」按钮可见性（batch-tag-management Step 6，D8）：选择 / ⧩筛选 / 删除
+    /// 仅图库模式显示（隐藏 = Collapsed 非禁用；快捷键走 OnPreviewKeyDown 与按钮无关，零影响——
+    /// PRD「快捷键保持全模式可用」不含按钮）。通知挂 <see cref="OnCurrentModeChanged"/>。
+    /// </summary>
+    public Visibility GalleryOnlyControlsVisibility =>
+        CurrentMode == ViewerMode.Gallery ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 工具栏「单图组」按钮可见性（D8）：返回图库 / 上一张 / 下一张 / 左旋 / 右旋
+    /// 仅单图模式显示（隐藏 = Collapsed；单图 Delete 等快捷键路径不受按钮隐藏影响）。
+    /// </summary>
+    public Visibility SingleOnlyControlsVisibility =>
+        CurrentMode == ViewerMode.Single ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>扫描状态文本可见性：已打开图库或扫描进行中时显示。</summary>
     public Visibility ScanStatusVisibility =>
@@ -2554,6 +3269,17 @@ public partial class MainViewModel : ObservableObject
     /// <summary>单图详情右栏折叠窄条可见性。</summary>
     public Visibility InfoPanelCollapsedVisibility =>
         IsInfoPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// 图库右栏（选中集标签面板）展开态可见性（batch-tag-management Step 4，仿单图右栏先例；
+    /// 仅图库模式整体可见——面板宿主挂 GalleryVisibility 那层 Grid 内，单图模式天然隐藏）。
+    /// </summary>
+    public Visibility GallerySelectionPanelExpandedVisibility =>
+        IsGallerySelectionPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>图库右栏折叠窄条可见性（36 窄条 + ◀ 展开按钮）。</summary>
+    public Visibility GallerySelectionPanelCollapsedVisibility =>
+        IsGallerySelectionPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>图库状态行文本：扫描/共 N 张 + 已选 N 张（筛选命中数在筛选条显示，Step 11 起）。</summary>
     public string GalleryStatusText
@@ -2587,8 +3313,12 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedCardCountChanged(int value)
     {
-        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）。
+        // 选中数变化刷新图库状态行「已选 N 张」后缀（GalleryStatusText 拼接依赖）与工具栏「选择」按钮文案；
+        // 图库右栏挂点①（D6）：选中集增减 → 并集全量重算 + 右栏标题行刷新（batch-tag-management Step 4）。
         OnPropertyChanged(nameof(GalleryStatusText));
+        OnPropertyChanged(nameof(SelectionPanelTitleText));
+        RecomputeSelectionTagUnion();
+        UpdateSelectAllToggleText();
     }
 
     partial void OnIsTagOperationInProgressChanged(bool value)
@@ -2601,12 +3331,13 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
     }
 
-    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性、状态行与筛选统计。</summary>
+    /// <summary>瀑布流项集合变化（渐进追加/重置/就地替换）时刷新空态可见性、状态行、筛选统计与「选择」按钮文案。</summary>
     private void OnWaterfallItemsChanged()
     {
         OnPropertyChanged(nameof(WaterfallEmptyVisibility));
         OnPropertyChanged(nameof(GalleryStatusText));
         OnPropertyChanged(nameof(FilterStatsText));
+        UpdateSelectAllToggleText();
     }
 
     partial void OnHasImageChanged(bool value)
@@ -2677,12 +3408,12 @@ public partial class MainViewModel : ObservableObject
                 // 同图重载（未预清空）：换源后释放被替换旧源的 GIF 句柄（UriSource 指向文件，
                 // 持有会锁文件阻碍打标改名；异图路径已在加载前 ReleaseCurrentImageSource 清过）。
                 var replacedSource = ImageSource;
-                var newSource = ImageSourceHelper.FromLoadedImage(loaded);
+                var newSource = await ImageSourceHelper.FromLoadedImageAsync(loaded);
 
                 // GIF 顺修（2026-09-19）：GIF 源是 BitmapImage+UriSource（异步打开，ImageOpened 前
                 // 无像素）且不入解码缓存——直接换源则打开完成前 Image 空窗（resize 触发的 GIF 重载
                 // 每次都闪）。同图场景等 ImageOpened 再提交（带超时兜底），旧源在等待期保持显示；
-                // 非 GIF（WriteableBitmap 同步有像素）维持原状直接提交。
+                // 非 GIF（SoftwareBitmap 源在 FromLoadedImageAsync 内已就绪像素）维持直接提交。
                 if (loaded.IsGif
                     && newSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage gifBitmap)
                 {
@@ -2934,25 +3665,74 @@ public partial class MainViewModel : ObservableObject
     }
 }
 
+/// <summary>筛选条 chip 形态（tag-filter-tree）：条件段 / 连接词段 / 括号段 / 无标签独立 chip。</summary>
+public enum FilterChipKind
+{
+    /// <summary>无标签 chip（untagged ∅ 独立入口激活时插最前）。</summary>
+    Untagged,
+
+    /// <summary>条件段（人话表达式的一个条件行，✕ 删该节点）。</summary>
+    Condition,
+
+    /// <summary>连接词段（且 / 或）。</summary>
+    Op,
+
+    /// <summary>括号段（左 / 右，非根多部件组包裹）。</summary>
+    Paren,
+}
+
 /// <summary>
-/// 筛选条 chip 展示模型（spec Step 11）：「组名：标签名」+ 单删命令。
+/// 筛选条 chip 展示模型（tag-filter-tree，demo exprChips 同构）：BuildExpression 段序列的
 /// 不可变快照，经 MainViewModel.RebuildFilterChips 全量重建（对齐侧栏 chip 惯例）。
+/// 条件 chip 文本「标签：a / b」（否定 NotIn 加「非」前缀，UI 渲染红前景），✕ 按节点引用删除；
+/// 连接词/括号段为轻量文本（无 ✕、无胶囊底）。
 /// </summary>
 public sealed class FilterChipViewModel
 {
-    public FilterChipViewModel(string groupName, string tagName, IAsyncRelayCommand removeFilterCommand)
+    private FilterChipViewModel(FilterChipKind kind, string text, bool negated)
     {
-        GroupName = groupName;
-        TagName = tagName;
-        RemoveFilterCommand = removeFilterCommand;
+        Kind = kind;
+        Text = text;
+        Negated = negated;
     }
 
-    /// <summary>标签所属组显示名（激活筛选标签必属配置组；配置被外部修改的防御场景为空串）。</summary>
-    public string GroupName { get; }
+    /// <summary>「无标签」chip（untagged 激活时插最前；✕ = 再点取消）。</summary>
+    public static FilterChipViewModel Untagged(ICommand toggleCommand)
+        => new(FilterChipKind.Untagged, "无标签", negated: false)
+        {
+            RemoveCommand = toggleCommand,
+        };
 
-    /// <summary>标签名。</summary>
-    public string TagName { get; }
+    /// <summary>条件段 chip：文本「标签：a / b」（demo chipLabel 同构；空值集显示「标签：未选」），
+    /// 否定段加「非」前缀；✕ 删除 <paramref name="node"/> 引用的条件行。</summary>
+    public static FilterChipViewModel Condition(
+        FilterConditionNode node, string text, bool negated, ICommand removeCommand)
+        => new(FilterChipKind.Condition, text, negated)
+        {
+            Node = node,
+            RemoveCommand = removeCommand,
+        };
 
-    /// <summary>单删命令（从筛选集移除该标签并刷新瀑布流）。</summary>
-    public IAsyncRelayCommand RemoveFilterCommand { get; }
+    /// <summary>连接词段：And → 「且」、Or → 「或」。</summary>
+    public static FilterChipViewModel Op(FilterOp op)
+        => new(FilterChipKind.Op, op == FilterOp.And ? "且" : "或", negated: false);
+
+    /// <summary>括号段：左「(」/ 右「)」。</summary>
+    public static FilterChipViewModel Paren(bool open)
+        => new(FilterChipKind.Paren, open ? "(" : ")", negated: false);
+
+    /// <summary>chip 形态（决定 XAML 模板渲染分支：胶囊 + ✕ 或轻量文本）。</summary>
+    public FilterChipKind Kind { get; }
+
+    /// <summary>chip 文本（条件/无标签完整文本；且/或/括号单字符或双字）。</summary>
+    public string Text { get; }
+
+    /// <summary>否定段（条件 NotIn）：UI 渲染红前景。</summary>
+    public bool Negated { get; }
+
+    /// <summary>条件 chip 的源条件节点（快照渲染下编辑后整体重建，引用恒有效；其余形态为 null）。</summary>
+    public FilterConditionNode? Node { get; private init; }
+
+    /// <summary>条件 chip 的 ✕ 删除命令（无标签 chip 为取消命令；且/或/括号段为 null）。</summary>
+    public ICommand? RemoveCommand { get; private init; }
 }

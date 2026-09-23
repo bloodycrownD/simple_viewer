@@ -319,6 +319,34 @@ public class LibraryIndexServiceTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => service.RebuildAsync(temp.Path));
     }
 
+    /// <summary>T_IX_12：RemovePathsAsync 单事务批量删行——目标行全部消失、非目标行与计数保留。</summary>
+    [Fact]
+    public async Task T_IX_12_RemovePaths_BatchDeletesRowsInSingleTransaction()
+    {
+        using var temp = new TempDirectory();
+        using var service = CreateService(temp.Path);
+        var removed1 = MakePath(temp.Path, "a[风景].jpg");
+        var removed2 = MakePath(temp.Path, "b.jpg");
+        var kept = MakePath(temp.Path, "c[人像].png");
+
+        await service.UpsertChunkAsync(new[]
+        {
+            MakeItem(removed1, "a", ".jpg", new[] { "风景" }),
+            MakeItem(removed2, "b", ".jpg", Array.Empty<string>()),
+            MakeItem(kept, "c", ".png", new[] { "人像" }),
+        });
+
+        await service.RemovePathsAsync(new[] { removed1, removed2 });
+
+        var all = await service.QueryByTagsAsync(null);
+        var row = Assert.Single(all); // 仅保留行——批量删的两个目标行全部消失
+        Assert.Equal(kept, row.Path);
+
+        var counts = await service.TagCountsAsync(); // 已删行的标签不再污染计数
+        Assert.Equal(1, counts["人像"]);
+        Assert.DoesNotContain("风景", counts.Keys);
+    }
+
     /// <summary>以默认扫描服务构造被测实例（索引目录注入临时目录，rootPath 参与库文件名哈希）。</summary>
     private static LibraryIndexService CreateService(string indexDirectory, string? rootPath = null)
         => new(rootPath ?? System.IO.Path.Combine(indexDirectory, "root"), indexDirectory, new LibraryScanService());

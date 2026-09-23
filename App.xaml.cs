@@ -90,14 +90,9 @@ public partial class App : Application
 
         // 打标与图库服务（Step 7 组装；LibraryIndexService 由 MainViewModel 在选定图库根目录后延迟创建）。
         var tagFilenameService = new TagFilenameService();
-
-        // Step 12：删除标签前的“被快捷键绑定引用”谓词接线（读设置绑定列表判断 TagId 引用；
-        // 删除操作低频，直接 Load 读盘即可，与 TagService 契约一致）。
-        var tagService = new TagService(
-            tagFilenameService,
-            isTagReferencedByBindings: tagId => settingsService.Load().Shortcuts.Any(b =>
-                b.Command == ViewerCommand.ApplyTag
-                && string.Equals(b.TagId, tagId, StringComparison.Ordinal)));
+        // 原“删除标签前绑定引用谓词”注入已删（batch-tag-management Step 2：删除纯化为配置操作，
+        // 绑定引用拒绝前移 MainViewModel.IsTagReferencedByBindings）。
+        var tagService = new TagService(tagFilenameService);
         var scanService = new LibraryScanService(tagFilenameService);
         var thumbnailService = new ThumbnailService();
 

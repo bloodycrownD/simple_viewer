@@ -12,6 +12,20 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- Chrome 面板不透明底（2026-09-23 走查 3 拍板：工具栏/左右栏统一不透明——半透明
+                 LayerFillColorDefault 在单图大图上让按钮不可读；深色值取自原 Layer 底在根底色上
+                 的实测混合值 #27272E（观感不变），浅色取同族 #F3F3F8。仅用于 chrome 表面，
+                 画布/卡片等不引用。自定义键规避「文档存在但 WinUI 3 实际缺失」的 ThemeResource 风险
+                 （LayerFillColorSecondaryBrush 事故先例）。 -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ChromeBackgroundBrush" Color="#27272E" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ChromeBackgroundBrush" Color="#F3F3F8" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
             <!-- ghost 按钮（demo .ghost-btn）：透明底 + hover 主题浅底；文字按钮通用 -->
             <Style x:Key="GhostButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
@@ -69,6 +83,25 @@
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="Padding" Value="5,2" />
                 <Setter Property="CornerRadius" Value="4" />
+            </Style>
+
+            <!-- 图库右栏选中集并集 chip（batch-tag-management Step 4）：圆角矩形（CornerRadius 5，
+                 区别于单图右栏全圆胶囊）+ 安全键底色/描边；内容 = 标签名（12）+ 选中集内计数（11 次要灰）
+                 + 内嵌 ✕ 按钮（GhostIconButtonStyle，控件 XAML 内逐 chip 内联）。
+                 契约：chip 本体无 Command 无 Click handler——点 chip 无副作用（不筛选不打标，
+                 PRD 右栏 chip 与左栏不同），仅 ✕ 移除；嵌套 Button 点击各自直达不冒泡
+                 （GroupHeaderButtonStyle 组行内嵌管理按钮同先例）。 -->
+            <Style
+                x:Key="SelectionChipStyle"
+                BasedOn="{StaticResource GhostButtonStyle}"
+                TargetType="Button">
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="5" />
+                <Setter Property="Padding" Value="9,3" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="UseSystemFocusVisuals" Value="False" />
             </Style>
 
             <!-- 瀑布流卡片按钮（cr/P1-6：卡片主交互 Click 化——Tapped 对键盘/UIA 静默失效，

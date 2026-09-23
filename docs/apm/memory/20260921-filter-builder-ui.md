@@ -1,0 +1,119 @@
+---
+date: 2026-09-22 12:10
+title: 复杂筛选器全周期：demo 三轮收敛 → spec → dev-loop dev-ready → 七轮实机走查修复 + 工具栏选择按钮
+keywords: 筛选器, 条件构建器, in, not in, and, or, 嵌套组, 卡片嵌套, filter.html, demo, TagFilterState, 人话表达式, spec, tag-filter-tree, code-dev-loop, dev-ready, 走查修复, FlyoutThemeMaxWidth, overlay滚动条, 焦点框, 三点菜单, 选择按钮
+abstract: 筛选器迭代全周期闭环（分支 feature/tag-filter-tree，未合并）：demo 三轮收敛（纯标签 in/not in + and/or 卡片嵌套）→ spec（8 Step/14 用例）→ code-dev-loop 9 波次 dev-ready（107 测试绿）→ 用户七轮实机走查全部修复收口（Flyout 456 夹宽、外层滚动条盖数字、✕ 焦点框、overlay 滚动条压列、面板盖左栏→按钮挪尾+动态收窄、左栏管理收敛 ⋯ 三点菜单、工具栏「选择」全选按钮）。方法论沉淀入 RULE：UI 交付前实机自检（filter-panel-verify.ps1 模式）、WinUI 三隐形层（焦点框/overlay 滚动条/hover）。后续迭代 batch-tag-management 见 20260922 记忆。
+---
+
+user:
+需要一个复杂的筛选器，支持 in 和 not in、and 和 or，先在 demo html 上设计一个筛选器看 UI 设计。（随后按 APM 恢复记忆继续）
+
+assistant:
+恢复记忆后明确上下文：现有筛选是"点击标签 = 多标签 OR"（TagFilterState 已下沉 Core），交互原型约定在 demo\、改交互先对照原型。设计方案选了 Notion/Linear 式条件构建器，而不是全局 Match all/any 切换（表达力弱）或逐行连接词（语义易混）：
+
+- 条件行 = [字段▾][操作符▾][值]：标签（包含任一 in / 不包含任一 not in，多选 chips）、无标签、文件名（包含/不包含，演示字段扩展性）；
+- 嵌套条件组 = 组头「满足以下 [全部/任一] 条件」，最深 3 层 → 任意布尔组合；
+- 实时生效（无应用按钮）：命中数、图墙、人话表达式全实时；空值条件恒真（构造中不会瞬间清空图墙）；
+- 人话表达式双呈现：面板底纯文本 `(含(风景/街拍) 或 含(星标)) 且 不含(已修)` + 筛选条 chips（且/或/括号，否定=红 chip 带"非"字）；
+- 设计主张：复杂筛选器是简单点击筛选的超集——左栏点标签 = 往根组追加 in 条件，两套筛选合一。
+
+产出 demo/filter.html + filter.css + filter.js（纯前端、离线、双主题、140 张模拟渐变卡片、localStorage 持久化）。
+
+user:
+（自测过程中的发现与修复）
+
+assistant:
+浏览器 + 视觉模型双验收，修了 4 个真实 bug：
+1. `.flyout/.popover/.wall-empty` 设 display:flex 后覆盖 HTML hidden 属性 → 全局 `[hidden]{display:none!important}`;
+2. localStorage 恢复筛选树后 uid 计数器重置、新条件 id 与恢复节点撞车（findNode 命中错误节点、表达式乱套）→ loadState 时整树重编 id；
+3. 筛选条「编辑」按钮：openPanel 后事件冒泡到 document 委托被判"面板外点击"立即关闭 → 外部关闭检查排除触发器；
+4. popover 勾选标签整块重绘闪烁 → 改增量更新 cb 勾选态；renderPanel 保持滚动位置。
+
+视觉模型验收两轮（亮/暗）：嵌套组层级、红色否定语义、chips 可读性均过；按反馈微调：嵌套组左边框 3px accent 竖线、"＋条件组"弱化 11px、text-2 对比度提升。
+
+验证结论：`(含(风景/街拍) 或 含(星标)) 且 不含(已修)` → 命中 59/140 与图墙卡片数一致；筛选条括号结构 DOM 核对无误（视觉模型说过"星标在括号外"是误读）。
+
+user:
+下一步？
+
+assistant:
+用户实机看 UI（双击 demo\filter.html 即可，离线可用）。认可后走 prd-generate/spec-generate：TagFilterState 扩展为条件树（group{op,children}/cond{field,matcher,values}），求值与 demo 的 evalNode 同构下沉 Core；WinUI 实现注意 XAML 硬约束（图标用文本字符、Click 不用 Tapped、中文 XAML 带 BOM）。demo README 已补「复杂筛选器设计稿」一节。
+
+user:
+看 UI 后两轮反馈：①"支持嵌套条件组就行吧？现在有并行多个条件组，会让人疑惑第一层并行的条件组之间的关系"；②（我先做了显式连接词方案）"回滚，你没懂我意思，你看现在有多级卡片，我的意思是，只保留卡片嵌套就好了，最外层现在不是卡片，这很奇怪"（附截图）。
+
+assistant:
+两轮反馈才对准真意：用户要的是**组=卡片全层统一**——原设计最外层根组是裸组头（无边框）、下面嵌套组却是卡片，视觉层级不对称很奇怪；中间我做过的"并行元素间显式 ─且─/─或─ 连接词"方案被否（回滚掉）。最终改动：renderGroup 去掉 isRoot 特殊分支，所有组（含根）统一输出 .f-group-box 卡片（根组仍无删除按钮）；嵌套层背景色交替（bg-2 → panel → bg-2）+ 左侧 3px accent 竖线区分层级；flyout body padding 收紧；两个下拉框 min-width 88px 统一宽度。验证：构造两层嵌套状态（localStorage 注入 → loadState → renderPanel 真实渲染路径）→ 根组卡片化、嵌套卡片正常、表达式与命中自洽；视觉模型验收通过。教训：用户说"关系疑惑"时先确认指视觉结构还是逻辑语义，这轮我猜了逻辑显式化方向，实际痛点是视觉一致性。
+
+user:
+（本轮收尾）
+
+assistant:
+README 嵌套条件组行更新为"组一律渲染为卡片（含最外层根组），卡片嵌套卡片"。注意：驱动测试脚本不能拿位置索引/类名前缀定位面板元素（面板每次 refreshAll 全量重绘、行序会偏移）——要么每步重查 DOM，要么直接 localStorage 注入状态树再 reload 走 loadState 渲染路径（后者最干净）。
+
+user:
+第三轮反馈：标签/无标签/文件名字段下拉全部移除，不要这么复杂——高级筛选器只支持标签的添加和移除（in/not in）；"不包含所有标签不就是无标签吗"，且左栏本身已有无标签筛选能力，高级筛选器不用重复支持。
+
+assistant:
+按反馈砍掉字段体系：newCond 去掉 field/text，条件行只剩 [包含任一▾/不包含任一▾] + 标签 chips；FIELDS 删除（仅留 MATCHERS 常量）、evalCond/condText/chipLabel 只留标签分支、change 的 field 分支与 input（name-text）监听删除、countInFilter/addQuickCond 的 field 判断清理、CSS 的 .f-input/.f-static 删除。**loadState 加旧状态清洗**：localStorage 里带 field=name/untagged 的旧条件直接过滤掉（兼容已看过旧版的浏览器）。验证：注入含旧字段条件的状态树 → 清洗正确（表达式只剩标签条件）、面板无字段下拉、卡片嵌套正常，视觉模型验收通过。设计结论：高级筛选器 = 纯标签 in/not in + and/or 卡片嵌套；无标签走左栏既有按钮。
+
+user:
+UI 确认（"差不多"），要求生成 spec。
+
+assistant:
+spec-generate 四路并行探索完成（筛选状态与数据流 / 数据与索引层 / UI 呈现与 XAML 约束 / 测试与构建），关键现状：①TagFilterState 已在 Core（Services\ 白名单自动编入），纯静态 Toggle/ToggleUntagged/Matches（扁平 OR + untagged 位），7 测试 T_TF_S01~07 锁定；②双求值轨=索引 SQL（QueryByTagsAsync LIKE OR，被 RenameFilesAsync 复用不可破坏）+ 扫描追加块内存谓词；③项目弹层全部 ContentDialog 模态（ApplyDialogTheme + _shortcutsEnabled），Flyout 零先例、工具栏无筛选按钮（需新增）；④左栏点击契约（单选重置/二次取消/Ctrl 加减选）与 demo 的 QuickAdd 语义冲突，7 条测试需重写；⑤筛选不落盘（会话态，重开图库清空）；⑥条件树放 Services\ 零 csproj 改动，Core 无 MVVM 包须纯模型+静态函数；⑦性能口径 10 万级筛选首屏 ≤2s；SQLite LIKE 与 OrdinalIgnoreCase 对英文标签有大小写口径差。spec 拍板方向：单一内存求值器（弃双轨等价维护、索引层零改动）、条件值存标签名、左栏语义按 demo QuickAdd、untagged 保留独立互斥、Flyout 宿主 + 二级值选择浮层（不稳降级内联展开）、不落盘、深度 ≤3 状态层强制。
+
+user:
+（spec 落盘，待确认）
+
+assistant:
+spec 已落盘 `docs\iterations\图片打标签与瀑布流浏览\features\tag-filter-tree\spec.md`（需求来源=设计稿+口述，非标准 PRD，已在正文注明）。8 个 Step（core 树模型→测试重写→求值管线→左栏/筛选条→面板 UI→非模态集成→全量验证→实机走查）、14 条 T_FT 测试用例、6 项风险（R1 Flyout 零先例为最大，降级链=值选择内联展开→面板换 ContentDialog 壳）、显式推翻清单（左栏三分支语义/无清空按钮拍板/OR 徽章）与不变清单（untagged 入口/不落盘/索引层/遮盖布局）。待用户确认 spec 后进实现（建议分支 feature/tag-filter-tree）。
+
+user:
+确认 spec，发起 code-dev-loop 实现。
+
+assistant:
+code-dev-loop 完成，**dev-ready**（分支 feature/tag-filter-tree，base b8b2511 → HEAD 302e648，9 波次 DAG 全 done、双 cr-func 均 func-ready）：①impl-core：TagFilterState 条件树（Evaluate/BuildExpression/编辑原语/QuickAdd/联动/MaxDepth=3）+ 测试重写 T_FT1~14（107 测试全绿）；②impl-pipeline：_filterRoot 状态收敛、ApplyTagFilter 三分支全内存化（SortKey 排序，索引层零改动）、筛选条表达式 chips+清空按钮、左栏 QuickAdd 终态；③impl-entry（trivial 主代理）：修饰键收口；④impl-panel：TagFilterPanelControl 卡片嵌套面板+工具栏⧩筛选按钮+Flyout+主题对齐，值选择走 R1 预案行内展开（嵌套 Flyout 会触发父级 light-dismiss）；⑤impl-integration：快捷键局部抑制（_filterFlyoutOpen）+单图入口对齐+**发现并修补真实竞态**（扫描中 _galleryItems 后台 Add 与 UI 筛选枚举的 List 版本冲突崩溃→锁内快照）。每波次 build.ps1+test 107 绿，终检死代码/XAML 硬约束/Core 边界/csproj 零改动全过。**open deviation 一项**：组头/条件行"全部/任一""包含任一/不包含任一"实现为两态切换按钮组而非 demo 的 select 下拉（语义等价，动机=Flyout 内二级 popup 主题风险），留用户实机走查拍板（还原点集中 BuildTwoStateSwitch/MakeSwitchOption）。Step 8 用户走查清单：demo 形态还原度、双主题、快捷键抑制体感、扫描中面板实时性、10 万级体感、拖拽打标回归。RULE.md Flyout 先例待实机双主题实证后落录。
+
+user:
+实机走查打回："你测试了吗？筛选宽度完全不够，而且一添加条件就刷新页面"（附截图：面板挤成竖排窄条）。
+
+assistant:
+两个都是真问题，已修复并实机验证（c92f9a8）：①**面板宽度**：根因是 WinUI Flyout 默认 FlyoutThemeMaxWidth=456（generic.xaml 实锤）把 UserControl Width=620 硬夹成 456 逻辑宽——Width 设了也没用；修法=Flyout.FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle（键已核实存在）覆盖 Min/MaxWidth=660（620+左右 FlyoutContentPadding 16×2+边框），UIA 实测 990 物理=660 逻辑@150% ✓；②**添加条件即"刷新页面"**：每次编辑无条件 ResetFrom 全量重建卡片 VM（缩略图重载）整墙闪跳+清选中集，加空条件（未选值恒真）也闪；修法=WaterfallViewModel.PresentsExactly 逐项路径比对，ApplyTagFilter 命中序列与当前呈现一致时跳过重置与清选。教训：dev-loop 的 verify 只覆盖编译+Core 单测，UI 实机层（spec qa:manual_user）没验就交付——**以后 UI 改动交付前至少用 UIA+截屏（scripts/filter-panel-verify.ps1 模式：AppActivate 绕前台锁开面板、UIA 量 bounds、CopyFromScreen 采证）做一轮实机自检**。走查方法论新坑：①code-behind 构造按钮 UIA Name 为空，定位用 AutomationId 或截图目检；②`-d` 是单图模式不触发扫描（复现图库要走 LastLibraryRoot 自动恢复：备份改 settings.json 启动后还原）；③SetForegroundWindow 有前台锁，WScript.Shell AppActivate 稳。遗留：用户走查日志有两条"UI 无响应≥15s"心跳告警（扫 F:\Pictures 245 张 + thumb:decode 后），疑似缩略图解码期 UI 忙碌，待用户确认是否可感卡顿再定是否修。
+
+user:
+二轮走查："宽度还得调整，scroll 遮挡住数字了"（附截图：矮窗口下垂直滚动条压住底部命中数字）。
+
+assistant:
+二轮修复并实机验证（7e677a4）：遮挡根因=**FlyoutPresenter 自带 ScrollViewer**——面板高于按钮下方可用空间时它给出贯穿面板全高的滚动条贴右缘，压住底部「命中 N/已发现 N」；修法三件套：①外层 ScrollViewer.VerticalScroll 禁用（FlyoutPresenterStyle Setter），滚动收进面板内部 TreeScroll（UserControl MaxHeight 640→520 收紧总高）；②面板加宽 660→700（底部操作行与条件行留裕）；③底部行右侧 Padding 让位双保险。顺带给 code-behind 关键按钮补 AutomationId（FilterAddCondButton/FilterAddGroupButton/FilterAddValueButton）解决 UIA 定位。矮窗口（900×520 逻辑，MoveWindow 模拟用户环境）实机验证：宽 1050 物理=700 逻辑 ✓、高度夹至可用空间、无贯穿滚动条、命中数字完整、值选择展开正常。WinUI Flyout 坑总结入 commit：MaxWidth 默认 456 夹宽 + 外层滚动条贯穿两坑都靠 FlyoutPresenterStyle BasedOn DefaultFlyoutPresenterStyle 解决。
+
+user:
+三轮走查："不是宽度的问题，应该是缺少左侧 padding 的原因。另外这个 ✕ 不对吧？非常丑，而且明显大小不对"（附截图）。
+
+assistant:
+三轮修复（3884de6）：①**✕ 大小丑**：MakeIconButton 用了 GhostButtonStyle（工具栏按钮样式 Padding 10,5），单字符 ✕ 被撑成 ~32x30 逻辑大块带默认底色——改 GhostIconButtonStyle（面板头部 ✕ 同款紧凑样式）+ FontSize 11/Padding 4,2，条件行尾/非根组头/值胶囊三处 ✕ 统一；UIA 实测 30x32 物理（≈20x21 逻辑）与切换按钮同量级。②**左 padding**：条件行 Padding 左 8→10、TreeScroll 左 10→12（用户纠正二轮"宽度问题"实为内容贴左——加宽 700 保留但真正缺的是层次内边距）。验证经验：视觉模型 CDN 间歇故障（Unable to download image），fallback=UIA BoundingRectangle 量按钮尺寸分布（自动化比视觉可靠，RULE 已有同类结论）。
+
+user:
+四轮走查（打回三轮修复）："你这改的没用啊，✕ 外部还有方框，这不扯淡吗？然后纵向 scroll 遮挡数字，你看不见吗？前面说了，和宽度无关，很显然是 scroll 的层级在列之上，导致的遮盖。"
+
+assistant:
+四轮修复（870087b），两根因都实锤：①**✕ 外部方框**=WinUI Button 系统焦点框（UseSystemFocusVisuals 默认开，点击/程序聚焦必现矩形框）+可能残留默认描边——面板全部按钮（5 个 code-behind 工厂 + XAML 3 处）统一 UseSystemFocusVisuals=false，图标类显式 BorderThickness=0；②**overlay 滚动条**：用户点破本质——WinUI 3 ScrollViewer 滚动条是悬浮 overlay（叠在内容之上、不占布局位），加宽度治不了，必须给内容列让位：TreeScroll 右 Padding 18、值选择展开区计数列右让 14，滚动条落在留白带内。实机截图+视觉模型验证三项全过（✕ 无框、计数/描边/命中数字无遮挡）。**教训入库：WinUI 视觉问题先想「焦点框/overlay 滚动条/hover 底色」三个隐形层，再谈布局尺寸；用户连续两轮说同一问题（scroll 遮挡）时，先复现用户原场景再改，别按自己推断的场景修。**
+
+user:
+五轮走查："看图，UI 调整影响左侧的标签栏了，好像变窄了？"
+
+assistant:
+左栏代码宽度（Width=280 锚点）从未被改——"变窄"实为筛选面板悬浮遮挡：筛选按钮被放在工具栏左侧（第 4 位），700 宽面板从那弹出直接盖住左栏大部。demo 的筛选按钮在工具栏右侧、flyout 右上弹出。五轮修复（2257ade）：①按钮挪到工具栏尾部（设置前）对齐 demo 形态；②Opening 动态收窄：窄窗按 RootGrid.ActualWidth-400 收面板宽（Clamp 420~660）+ FlyoutPresenterStyle 改代码动态构建（Min/Max 同步），矮窗 900x520 下面板收至 525 逻辑、左缘 365>左栏 280——左栏零遮挡。新坑两个：WinUI Window 无 ActualWidth（不继承 FrameworkElement，用 RootGrid.ActualWidth）；build.ps1 的 sln 级 restore 踩双 csproj 竞写时按 RULE 定向串行还原（Core 先 -nr:false → 主工程 RestoreRecursive=false 压轴 → 校验 assets 含 /win-x64 与 WinAppSDK → build --no-restore）。
+
+user:
+六轮走查："没修好，删除组还是被遮挡了，我觉得不如改成一个三点吧，点击三点显示一个菜单。同理标签也是三点。这样就避免了按钮多的问题。"
+
+assistant:
+按用户方案收敛（65161b4）：左栏组行 ＋⇄✎✕ 四连管理按钮与标签行 ✎✕ 双按钮各改为单「⋯」（U+22EF）+ Button.Flyout=MenuFlyout（MenuFlyoutItem Command 绑定同款命令：＋新建标签/⇄切换互斥兼容/✎重命名组/✕删除组；标签行 ✎重命名/✕删除）——按钮多导致的行尾拥挤与被面板浮层遮挡随单按钮化消除；悬停浮现机制保留。实机 UIA 验证（verify 脚本临时改 LastLibraryRoot 启动，只弹菜单不执行命令防动用户标签库配置）：⋯ 可 Invoke、四菜单项齐全；像素采样确认菜单深色底正常——**视觉模型第三次深浅主题误判**（说浅底白字，像素实测 R39-59 深色），RULE「颜色断言用像素采样」再+1。
+
+user:
+追加需求：工具栏增加一个「选择」项，可设置全选与取消全选——常用功能。
+
+assistant:
+实现（05cbdf5）：工具栏「选择」按钮置删除按钮前（卡片选择操作群），智能切换——未全选=SelectAllCards（与 Ctrl+A 同管线，选当前呈现集/命中集）、已全选=ClearCardSelection（与 Esc 同管线）；文案动态翻转「全选⇄取消全选」（SelectAllToggleText ObservableProperty，SelectedCardCountChanged 与 OnWaterfallItemsChanged 双钩子刷新）。2026-09-19 曾拍板移除图库状态行「清除选择」按钮（Esc 即清空），本工具栏常驻全选/取消一体入口由用户新决策覆盖（commit 注明）。实机 UIA 验证完整循环：点全选→状态行"共 10 张·已选 10 张"+文案翻转为取消全选→再点→清空+文案复原。
+
