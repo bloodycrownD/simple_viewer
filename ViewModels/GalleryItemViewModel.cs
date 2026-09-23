@@ -219,10 +219,13 @@ public partial class GalleryItemViewModel : ObservableObject
 
     /// <summary>
     /// 释放卡片持有的视觉资源（cr/P1-5，OnElementClearing 在 UI 线程调用）：
-    /// 取消进行中的加载并置 null 已加载的 <see cref="Thumbnail"/>（bucket 360 位图约 300KB+）与
+    /// 取消进行中的加载并退役已加载的 <see cref="Thumbnail"/>（bucket 360 位图约 300KB+）与
     /// <see cref="_dragVisual"/>（~120px SoftwareBitmap 约 70KB）——Items 全量常驻 VM（不随回收丢弃），
     /// 只取消不释放则滚动 N 张累积约 400KB×N，5 万张验收场景内存无界增长。
-    /// 置 null 后卡片回退浅色占位；UI 线程串行性保证不会被回收后才续上的加载续体重新赋值
+    /// Thumbnail 必须经 <see cref="ImageSourceRetirement"/> 退役（2026-09-24 崩溃根治）：直接置 null
+    /// 会让旧 BitmapImage 落入 GC 终结器——终结器线程跨线程 Release XAML 对象（DependencyObject 族
+    /// 须在创建线程析构），打标重排成批退休时 native 堆损坏闪退（fastfail/stowed dump 实锤）。
+    /// 退役后卡片回退浅色占位；UI 线程串行性保证不会被回收后才续上的加载续体重新赋值
     /// （续体过闸门后仍有 ThrowIfCancellationRequested 检查）。卡片重新 Realize 时
     /// <see cref="BeginLoadThumbnail"/> 幂等条件（cts 与 Thumbnail 均 null）放行，走既有重载路径恢复
     /// （ThumbnailService 内存/磁盘缓存兜底，快速渐入）。
@@ -230,6 +233,8 @@ public partial class GalleryItemViewModel : ObservableObject
     public void ReleaseVisuals()
     {
         CancelThumbnailLoad();
+        ImageSourceRetirement.Retire(Thumbnail);
+        ImageSourceRetirement.Drain();
         Thumbnail = null;
         _dragVisual = null;
     }

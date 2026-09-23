@@ -424,6 +424,9 @@ public partial class MainViewModel : ObservableObject
                 return; // 等待期间用户已切图：结果丢弃（新图自会按需加载）。
             }
 
+            // 旧源退役（2026-09-24 崩溃根治）：跨过 1.2× 阈值的换源高频路径，禁止旧源落入 GC 终结器。
+            ImageSourceRetirement.Retire(ImageSource);
+            ImageSourceRetirement.Drain();
             ImageSource = await ImageSourceHelper.FromLoadedImageAsync(full);
             _currentLoaded = full;
         }
@@ -3417,6 +3420,11 @@ public partial class MainViewModel : ObservableObject
                     replacedBitmap.UriSource = null;
                 }
 
+                // 被替换旧源退役（2026-09-24 崩溃根治）：禁止落入 GC 终结器跨线程 Release，
+                // UI 线程延迟 Dispose（保留窗口内合成器安全换帧）。
+                ImageSourceRetirement.Retire(replacedSource);
+                ImageSourceRetirement.Drain();
+
                 HasImage = true;
                 _lastAppliedDecodeSize = _decodeSize ?? 0;
                 _currentLoaded = loaded;
@@ -3466,6 +3474,10 @@ public partial class MainViewModel : ObservableObject
             bitmap.UriSource = null;
         }
 
+        // 退役入队而非裸置 null（2026-09-24 崩溃根治）：旧源落入 GC 终结器会跨线程 Release
+        // XAML 对象（须在创建线程析构），打标/换源高频路径下 native 堆损坏闪退（dump 实锤）。
+        ImageSourceRetirement.Retire(ImageSource);
+        ImageSourceRetirement.Drain();
         ImageSource = null;
     }
 

@@ -31,6 +31,7 @@
     <Compile Remove="tests\**\*.cs" />
     <Compile Include="Helpers\ConsoleHelper.cs" />
     <Compile Include="Helpers\ImageSourceHelper.cs" />
+    <Compile Include="Helpers\ImageSourceRetirement.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,7 +53,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- CopyToPublishDirectory：publish 布局默认不拷 Content 项（解压包缺图标，2026-09-19） -->
+    <!-- CopyToPublishDirectory锛歱ublish 甯冨眬榛樿涓嶆嫹 Content 椤癸紙瑙ｅ帇鍖呯己鍥炬爣锛?026-09-19锛?-->
     <Content Include="Assets\AppIcon.ico" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
