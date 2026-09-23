@@ -613,7 +613,17 @@ public sealed partial class MainWindow : Window
             ApplyDialogTheme(dialog);
 
             catalog.TagApplied += dialog.Hide;
-            await dialog.ShowAsync();
+
+            // 单开守卫：已有 ContentDialog 打开时 ShowAsync 抛异常（实机自检实锤，模态本应挡住
+            // 右栏「＋」，但 UIA/自动化交错可触发）——吞异常按对话框已关闭处理，不让异常冒泡中断命令。
+            try
+            {
+                await dialog.ShowAsync();
+            }
+            catch (Exception)
+            {
+                // 关闭路径本无后续动作（点选标签经 TagApplied→Hide，批量打标异步进行不打断关闭）。
+            }
         }
         finally
         {
@@ -790,10 +800,20 @@ public sealed partial class MainWindow : Window
                 }
             };
 
-            var result = await dialog.ShowAsync();
-            return result == ContentDialogResult.Primary && groupPicker.SelectedItem is TagGroup selected
-                ? (selected.Id, (string?)null)
-                : (null, null);
+            // 单开守卫：已有 ContentDialog 打开时 ShowAsync 抛异常（实机自检实锤，模态本应挡住
+            // 未定义区收纳入口，但 UIA/自动化交错可触发）——catch 返回 (null, null) 等价取消，
+            // 不让异常冒泡中断命令。
+            try
+            {
+                var result = await dialog.ShowAsync();
+                return result == ContentDialogResult.Primary && groupPicker.SelectedItem is TagGroup selected
+                    ? (selected.Id, (string?)null)
+                    : (null, null);
+            }
+            catch (Exception)
+            {
+                return (null, null);
+            }
         }
         finally
         {
