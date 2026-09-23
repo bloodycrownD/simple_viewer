@@ -19,13 +19,14 @@
               交互一律 Click（不用 Tapped）；自绘按钮 UseSystemFocusVisuals=false；
               chip 本体无主点击行为（不筛选不打标，PRD 右栏 chip 与左栏不同），仅内嵌按钮移除。 -->
     <Grid>
-        <!-- 展开态（280，右缘浮层不透明底 + 左描边，对照单图右栏展开态先例） -->
+        <!-- 展开态（280，右缘浮层不透明底 + 左描边，对照单图右栏展开态先例）；宽度不写死——
+             构造函数统一应用常量族（ui/C-3 单源）；不挂 AutomationId：WinUI Border/Grid 无
+             automation peer（RULE 铁律），右栏展开态锚点由收起按钮（GallerySelectionPanelCollapse）
+             + 标题文本 SelectionPanelTitleText 承担（ui/H-1）。 -->
         <Border
             x:Name="ExpandedPanel"
-            Width="280"
             HorizontalAlignment="Right"
             VerticalAlignment="Stretch"
-            AutomationProperties.AutomationId="GallerySelectionPanel"
             Background="{ThemeResource ChromeBackgroundBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1,0,0,0"
@@ -112,9 +113,12 @@
                                          载体但无 Command 无 Click handler，点 chip 无副作用（不筛选不打标），
                                          嵌套 Button 点击各自直达不冒泡（GroupHeaderButtonStyle 同先例）；
                                          移除小按钮规范：GhostIconButtonStyle + FontSize 11 + Padding 4,2 +
-                                         禁焦点框 + 清零描边（TagFilterPanelControl.MakeIconButton 教训）。 -->
+                                         禁焦点框 + 清零描边（TagFilterPanelControl.MakeIconButton 教训）；
+                                         UIA Name（ui/H-2）：chip 本体「{名} ×{计数}」、✕「移除标签 {名}」，
+                                         code-behind 页面类静态 x:Bind 函数逐项生成（TagCatalogDialog 先例）。 -->
                                     <Button
                                         AutomationProperties.AutomationId="{x:Bind views:TagSidebarConverters.SelectionChipAutomationId(Name)}"
+                                        AutomationProperties.Name="{x:Bind views:GallerySelectionPanelControl.SelectionChipName(Name, Count)}"
                                         Style="{StaticResource SelectionChipStyle}"
                                         UseSystemFocusVisuals="False">
                                         <StackPanel Orientation="Horizontal" Spacing="5">
@@ -129,6 +133,7 @@
                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                 Text="{x:Bind views:TagSidebarConverters.CountText(Count)}" />
                                             <Button
+                                                AutomationProperties.Name="{x:Bind views:GallerySelectionPanelControl.SelectionChipRemoveName(Name)}"
                                                 BorderThickness="0"
                                                 Click="OnRemoveChipClicked"
                                                 Content="✕"
@@ -157,10 +162,10 @@
             </Grid>
         </Border>
 
-        <!-- 折叠态（36 窄条 + 展开按钮，对照单图右栏折叠条先例） -->
+        <!-- 折叠态（36 窄条 + 展开按钮，对照单图右栏折叠条先例）；宽度同不写死——
+             构造函数统一应用常量族（ui/C-3 单源，与展开态 Border 同款）。 -->
         <Border
             x:Name="CollapsedBar"
-            Width="36"
             HorizontalAlignment="Right"
             VerticalAlignment="Stretch"
             Background="{ThemeResource ChromeBackgroundBrush}"

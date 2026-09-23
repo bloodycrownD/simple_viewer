@@ -1,5 +1,6 @@
-// 职责：图库右栏（选中集标签面板）code-behind（batch-tag-management Step 4）——宽度常量族锚点
-//       与 chip ✕ 点击转发（Tag 槽位回查标签名 → MainViewModel.RemoveTagFromSelectionAsync 批量移除管线）。
+// 职责：图库右栏（选中集标签面板）code-behind（batch-tag-management Step 4）——宽度常量族锚点、
+//       chip ✕ 点击转发（Tag 槽位回查标签名 → MainViewModel.RemoveTagFromSelectionAsync 批量移除管线）
+//       与 chip UIA Name 生成（ui/H-2，DataTemplate 内经「页面类名.静态函数」x:Bind 逐项求值）。
 // 不变量：ViewModel 构造注入（先赋值后 InitializeComponent，TagFilterPanelControl/TagSidebarControl 惯例）；
 //         面板状态全部在 MainViewModel（收展态/并集集合/标题文本），本类无自持业务状态；
 //         双 Border 展开/折叠互斥 Visibility 切换无动画（仿单图右栏机制，XAML 绑定驱动）；
@@ -56,4 +57,19 @@ public sealed partial class GallerySelectionPanelControl : UserControl
             _ = ViewModel.RemoveTagFromSelectionAsync(tagName);
         }
     }
+
+    /// <summary>
+    /// 并集 chip 本体的 UIA Name（ui/H-2）：「标签名 ×计数」。chip 本体 Button 的内容为
+    /// StackPanel（UIA Name 为空），多 chip 并存时读屏/自动化无法区分；经
+    /// 「页面类名.静态函数」x:Bind 逐项生成（TagCatalogDialog.xaml
+    /// AutomationProperties.Name=TagName 先例同族）。× 为 U+00D7 BMP 文本字符。
+    /// </summary>
+    public static string SelectionChipName(string name, int count) => $"{name} ×{count}";
+
+    /// <summary>
+    /// chip 内嵌 ✕ 按钮的 UIA Name（ui/H-2）：「移除标签 {标签名}」——✕ 按钮内容恒为
+    /// 字符「✕」，无 Name 时多 chip 的移除目标不可区分；与 <see cref="SelectionChipName"/>
+    /// 同款 x:Bind 函数生成。
+    /// </summary>
+    public static string SelectionChipRemoveName(string name) => $"移除标签 {name}";
 }
