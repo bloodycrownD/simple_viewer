@@ -25,6 +25,7 @@ date: 2026-09-21
 - 性能依据：10 万项 × 小树（≤ 数十节点）求值为每项 O(条件数 × 平均标签数) 的 OrdinalIgnoreCase 比较，实测口径毫秒级，远低于 ≤2s 验收线；如极端不达标，预留"树→SQL 编译"升级路径（见风险节），但**不作为本期实现**。
 - 索引层（`ILibraryIndexService` / `LibraryIndexService`）**零改动**：`QueryByTagsAsync` 保留原样继续服务 `RenameFilesAsync`（编辑候选集）；`QueryUntaggedAsync` 保留（untagged 分支同步改内存谓词后不再被筛选调用，方法暂留）。
 - 命中结果排序：对齐现有筛选分支口径，内存过滤后按 `GalleryItem.SortKey` 自然序排序再 `ResetFrom`。
+  > **修订（2026-09-23）**：补记筛选应用尾部增强——`ApplyTagFilter` 有 **PresentsExactly 跳过重置**：命中序列与当前瀑布流呈现完全一致时跳过 `ResetFrom` 与清选中（走查修复轮引入的纯增强，避免重复应用同一筛选丢选中态）；不一致时照旧清选中 + `ResetFrom`（cr-fix-spec-2 qa/A-3 回写）。
 - 附带修复（顺带收口的既有口径差）：SQLite LIKE（ASCII 不敏感/非 ASCII 敏感）与内存 `OrdinalIgnoreCase` 对英文标签大小写口径不一致——树化后筛选全走内存谓词，该差异自然消失。
 
 ### D2 条件树模型（Core，改 `Services\TagFilterState.cs`）
@@ -79,6 +80,7 @@ public static class TagFilterState {                  // 保留类名与文件�
 - `IsUntaggedFilterActive` 保留：与树**互斥**——任一方向激活时清另一方（现状语义）；
 - `_activeFilterTags` 的"实例引用稳定"约定废弃（该约定服务于侧栏高亮持有同一 HashSet；树化后高亮改为 `RebuildTagSidebar` 时以 `CollectReferencedTags` 快照传入，循既有全量重建惯例）；
 - 树为不可变编辑模型：每次编辑产生新树（或深拷贝改后替换引用），编辑后统一走 `ApplyFilterAsync` → 重建 chips/侧栏——与 demo `refreshAll` 同构，UI 侧无增量状态同步负担。
+  > **修订（2026-09-23）**：实现为**会话内可变树 + 编辑后全量重建**——树编辑原位改、编辑后由调用方全量重建 UI（`TagFilterState.cs` 头注释已声明该约定），与 demo `refreshAll` 同构、UI 侧无增量状态同步负担不变，功能等价；后续迭代按可变树口径实施（cr-fix-spec-2 qa/A-3 回写）。
 
 ### D5 UI 宿主：工具栏按钮 + Flyout 非模态面板（拍板，风险节含降级）
 
@@ -86,7 +88,9 @@ public static class TagFilterState {                  // 保留类名与文件�
   - 主题：Flyout 内容控件根在 Opening/打开前设 `RequestedTheme = RootGrid.RequestedTheme`（照 `ApplyDialogTheme` 同款坑位处理）；代码侧颜色一律 `TagSidebarConverters.IsDarkTheme` 双值；接入 `RefreshThemeDependentVisuals` 重建链；
   - Esc：Flyout 自带 Esc 关闭；面板打开期间 `_shortcutsEnabled` 不全局禁用（非模态），但需核对与全局快捷键（翻页等）共存——面板获焦时快捷键不应触发图库操作。
 - 面板本体 `Views\TagFilterPanelControl.xaml(.cs)`（新文件，UI 工程自动编入）：**组=卡片全层统一**（含最外层根组）、卡片嵌套卡片、嵌套层背景交替 + 左侧 accent 竖线、组头「满足以下 [全部/任一] 条件」下拉 + 非根组 ✕、条件行 `[包含任一/不包含任一下拉] + 标签 chips（✕ 移除）+ ＋标签 + ✕`、组底 `＋ 条件` / `＋ 条件组`（深度 <3 才显示组按钮，UI 与状态层双保险）、面板底表达式预览 + 命中数 + `清空条件` + `完成`。
+  > **修订（2026-09-23）**：组头「全部/任一」与条件行「包含任一/不包含任一」实现为**两态切换按钮组**（点击切换、选中态着色），不再用下拉——面板宿主是 Flyout（popup 层），ComboBox 下拉属二级浮层、popup 层 ThemeResource 解析不认 RootGrid.RequestedTheme 运行时覆盖（ContentDialog 已实证，R1 同族风险），按钮组零浮层零主题风险且语义等价；已拍板为既成决策（cr-fix-spec-2 qa/A-3 回写）。
 - 渲染模式：循项目"全量 Rebuild 不可变快照"惯例（TagSidebarControl 两层嵌套 ItemsRepeater/ItemsControl 先例 + 面板规模小），**条件树用 code-behind 递归构造或嵌套 ItemsRepeater 均可，以实现简单为准**；值选择「＋ 标签」二级浮层首选 `Button.Flyout`（分组勾选列表 + 各标签计数，demo popover 同构），若嵌套 Flyout 在 WinAppSDK 1.6 出主题/命中问题，**降级为行内展开分组勾选区**（风险预案 R1，不阻塞形态）。
+  > **修订（2026-09-23）**：值选择直接采用 R1 降级形态——**行内展开分组勾选区**（「＋ 标签」切换该行展开、单开语义，不再走 `Button.Flyout` 二级浮层），已拍板为既成降级决策（cr-fix-spec-2 qa/A-3 回写）。
 - 筛选条（MainWindow.xaml L198-286 现区域）：OR 徽章移除（语义已被表达式段覆盖）；chips 换为 `BuildExpression` 段序列渲染（条件段 ✕ 删节点、且/或/括号、否定红）；保留 `FilterStatsText` 与「无标签」chip（untagged 激活时）；「清空」入口恢复（面板内 `清空条件`；筛选条右侧 `清空`——demo 形态，推翻 untagged-filter-entry 期"移除清空按钮"的旧拍板，因表达式复杂后逐条删除不现实）。
 - 左栏：chip 点击改 `QuickAdd`（无修饰=追加 in 条件；已引用则忽略——demo 拍板语义，Ctrl 修饰不再特殊处理）；`IsFilterActive` 高亮 = `CollectReferencedTags` 含该标签；∅ 按钮行为不变。
 
