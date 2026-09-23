@@ -1,8 +1,8 @@
 ---
-date: 2026-09-23 23:05
-title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
-keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
-abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
+date: 2026-09-23 23:47
+title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除（冻结死锁+换源管线）
+keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板
+abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，HEAD=dd9cdb6，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索 D1~D12→spec-check 一轮 Go→code-dev-loop 13 波次 dev-ready（118/118）→九轮实机走查修复（右栏布局列/铺满颜色/标签区照详情页重构/全 chrome 不透明/InfoBar 暗缝/单图顶部横条）→两项性能根除（拖拽小图 WIC-on-STA 互等死锁=8 次 ≥15s 冻结元凶，懒生成+后台线程化；单图换源管线全后台化=解码直出 SoftwareBitmap UI 只剩 O(1)）→flyout 盖左栏拍板①接受。待用户：走查尾款（浅色主题初值未实测/未定义区操作实机/回归族/大选中集/窄窗）→合并 master→可选 v1.0.2。
 ---
 
 user:
@@ -106,3 +106,9 @@ user:
 
 assistant:
 决策收口（7e9b783）：flyout 临时遮盖拍板①，MainWindow.xaml 筛选按钮注释更新+iteration-state 关闭该决策点。剩余事项盘点（回复用户）：①走查清单未完成项——浅色主题（ChromeBackgroundBrush Light=#F3F3F8 为初值**未实测**，用户默认深色）、未定义区连锁删除/收纳实机端到端、回归族（拖拽打标懒生成后视觉/单图目录/单图 Delete/Esc/Ctrl+A）、大选中集体感、窄窗 280+280；②流程——两代 feature 分支（tag-filter-tree+batch-tag-management）未合并 master，走查点头后合并，可选 v1.0.2 发布；③已知按需优化——超大 PNG 放大解码慢（WIC 对 PNG 无解码前预缩小）、解码缓存按条数不按字节、标题栏随系统色、上迭代 DEV-2（筛选面板两态切换按钮 vs 下拉形态）仍开放未拍板。
+
+user:
+（上下文压缩前）更新记忆。
+
+assistant:
+压缩前全局状态备查（2026-09-23 21:47，HEAD=dd9cdb6，工作区干净）：①**分支链**——feature/batch-tag-management（base=f6bc6a1）叠 feature/tag-filter-tree（base=b8b2511@master）两代成果均未合并 master；②**本迭代已交付**——batch-tag-management 全功能（删定义不连锁/未定义区/图库右栏/工具栏分簇/删选中集）dev-ready + 九轮走查修复（右栏布局列、宿主 Stretch 铺满、标签区照详情页结构、全 chrome ChromeBackgroundBrush 不透明、InfoBar Margin 暗缝、单图顶部横条整宽+返回图库收进横条）+ 性能两修（898fe6a WIC-on-STA 死锁根除=8 次 ≥15s 冻结元凶，f8f041f 换源管线全后台化）+ flyout 拍板①；测试 118/118；③**待用户**——走查尾款五项（浅色主题实测/未定义区操作实机/回归族/大选中集/窄窗）→点头后合并 master→可选 v1.0.2（release.ps1+Actions draft 流程，注意 tests 还原顺序铁律）；④**开放项**——DEV-2 筛选面板两态按钮 vs 下拉未拍板；按需优化清单（大 PNG 预缩小/缓存字节预算/标题栏着色）在 iteration-state notes；⑤**恢复上下文路径**——RULE.md（新增：WIC-on-STA 死锁铁律/SoftwareBitmap CreateCopyFromBuffer 池线程不渲染坑/UIA 优先按钮注入/Responding 假活判读）+ 本记忆 + docs\.iteration-state.yaml（终态 notes 全量）；走查/复现脚本族在 scripts\（undefined-panel/toolbar-catalog/walkthrough2/single-strip/zoom-path/repro-freeze1~5）。
