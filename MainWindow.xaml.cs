@@ -107,12 +107,12 @@ public sealed partial class MainWindow : Window
         TagFilterFlyout.Opening += OnFilterFlyoutOpening;
         TagFilterFlyout.Closed += OnFilterFlyoutClosed;
 
-        // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条）在 chrome 层
-        // 之下，顶部可点区须让出工具栏+InfoBar 的实际行高（右栏收起按钮曾被工具栏
-        // 横行遮盖点不到）。各行 SizeChanged 汇总写入 VM，SingleImageView 订阅后调整浮层 Margin。
-        // 底部状态栏已移除（2026-09-19），底部避让链（BottomChromeHeight）随之整体删除。
+        // chrome 行高度联动（2026-09-19 遮挡修复）：画布层浮层（右栏/折叠条/顶部横条）在 chrome 层
+        // 之下，顶部可点区须让出工具栏实际行高（右栏收起按钮曾被工具栏横行遮盖点不到）。
+        // SizeChanged 写入 VM，SingleImageView 订阅后调整浮层 Margin。
+        // 2026-09-24 悬空根治：MainInfoBar 浮层化（Row2 顶部 + ZIndex=2）后不再参与本高度——
+        // 旧行为回执弹出把单图横条顶离工具栏悬在画布中部（用户走查实报，repro-strip-float5 实锤）。
         ToolBarRow.SizeChanged += OnChromeRowSizeChanged;
-        MainInfoBar.SizeChanged += OnChromeRowSizeChanged;
 
         ConfigureWindowChrome();
         ApplySystemBackdrop();
@@ -121,24 +121,14 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// InfoBar 竖向外边距合计（cr/P2-9 跨文件常量锚点）：对应 XAML MainInfoBar 的
-    /// Margin="12,4"（上下分量 4+4，锚注释见该处）——ActualHeight 不含 Margin，
-    /// chrome 高度汇总须手补该值；XAML 改 Margin 竖向分量时两处同步。
-    /// </summary>
-    private const double InfoBarVerticalMargin = 8;
-
-    /// <summary>
-    /// chrome 顶行尺寸变化（工具栏/InfoBar）：汇总实际占位高度写入 VM，
-    /// 驱动画布层浮层的顶部避让 Margin。InfoBar 关闭时整体 Collapsed（走查 4：IsOpen=false
-    /// 只塌内容、Visible 元素的 Margin 仍占位，4+4 竖向边距在工具栏与内容区之间留出永久
-    /// 暗缝被走查打回）——高度仅在可见时计入 ActualHeight + 上下 Margin（XAML 12,4 → 竖向 8）。
+    /// 工具栏行尺寸变化：实际占位高度写入 VM，驱动画布层浮层（右栏/折叠条/顶部横条）的顶部避让 Margin。
+    /// 2026-09-24 悬空根治：MainInfoBar 已浮层化（Row2 顶部浮层，见 XAML 注释）——本高度不再含
+    /// InfoBar 分量（旧行为：回执弹出把单图横条顶离工具栏悬在画布中部，走查实报 + 实锤）；
+    /// InfoBar 关闭时整体 Collapsed（走查 4：IsOpen=false 只塌内容、Visible 元素的 Margin 仍占位）。
     /// </summary>
     private void OnChromeRowSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var infoBarHeight = MainInfoBar.ActualHeight == 0
-            ? 0
-            : MainInfoBar.ActualHeight + InfoBarVerticalMargin;
-        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight + infoBarHeight;
+        ViewModel.TopChromeHeight = ToolBarRow.ActualHeight;
     }
 
     /// <summary>

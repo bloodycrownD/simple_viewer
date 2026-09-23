@@ -448,16 +448,19 @@
         <!-- 批量打标进度/回执区（D13：主窗口内嵌 InfoBar，非 ContentDialog）：
              批量进行中显示 ProgressBar 分批推进；成功一律静默不弹（2026-09-19 拍板——就地反馈已充分，
              仅失败/警告弹终态回执，失败明细可滚动展开）；用户关闭经 TwoWay 写回 VM（下次操作重新打开）。
+             **浮层化（2026-09-24 悬空根治）**：Row1 占位形态下回执弹出会把内容区整体下推——单图横条
+             被回执高度顶离工具栏、悬在画布中部（用户走查实报「多次处理标签后返回悬空」，失败回执常驻
+             期间持续复现，repro-strip-float5 实锤 T 147→235）。改 Row2 顶部浮层（VerticalAlignment=Top
+             + ZIndex=2）：显示时浮在内容区上方、关闭 Collapsed 零占位，TopChromeHeight 恒=工具栏高。
              位置注意（XamlCompiler bug 规避）：本块须位于 MainAreaGrid 之后——状态栏移除后若 MainAreaGrid
              成为 ChromeLayer 最后一个子元素，WinAppSDK 1.6.240923002 的 XamlCompiler Pass1 会沉默崩溃
-             （退出码 1 无输出，MSB3073）；Grid 布局按 Grid.Row 定位，子元素顺序不影响布局，仅 z 序叠加
-             （InfoBar 在 Row1、MainAreaGrid 在 Row2，互不重叠，无视觉差异）。 -->
-        <!-- Margin="12,4" 锚点（cr/P2-9 跨文件常量）：竖向分量 4+4 = MainWindow.InfoBarVerticalMargin
-             （OnChromeRowSizeChanged 汇总 chrome 高度时手补）——改竖向 Margin 时两处同步。 -->
+             （退出码 1 无输出，MSB3073）；Grid 布局按 Grid.Row 定位，子元素顺序不影响布局，仅 z 序叠加。 -->
         <InfoBar
             x:Name="MainInfoBar"
-            Grid.Row="1"
-            Margin="12,4"
+            Grid.Row="2"
+            Canvas.ZIndex="2"
+            VerticalAlignment="Top"
+            Margin="12,4,12,0"
             IsClosable="True"
             IsOpen="{x:Bind ViewModel.IsTagFeedbackOpen, Mode=TwoWay}"
             Message="{x:Bind ViewModel.TagFeedbackMessage, Mode=OneWay}"

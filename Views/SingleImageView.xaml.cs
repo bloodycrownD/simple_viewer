@@ -124,10 +124,12 @@ public sealed partial class SingleImageView : UserControl
 
     /// <summary>
     /// chrome 遮让（2026-09-19 遮挡修复）：画布层浮层（右栏展开/折叠条）位于 chrome
-    /// 遮盖层之下，顶部被工具栏+InfoBar 横行遮盖——可点/可见区必须让出这段
-    /// 实际高度（MainWindow 依各行 SizeChanged 写入 VM）。右栏收起按钮曾因浮层顶到窗口顶
+    /// 遮盖层之下，顶部被工具栏横行遮盖——可点/可见区必须让出这段
+    /// 实际高度（MainWindow 依 SizeChanged 写入 VM）。右栏收起按钮曾因浮层顶到窗口顶
     /// 被工具栏盖住、真实鼠标点不到（UIA Press 不做视觉命中测试，走查假阳性）。
     /// 底部状态栏已移除（2026-09-19）：底部避让删除，浮层底部恒 0。
+    /// 2026-09-24 悬空根治：TopChromeHeight 恒=工具栏高（MainInfoBar 浮层化后不再计入）——
+    /// 旧行为回执弹出时横条被顶离工具栏悬在画布中部。
     /// 返回图库按钮（2026-09-19 引入，走查 6 收进顶部信息横条首元素）：CanExecute=HasGallery，
     /// CLI 直开无图库时禁用灰态。
     /// </summary>
