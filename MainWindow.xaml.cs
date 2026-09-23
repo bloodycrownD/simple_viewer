@@ -581,7 +581,15 @@ public sealed partial class MainWindow : Window
             ApplyDialogTheme(dialog);
 
             catalog.TagApplied += dialog.Hide;
-            await dialog.ShowAsync();
+            // 单开守卫（ui/B-1 意图完备，入口清单增补）：已有对话框打开时 UIA 交错触发会令 ShowAsync
+            // 抛异常冒泡（实机自检实锤场景），吞掉按已关闭处理——点选经 TagApplied → Hide，关闭路径本无后续动作。
+            try
+            {
+                await dialog.ShowAsync();
+            }
+            catch (Exception)
+            {
+            }
         }
         finally
         {

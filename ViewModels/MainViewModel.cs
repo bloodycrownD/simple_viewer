@@ -1527,7 +1527,9 @@ public partial class MainViewModel : ObservableObject
     /// <param name="tagName">未定义标签名（计数键拼写）。</param>
     public async Task RemoveTagFromLibraryAsync(string tagName)
     {
-        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning)
+        // 连锁删除走 RunTagOperationAsync(remove) 打标管线改同一文件集，与删除选中集互斥（vm/B-1 意图，
+        // 入口清单增补）：删除进行中触发会与回收站删除交错产出幽灵卡片。
+        if (string.IsNullOrWhiteSpace(tagName) || _isTagOperationRunning || _isDeleteSelectionRunning)
         {
             return;
         }
