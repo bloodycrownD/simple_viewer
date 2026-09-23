@@ -43,7 +43,7 @@ function Shot($name) {
 
 try {
   $json = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
-  $json.LastLibraryRoot = 'D:\Dev\Python\simple_viewer\test-library'
+  $json.LastLibraryRoot = Join-Path $PSScriptRoot '..\test-library'
   $json | ConvertTo-Json -Depth 10 | Set-Content $settings -Encoding UTF8
 
   taskkill /IM viewer.exe /F 2>$null | Out-Null
