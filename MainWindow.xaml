@@ -129,23 +129,11 @@
                                 <Button.Flyout>
                                     <!-- 面板本体 code-behind 构造注入（TagFilterPanelControl(Main, vm) 构造签名，
                                          对齐 TagSidebarHost 惯例）；主题对齐与打开时重建在 Flyout.Opening（.cs）。
-                                         FlyoutPresenterStyle（实机走查修复，两轮）：WinUI 默认 FlyoutThemeMaxWidth=456
-                                         会把面板硬夹成 456 逻辑宽导致内容竖排挤压——覆盖为 700=660(面板)+左右
-                                         FlyoutContentPadding 16×2+边框余量（二轮加宽：底部操作行与条件行留裕）；
-                                         BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板。 -->
+                                         FlyoutPresenterStyle 不在此内联（原内联 Min/MaxWidth=700 死代码已删，
+                                         ui/C-1）：OnFilterFlyoutOpening 每次 Opening 用 BuildFilterFlyoutStyle
+                                         按窗口宽动态构建（420~700）并整体覆盖，XAML 内联值永不生效、
+                                         徒增双信号源——样式单源在 code-behind。 -->
                                     <Flyout x:Name="TagFilterFlyout" Placement="Bottom">
-                                        <Flyout.FlyoutPresenterStyle>
-                                            <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
-                                                <Setter Property="MinWidth" Value="700" />
-                                                <Setter Property="MaxWidth" Value="700" />
-                                                <!-- 外层滚动禁用（实机走查二轮修复）：FlyoutPresenter 自带 ScrollViewer
-                                                     在面板高于按钮下方可用空间时给出贯穿面板全高的滚动条，压住底部
-                                                     「命中 N / 已发现 N 张」的数字；改为面板内部 TreeScroll 自滚
-                                                     （UserControl MaxHeight=520 收紧总高），外层不再滚。 -->
-                                                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
-                                                <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
-                                            </Style>
-                                        </Flyout.FlyoutPresenterStyle>
                                         <ContentControl x:Name="FilterPanelHost" />
                                     </Flyout>
                                 </Button.Flyout>
