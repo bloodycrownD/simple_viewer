@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 21:40
+date: 2026-09-23 22:40
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -94,3 +94,9 @@ user:
 
 assistant:
 性能修复轮（898fe6a，根除存量 ≥15s UI 冻结+顿挫主源）：取证→复现→消融→修复闭环。①取证：走查时段日志 8 次 ≥15s 冻结、全部 scan:end 后、看门狗栈无托管帧；②复现：120 张 5000x3500 图库同签名复现（~50% 基率、间歇性；热缓存零解码也冻→解码非必要条件；29 张冻/6 张不冻；基点 f6bc6a1 也冻→存量非回归）；③冻结期抓证：dotnet-stack+线程 CPU 增量——**全进程零 CPU 增量、Responding=True 假活**（Win32 泵活/XAML 调度器死）=等待型死锁；④消融实验二分：禁「拖拽小图预生成+缩略图应用」6/6 轮无冻结→只禁拖拽预生成 6/6 轮无冻结→**凶手=TryCreateDragVisualAsync 预生成**：每张缩略图应用后在 UI STA 跑 WIC 异步链（流 STA 创建+无 ConfigureAwait），WIC 完成需封送回 STA，首帧布局期 UI 不泵消息时与 WIC 线程互等成零 CPU 死锁（UiApplyGate 串行化只是降低了概率没根除——2026-09-17 同族前科）。修法：去掉每卡急切预生成→DragStarting 懒生成（GetDeferral+缓存命中毫秒级）；生成链整包 Task.Run+全链 ConfigureAwait(false)；滚动期解码量减半。验证：修复版 6/6 轮无冻结+功能回归+118/118。方法论入 RULE：WIC-on-STA 死锁铁律、Responding 假活+零 CPU=等待型死锁判读、间歇性 bug 消融实验二分（repro-freeze1~5 脚本族入库）。遗留次级顿挫源（未修，待用户再走查确认）：单图换源 UI 线程像素拷贝（fit 档 19MB/全分辨率 192MB memcpy+WriteableBitmap 分配）、翻页 prefetch 3×全解码、大 PNG 无解码前预缩小（WIC BitmapTransform 对 PNG 不缩）、解码像素 LRU=6×全分辨率≈1GB 的 LOH GC 风险。
+
+user:
+「放大还是有点卡，我记得放大会加载完整图，而不是缩略导致的？」——用户点出放大顿挫在全分辨率加载路径，与冻结修复的遗留清单吻合。
+
+assistant:
+放大/翻页顿挫修复轮（f8f041f，单图换源管线全后台化）：①LoadAsync 四个 WinRT await 全链 ConfigureAwait(false)（原 192MB DetachPixelData 回 UI 线程）；②解码改 GetSoftwareBitmapAsync 带 transform 重载**直出 SoftwareBitmap**（解码+降采样+EXIF 全在 WIC、零中间 byte[]，LRU 持单份位图）；③FromLoadedImage→FromLoadedImageAsync（UI 线程只剩 O(1) SetBitmapAsync，原 WriteableBitmap 路径 UI 整块 memcpy 19~192MB）。**过程中踩出关键坑（已入 RULE）**：首版把 CreateCopyFromBuffer 放 Task.Run——池线程包装托管数组的 SoftwareBitmap 在 XAML Image **不渲染（无异常纯空白）**，zoom-path-verify 像素断言抓出整画布零红；实验对照：同操作挪回 UI 线程即渲染 → 换解码器直出方案后池线程产出也可渲染——坑仅限 CreateCopyFromBuffer 包装路径。验证方法论：-d 直开+UIA 翻页+像素红断言（zoom-path-verify，滚轮缩放无法注入就用翻页驱动同一条换源路径）。118/118+冻结复现 3 轮无回归。教训：**换源/像素类改动必须有像素级渲染断言**（功能断言全绿但画面空白的第一版就是证明）。
