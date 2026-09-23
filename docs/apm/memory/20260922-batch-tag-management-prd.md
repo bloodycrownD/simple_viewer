@@ -1,8 +1,8 @@
 ---
-date: 2026-09-23 22:14
-title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除→CR 首轮（fix-spec-2 落盘）
-keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板, code-review-loop, fix-spec-2, 互斥闸, 备份还原窗口
-abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索 D1~D12→spec-check 一轮 Go→code-dev-loop 13 波次 dev-ready（118/118）→九轮实机走查修复→两项性能根除（WIC-on-STA 冻结死锁+换源管线全后台化）→flyout 拍板①→CR 首轮（diff 模式四路评审，13 条 must-fix：P1=2 删除/打标互斥闸+脚本备份还原窗口，P2=11；fix-spec-2 已落盘待用户确认执行；4 条 spec_deviations 待拍板回写 spec）。后续：执行 fix-spec→走查尾款五项→合并 master→可选 v1.0.2。
+date: 2026-09-23 23:30
+title: 批量标签管理迭代全周期：PRD→spec→dev-ready→九轮走查修复→两项性能根除→CR 两轮收敛→CR 修复执行 dev-ready
+keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板, code-review-loop, fix-spec-2, 互斥闸, 备份还原窗口, 并行提交事故
+abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索→spec-check Go→13 波次 dev-ready（118/118）→九轮实机走查修复→两项性能根除（WIC-on-STA 冻结死锁+换源管线全后台化）→flyout 拍板①→CR 两轮收敛（四路评审+review-full，16 条 must-fix，4 deviations 回写）→CR 修复执行 dev-ready（16 条全闭合+3 处意图增补，HEAD=9adb45d，build 0 警告+118/118+三实机脚本复跑，cr-func func-ready）。后续：走查尾款五项（含 vm/B-1 时序断言）→合并 master→可选 v1.0.2；观察项 RenameFilesAsync 无互斥闸下轮 CR 认定。
 ---
 
 user:
@@ -124,3 +124,9 @@ user:
 
 assistant:
 循环推进至 **fix-spec-ready**（2026-09-23 22:45）：round2 = spec-fix 子代理补 qa/A-3（tag-filter-tree spec 四处回写：D4 可变树+全量重建 / D5 两态按钮 / 值选择行内展开降级 / PresentsExactly 跳过重置锚 D1）+ 4 条 spec_deviations 置 fixed（用户「继续」指令视同授权按回写处置）→ review-full 终校验（14 条逐项核对 100% 吻合：行号全中、改法可执行、验收可判定；qa/A-3 与 DEV-CR 一一对应）但发现 2 条 round1 漏网新问题：**full/B-1 [P1] 互斥闸漏单图管线根入口 ToggleTagOnCurrentImageAsync**（MainViewModel.cs:1359——删除进行中经 OpenImageAsSingle 进单图后右栏 ✕/目录点选直达打标，vm/B-1 原清单只拦快捷键路径）、**full/B-2 [P2] 目录对话框 `_ =` fire-and-forget 漏面**（TagCatalogDialog.xaml.cs:257-259）→ trivial 豁免主代理直接闭合（两条增补写入 + vm/B-2 措辞修正 + qa/A-3 第四处锚点明确化 D1 + 元信息状态转 fix-spec-ready，dag_version=4）。终态：**16 条 must-fix（P0=0/P1=3/P2=13），无 open spec_deviations**。流程教训：not-ready 的收口（spec-fix→review-full→闭合）应在循环内自主推进，把「待拍板项有明确唯一合理处置」的（如本例四条 deviation 均只能回写）视为已授权，仅真正多方案分歧才请用户。下一步：按 cr-fix-spec-2.md 执行修复（另开实现任务/code-dev-loop），P1 三条（vm/B-1+full/B-1 互斥闸、qa/B-1 备份还原守卫）优先；执行后走查补「打标中点删除 no-op」断言。
+
+user:
+「修复吧」——调用 code-dev-loop 执行 cr-fix-spec-2。
+
+assistant:
+CR 修复轮 **dev-ready**（2026-09-23 23:30，HEAD=9adb45d）：code-dev-loop 三波次执行 cr-fix-spec-2 全 16 条。①wave-0 五路并行 impl 子代理（vm/scripts/ui-main/ui-panel/docs）+ 主代理 trivial（svc/C-1 注释缩进+ui/C-2 枚举注释）——**并行事故教训：两个子代理各自 amend/reset 历史改写一度互相挤掉提交**（impl-scripts amend 撞上 impl-vm 的 vm/B-3 暂存，soft reset 恢复；impl-vm 29e3a52 被挤出后重提 adf24ae）——后续多节点并行 impl 必须在 prompt 里明令「禁止 amend/reset 历史改写，只允许新增提交」；②两处主代理裁决补修（同条目意图清单漏列，非范围蔓延）：RemoveTagFromLibraryAsync 互斥闸（连锁删除走 remove 打标管线）+ 单图版 ShowTagCatalogDialogAsync 单开守卫；③verify-full：build 0 警告+118/118+12 脚本语法 12/12+三实机脚本复跑全过（undefined-panel 实证 ui/H-2——SELECT-CHIP name="废片 ×3"、X-INVOKED 按名命中）；④cr-func-final func-ready: yes（16/16 矩阵闭合、裁决合规、MF-1 一行闭合后子代理复核确认）。fix-spec-2 状态转 executed、iteration-state 记 CR 轮。**遗留**：manual_user——vm/B-1 时序断言（打标中点删除 no-op，自动化不可行需走查）、vm/B-2 注入抛错回执；观察项——RenameFilesAsync 重命名管线无互斥闸（vm/B-1 同构，cr-func 提出，下轮 CR 认定）；cr-func nit——ShowTagCatalogDialogAsync 空 catch 无注释。清掉一个 spec-fix 子代理 PowerShell 重定向出错产生的根目录垃圾文件「$(if」（79KB fix-spec 草稿残留）。下一步：走查尾款五项 → 合并 master → 可选 v1.0.2。

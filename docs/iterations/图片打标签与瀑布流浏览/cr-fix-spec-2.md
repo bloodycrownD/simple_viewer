@@ -11,7 +11,7 @@
   - `docs/iterations/图片打标签与瀑布流浏览/features/tag-filter-tree/spec.md`（只读参考）
 - review_round: 2（round1 四路评审 → round2 spec-fix 补 DEV 回写条目 + review-full 终校验；终校验新增 full/B-1、full/B-2 两条增补，主代理 trivial 豁免直接闭合）
 - dag_version: 4
-- 状态: fix-spec-ready（2026-09-23 主代理宣布：末轮 full 校验后 P0=P1=P2=0 未写入项、无 open spec_deviations）
+- 状态: **executed（2026-09-23 dev-ready）**——16 条全部执行完毕（HEAD=9adb45d，13 提交）；另有 3 处「条目意图完备」增补闭合（b9f4ea5 两处：RemoveTagFromLibraryAsync 互斥闸 + 单图版目录对话框守卫；9adb45d 一处：MF-1 脚本图库路径推导）。验证：build 0 警告 + 118/118 + 12 脚本语法 12/12 + 三实机脚本复跑通过（filter-panel/walkthrough2/undefined-panel，含 UIA Name 实证与 ✕ 移除端到端）；cr-func-final func-ready: yes。manual_user 留白：vm/B-1 时序断言（打标中点删除 no-op）、vm/B-2 注入抛错回执；观察项：RenameFilesAsync 无互斥闸（下轮 CR 认定）
 - 行号说明: 以下文件行号已对照 233dc19 工作树逐一核实；与评审原始记录有小幅偏移处按实际行号落盘（问题认定与改法方向不变）。
 
 ---

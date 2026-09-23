@@ -42,6 +42,7 @@ spec_deviations:
     status: closed
     desc: D10 批量删除机制订正为 SHFileOperationW P/Invoke（UIOption 无 NoUI 成员，实编译证实；spec 已订正）
 notes:
+  - CR 修复轮（2026-09-23 晚，code-dev-loop 执行 cr-fix-spec-2）：16 条 must-fix 全闭合 + 3 处意图完备增补（b9f4ea5×2/9adb45d×1），HEAD=9adb45d；build 0 警告 + 118/118 + 12 脚本语法 + filter-panel/walkthrough2/undefined-panel 三实机复跑通过；cr-func-final func-ready。manual_user 留白：vm/B-1 时序断言（打标中点删除 no-op）、vm/B-2 注入抛错回执；观察项：RenameFilesAsync 重命名管线无互斥闸（vm/B-1 同构，下轮 CR 认定）
   - ✅ flyout 盖左栏已拍板（2026-09-23）：用户选①接受临时遮盖（点外部即关）——MainWindow.xaml 注释已更新，决策点关闭
   - 走查遗留：单图模式进入（Enter/双击）在 IME 环境键盘注入不稳（产品路径有历史走查覆盖，单图工具栏与图库同机制反向）；空选中删除 no-op 未自动断言（简单路径）；15s 心跳告警家族已根除主源（拖拽小图 WIC-on-STA 死锁，898fe6a）+ 放大/翻页换源管线全后台化（f8f041f）
   - Step 9 manual_user 走查清单交付用户：A1~E1 全量、双主题（浅色 ChromeBackgroundBrush #F3F3F8 为初值未实测）、大选中集体感、单图目录/单图 Delete/拖拽打标/Esc/Ctrl+A 回归、窄窗口左右栏 280+280 形态（R2）
