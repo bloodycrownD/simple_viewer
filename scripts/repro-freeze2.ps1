@@ -5,6 +5,12 @@ if (-not (Test-Path $libDir)) { Write-Output 'NO-LIB（先跑 repro-freeze.ps1�
 
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-frz2'
+# qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
+# 防止把已被污染的 settings 当作新备份源、唯一好备份被删/覆盖
+if (Test-Path $backup) {
+  Move-Item $backup $settings -Force
+  Write-Output ('STALE-BACKUP-RESTORED: ' + $backup + ' 已还原为 settings，随后重新备份')
+}
 Copy-Item $settings $backup -Force
 try {
   $json = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json

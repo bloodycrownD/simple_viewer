@@ -20,6 +20,12 @@ if (Test-Path $shotDir) { Remove-Item $shotDir -Recurse -Force }
 New-Item -ItemType Directory -Path $shotDir | Out-Null
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-zm'
+# qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
+# 防止把已被污染的 settings 当作新备份源、唯一好备份被删/覆盖
+if (Test-Path $backup) {
+  Move-Item $backup $settings -Force
+  Write-Output ('STALE-BACKUP-RESTORED: ' + $backup + ' 已还原为 settings，随后重新备份')
+}
 Copy-Item $settings $backup -Force
 
 function FindName($win, $name) {

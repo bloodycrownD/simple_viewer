@@ -17,7 +17,12 @@ public class W6 {
 
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $backup = $settings + '.bak-tb'
-if (Test-Path $backup) { Remove-Item $backup -Force }
+# qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
+# 防止把已被污染的 settings 当作新备份源、唯一好备份被删/覆盖
+if (Test-Path $backup) {
+  Move-Item $backup $settings -Force
+  Write-Output ('STALE-BACKUP-RESTORED: ' + $backup + ' 已还原为 settings，随后重新备份')
+}
 Copy-Item $settings $backup -Force
 
 $libDir = Join-Path $env:TEMP 'sv-verify-lib2'

@@ -4,6 +4,12 @@ $libDir = Join-Path $env:TEMP 'sv-freeze-lib'
 $settings = Join-Path $env:LocalAppData 'SimpleViewer\settings.json'
 $logPath = "$env:LOCALAPPDATA\SimpleViewer\logs\startup.log"
 $backup = $settings + '.bak-frz5'
+# qa/B-1 备份前置守卫：残留备份 = 上次运行中途崩溃（finally 未执行）——先还原再重新备份，
+# 防止把已被污染的 settings 当作新备份源、唯一好备份被删/覆盖
+if (Test-Path $backup) {
+  Move-Item $backup $settings -Force
+  Write-Output ('STALE-BACKUP-RESTORED: ' + $backup + ' 已还原为 settings，随后重新备份')
+}
 Copy-Item $settings $backup -Force
 $stackFile = Join-Path $env:TEMP 'sv-freeze-stack-frozen.txt'
 if (Test-Path $stackFile) { Remove-Item $stackFile -Force }
