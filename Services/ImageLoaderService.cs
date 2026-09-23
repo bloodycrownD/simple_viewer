@@ -151,10 +151,10 @@ public sealed class ImageLoaderService : IImageLoaderService
             return;
         }
 
-            // 同图改名迁移（打标重命名，字节未变）：锁内完成，与 LoadAsync/TryGetCached/AddToCache 串行——
-            // 防 prefetch 并发读旧键或插入新键的竞态。旧键条目移除（路径已失效，留着只会白占 LRU 容量）；
-            // 迁移后的新条目复制出新 LoadedImage（Path 挂新路径，命中返回的元数据口径与请求路径一致；
-            // 解码位图共享引用——LoadedImage 不可变，安全）。
+        // 同图改名迁移（打标重命名，字节未变）：锁内完成，与 LoadAsync/TryGetCached/AddToCache 串行——
+        // 防 prefetch 并发读旧键或插入新键的竞态。旧键条目移除（路径已失效，留着只会白占 LRU 容量）；
+        // 迁移后的新条目复制出新 LoadedImage（Path 挂新路径，命中返回的元数据口径与请求路径一致；
+        // 解码位图共享引用——LoadedImage 不可变，安全）。
         // GIF 不入缓存（LoadAsync 只对非 GIF AddToCache），此处天然无操作。
         // 迁移后仍在途的旧路径 prefetch 若完成落缓存，会重新插入旧键条目——LRU 自然逐出，无害。
         lock (_cacheLock)

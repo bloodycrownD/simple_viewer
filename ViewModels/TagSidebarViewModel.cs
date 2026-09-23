@@ -37,10 +37,10 @@ public enum TagEditKind
     /// <summary>重命名标签（更新引用它的图片文件名，打标即改名）。</summary>
     RenameTag,
 
-    /// <summary>删除标签（从引用它的图片文件名移除，不删图片本体）。</summary>
+    /// <summary>删除标签（仅移除定义，0 文件改名；文件上的标签保留并落入未定义标签区）。</summary>
     DeleteTag,
 
-    /// <summary>删除标签组（级联移除组内全部标签）。</summary>
+    /// <summary>删除标签组（仅移除组定义，0 文件改名；组内标签保留并落入未定义标签区）。</summary>
     DeleteGroup,
 
     /// <summary>组「互斥 ⇄ 兼容」切换（仅改 TagGroups 配置，不改已落盘标签）。</summary>
