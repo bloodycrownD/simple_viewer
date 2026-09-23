@@ -1,5 +1,5 @@
 ---
-date: 2026-09-23 22:40
+date: 2026-09-23 23:05
 title: 批量标签管理 PRD（两层语义重构 + 图库右栏 + 工具栏场景化）
 keywords: 批量移除标签, 两层模型, 配置层, 事实层, 未定义标签, 收纳, 图库右栏, 批量打标, 工具栏分组, 删选中集, PRD, batch-tag-management
 abstract: 批量标签管理迭代（两层语义+图库右栏+工具栏场景化+删选中集）全周期：六轮问答 PRD → spec-generate 四路探索 D1~D12 拍板 → spec-check-loop 一轮 Go → code-dev-loop 13 波次 **dev-ready**（分支 feature/batch-tag-management，base=f6bc6a1，HEAD=c2b3f71，118/118 测试，两次实机自检端到端）。待用户实机走查（A1~E1/双主题/大选中集/回归）与一项拍板：筛选按钮挪左簇后 flyout 盖左栏（备选：ShowAt 右移/按钮挪常显右簇/接受遮盖）。
@@ -100,3 +100,9 @@ user:
 
 assistant:
 放大/翻页顿挫修复轮（f8f041f，单图换源管线全后台化）：①LoadAsync 四个 WinRT await 全链 ConfigureAwait(false)（原 192MB DetachPixelData 回 UI 线程）；②解码改 GetSoftwareBitmapAsync 带 transform 重载**直出 SoftwareBitmap**（解码+降采样+EXIF 全在 WIC、零中间 byte[]，LRU 持单份位图）；③FromLoadedImage→FromLoadedImageAsync（UI 线程只剩 O(1) SetBitmapAsync，原 WriteableBitmap 路径 UI 整块 memcpy 19~192MB）。**过程中踩出关键坑（已入 RULE）**：首版把 CreateCopyFromBuffer 放 Task.Run——池线程包装托管数组的 SoftwareBitmap 在 XAML Image **不渲染（无异常纯空白）**，zoom-path-verify 像素断言抓出整画布零红；实验对照：同操作挪回 UI 线程即渲染 → 换解码器直出方案后池线程产出也可渲染——坑仅限 CreateCopyFromBuffer 包装路径。验证方法论：-d 直开+UIA 翻页+像素红断言（zoom-path-verify，滚轮缩放无法注入就用翻页驱动同一条换源路径）。118/118+冻结复现 3 轮无回归。教训：**换源/像素类改动必须有像素级渲染断言**（功能断言全绿但画面空白的第一版就是证明）。
+
+user:
+「1接受，是不是就没其他问题了？」——flyout 盖左栏选①接受，并问剩余事项。
+
+assistant:
+决策收口（7e9b783）：flyout 临时遮盖拍板①，MainWindow.xaml 筛选按钮注释更新+iteration-state 关闭该决策点。剩余事项盘点（回复用户）：①走查清单未完成项——浅色主题（ChromeBackgroundBrush Light=#F3F3F8 为初值**未实测**，用户默认深色）、未定义区连锁删除/收纳实机端到端、回归族（拖拽打标懒生成后视觉/单图目录/单图 Delete/Esc/Ctrl+A）、大选中集体感、窄窗 280+280；②流程——两代 feature 分支（tag-filter-tree+batch-tag-management）未合并 master，走查点头后合并，可选 v1.0.2 发布；③已知按需优化——超大 PNG 放大解码慢（WIC 对 PNG 无解码前预缩小）、解码缓存按条数不按字节、标题栏随系统色、上迭代 DEV-2（筛选面板两态切换按钮 vs 下拉形态）仍开放未拍板。
