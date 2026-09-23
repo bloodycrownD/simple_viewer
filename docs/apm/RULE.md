@@ -21,6 +21,7 @@
 - 新引用 ThemeResource 键必须核对 WinUI 3 真实存在（`LayerFillColorSecondaryBrush` 事故曾致启动即崩，编译期不校验）。
 - 交互用 `Click` 不用 `Tapped`：Tapped 仅真实指针手势触发，键盘/自动化/辅助功能路径静默失效。
 - **修饰键检测只判 `CoreVirtualKeyStates.Down`，禁止 `|| Locked`**：Locked 是 Caps/Num 类 toggle 位，对 Shift 无意义，但中文 IME 切中英文会把 Shift 的该位置位（曾致所有普通点击被误判 Shift 连选且无法取消）——4 处同模式坑（MainWindow/WaterfallView/TagSidebarControl/SettingsPage）已修，勿回潮。
+- **XAML 对象（DependencyObject 族：BitmapImage/SoftwareBitmapSource 等）永不可裸置 null 交给 GC**（2026-09-24 崩溃实锤）：CsWinRT 的 `IObjectReference.Finalize` 在 GC 终结器线程直接 native Release，而 XAML 对象须在创建线程析构——跨线程 Release 在成批退休（瀑布流重排/高频换源）时触发 native 堆损坏闪退（fastfail 0xc0000409 + 托管堆不可遍历 + 终结器线程停在 Finalize 的 dump 铁证；另一表现为 stowed 0xc000027b）。修法：`ImageSourceRetirement` 退役队列（UI 线程 Retire+Drain、保留窗口后显式 Dispose）——新建替换类改动必须照抄接入；SoftwareBitmap（agile）不受此约束。
 
 ## 主题与颜色
 
