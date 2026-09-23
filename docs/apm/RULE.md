@@ -32,6 +32,7 @@
 - 双 csproj 白名单：`Services\ Models\ Helpers\` 自动编入 Core（可单测）；UI 工程需要的新 Helper 须双侧 csproj 显式 Include（先例：ImageSourceHelper/ConsoleHelper）。tests 只引用 Core，可测逻辑必须下沉 Core。
 - 索引（SQLite）与缩略图缓存是可丢弃缓存，事实源永远是文件名（TagSpaces 文件名协议 `base[tag1 tag2].ext`）；打开图库 = 清表重扫（`ClearAllItemsAsync`，防孤儿行污染候选集）。
 - 缩略图 UI 应用必须走 `GalleryItemViewModel.UiApplyGate` 串行闸门（并发 SetSourceAsync 在首帧渲染期死锁过 UI）。
+- **WinRT WIC/解码异步链路严禁跑在 UI STA 上下文**（2026-09-23 冻结根因实锤）：`BitmapDecoder/GetPixelDataAsync` 等若由 STA 创建流、无 `ConfigureAwait(false)`，其完成需封送回流所属 STA——首帧布局期 UI 线程在原生工作中不泵消息时，WIC 线程等封送、UI 等解码完成，互等成**零 CPU 死锁**（实机 8 次 ≥15s 冻结+复现 6 次；窗口 Responding=True 假活、看门狗栈无托管帧）。修法：整链 `Task.Run` 包裹 + 每个 WinRT await `.AsTask().ConfigureAwait(false)`（先例 `ImageSourceHelper.TryCreateDragVisualAsync`）；派生结论——按需资源别在滚动/首帧路径急切预生成，改消费点懒生成。
 - 打标/重命名后的同步阶段用"宽松预测 + 磁盘事实判定"（`TryComposeNewPath`），不要用 BuildNewPath 的目标冲突预检（改名后目标必存在，会误判失败跳过同步）。
 - **无 UI 回收站删除用 SHFileOperationW P/Invoke**（2026-09-22 实锤）：`Microsoft.VisualBasic.FileIO.UIOption` **没有 NoUI 成分**（仅 AllDialogs/OnlyErrorDialogs），OnlyErrorDialogs 失败时弹 Shell 错误框而非抛异常（批量场景连环卡死）；批量删除逐文件 `SHFileOperationW` + `FOF_SILENT|FOF_NOCONFIRMATION|FOF_ALLOWUNDO|FOF_NOERRORUI`，失败以非零返回码进 BatchOperationResult 聚合（先例 FileOperationService.DeleteToRecycleBin(paths)）。
 - **图像解码管线两铁律（2026-09-19 修线条毛刺确立；铁律②口径随遮盖式布局重排更新）**：① WIC 缩小插值必须 `BitmapInterpolationMode.Fant`（默认 Linear 大倍率缩小丢高频细节生锯齿；单图 ImageLoaderService 与缩略图 ThumbnailService 两处 CreateTransform）；② 解码尺寸 = 整窗画布区——SingleImageView.ImageHost 在遮盖式布局（2026-09-19）下铺满整窗、几何恒定，解码即贴合显示区 1:1；显示层二次缩小会重新引入锯齿（按比显示区更大的区域解码同样不可取）。**侧栏/右栏/工具栏/状态栏均为 chrome 遮盖层，收展只改变遮盖范围、不得改变画布几何**（画布几何恒定 → 图片位置不动、不触发重解码，只有窗口 resize 改变画布）。该铁律约束**单图画布侧**（CanvasLayer/SingleImageView）；图库瀑布流区不适用——左栏本就是 MainAreaGrid 布局列（收展改变瀑布流可用宽度、经 resize 同路径重排属预期），图库右栏（选中集标签面板）2026-09-23 用户走查拍板同为布局列（首版浮层遮盖藏住缩略图被打回）。放大 ≥1.2× 经 EnsureFullResolutionAsync 按需换全分辨率源（每图一次）；WinUI 的 RenderTransform 缩放作用于源纹理而非布局光栅（实测），故换源即得高分辨率采样。
@@ -39,6 +40,7 @@
 ## 诊断
 
 - 崩溃/卡死先看 `%LocalAppData%\SimpleViewer\logs\startup.log`：全局未处理异常 + UI 心跳看门狗（≥15s 无响应自动转储操作追踪与 UI 线程堆栈）+ 缩略图失败明细。
+- **冻结探测用应用自身心跳看门狗，别信 `Process.Responding`**（2026-09-23 实锤）：XAML 调度器死透时 Win32 消息泵仍活着、Responding=True 假活——复现脚本模式见 `scripts\repro-freeze5.ps1`（轮询 startup.log「UI 无响应」即冻结进行中，立即 `dotnet-stack report -p <pid>` + 线程 CPU 增量采样）。**冻结期全进程零 CPU 增量 = 等待型死锁（查跨线程封送/互等），单线程 CPU 打满 = 自旋/GC**；间歇性 bug 用消融实验二分（临时开关可疑段，每配置多轮对照）。
 - `Services\DiagnosticTrace` 打点关键路径；`scripts\fg-monitor.ps1`（前置窗口监控）、`scripts\freeze-stress.ps1`（清缓存冻结压力测试）。
 
 ## 实机 UI 测试（2026-09-18 走查方法论）

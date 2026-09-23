@@ -56,36 +56,45 @@ internal static class ImageSourceHelper
     {
         try
         {
-            using var stream = new MemoryStream(jpegBytes).AsRandomAccessStream();
-            var decoder = await BitmapDecoder.CreateAsync(stream);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var frame = await decoder.GetFrameAsync(0);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var transform = CreateDownscaleTransform(frame.PixelWidth, frame.PixelHeight, shortSide);
-            var pixelData = await frame.GetPixelDataAsync(
-                BitmapPixelFormat.Bgra8,
-                BitmapAlphaMode.Premultiplied,
-                transform,
-                ExifOrientationMode.IgnoreExifOrientation,
-                ColorManagementMode.DoNotColorManage);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var pixels = pixelData.DetachPixelData();
-            var width = (int)(transform.ScaledWidth > 0 ? transform.ScaledWidth : frame.PixelWidth);
-            var height = (int)(transform.ScaledHeight > 0 ? transform.ScaledHeight : frame.PixelHeight);
-            if (width <= 0 || height <= 0)
+            // 全程后台线程 + ConfigureAwait(false)（2026-09-23 冻结修复）：原实现各 WinRT await 续体
+            // 回 UI STA，且 MemoryStream 流在 STA 创建——WIC 异步操作的完成需封送回流所属 STA，
+            // 首帧布局期 UI 线程恰在原生布局中不泵消息时，WIC 线程等封送、UI 等解码完成，互等成
+            // 零 CPU 死锁（实机 8 次 ≥15s 冻结 + 本地复现 6 次，消融实验定位）。整体包 Task.Run：
+            // 流创建、解码、SoftwareBitmap 拷贝全在池线程，零 STA 依赖；SoftwareBitmap 具敏捷性，
+            // 后台创建后交 UI 消费（DragUI.SetContentFromSoftwareBitmap）安全。
+            return await Task.Run(async () =>
             {
-                return null;
-            }
+                using var stream = new MemoryStream(jpegBytes).AsRandomAccessStream();
+                var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
 
-            return SoftwareBitmap.CreateCopyFromBuffer(
-                pixels.AsBuffer(),
-                BitmapPixelFormat.Bgra8,
-                width,
-                height,
-                BitmapAlphaMode.Premultiplied);
+                var frame = await decoder.GetFrameAsync(0).AsTask().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var transform = CreateDownscaleTransform(frame.PixelWidth, frame.PixelHeight, shortSide);
+                var pixelData = await frame.GetPixelDataAsync(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Premultiplied,
+                    transform,
+                    ExifOrientationMode.IgnoreExifOrientation,
+                    ColorManagementMode.DoNotColorManage).AsTask().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var pixels = pixelData.DetachPixelData();
+                var width = (int)(transform.ScaledWidth > 0 ? transform.ScaledWidth : frame.PixelWidth);
+                var height = (int)(transform.ScaledHeight > 0 ? transform.ScaledHeight : frame.PixelHeight);
+                if (width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+
+                return SoftwareBitmap.CreateCopyFromBuffer(
+                    pixels.AsBuffer(),
+                    BitmapPixelFormat.Bgra8,
+                    width,
+                    height,
+                    BitmapAlphaMode.Premultiplied);
+            }, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception)
         {

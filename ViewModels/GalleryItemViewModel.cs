@@ -70,9 +70,11 @@ public partial class GalleryItemViewModel : ObservableObject
     private const int DragVisualShortSide = 120;
 
     /// <summary>
-    /// 拖拽跟随小图（LoadThumbnailAsync 成功后由缩略图 JPEG 字节降采样预生成，短边约 120px）。
-    /// null = 未生成/加载未完成/生成失败——WaterfallView.OnCardDragStarting 走回退链
-    /// （Thumbnail BitmapImage → 系统默认整卡快照）。仅 UI 线程读写（加载续体与 DragStarting 均在 UI 线程）。
+    /// 拖拽跟随小图（短边约 120px）。2026-09-23 冻结修复：不再随缩略图加载预生成（原实现全链
+    /// UI STA 续体，WIC 完成封送回 STA 与首帧布局互等成零 CPU 死锁——实机 8 次 ≥15s 冻结，
+    /// 消融实验实锤），改为 <see cref="GetOrCreateDragVisualAsync"/> 拖拽发起时懒生成（后台线程）。
+    /// null = 未生成/生成失败——WaterfallView.OnCardDragStarting 走回退链
+    /// （懒生成 → Thumbnail BitmapImage → 系统默认整卡快照）。仅 UI 线程读写。
     /// </summary>
     private SoftwareBitmap? _dragVisual;
 
@@ -279,11 +281,11 @@ public partial class GalleryItemViewModel : ObservableObject
                 UiApplyGate.Release();
             }
 
-            // 拖拽小图预生成（2026-09-19 拖拽视觉）：置于缩略图 UI 应用段（闸门）之后——不占 UiApplyGate、
-            // 不阻塞其它缩略图的串行应用；await 期间 UI 线程让出，真正的像素解码在 WIC 线程池。
-            // 失败/取消由工具方法内部静默降级（返回 null，DragStarting 走回退链），主链路不受影响。
-            _dragVisual = await ImageSourceHelper.TryCreateDragVisualAsync(
-                result.ImageBytes, DragVisualShortSide, cancellationToken);
+            // 拖拽小图不再在此预生成（2026-09-23 冻结修复）：原实现在每张缩略图应用后再跑一次
+            // TryCreateDragVisualAsync（全链 UI STA 续体 + STA 创建的流），WIC 完成需封送回 STA——
+            // 首帧布局期 UI 线程恰在原生工作中不泵消息时，与 WIC 线程互等成零 CPU 死锁（实机 8 次
+            // ≥15s 冻结 + 本地复现，消融实验实锤：仅禁预生成即 6/6 轮无冻结）。改为 DragStarting
+            // 时懒生成（GetOrCreateDragVisualAsync，带 GetDeferral），生成全程后台线程。
         }
         catch (OperationCanceledException)
         {
@@ -303,6 +305,34 @@ public partial class GalleryItemViewModel : ObservableObject
             _thumbnailCts?.Dispose();
             _thumbnailCts = null;
         }
+    }
+
+    /// <summary>
+    /// 懒生成拖拽跟随小图（2026-09-23 冻结修复，替代原缩略图加载后的预生成）：DragStarting 经
+    /// GetDeferral 等待本方法就绪再定跟随视觉；字节取缩略图缓存（首次拖拽时通常内存/磁盘命中，
+    /// 小图解码数毫秒），生成全程后台线程（见 <see cref="ImageSourceHelper.TryCreateDragVisualAsync"/>
+    /// 的线程化说明）。结果写入 <see cref="_dragVisual"/> 常驻，后续拖拽零成本。失败返回 null，
+    /// 调用方走 Thumbnail → 系统快照回退链。
+    /// </summary>
+    internal async Task<SoftwareBitmap?> GetOrCreateDragVisualAsync()
+    {
+        if (_dragVisual is not null)
+        {
+            return _dragVisual;
+        }
+
+        try
+        {
+            var result = await _thumbnailService.GetThumbnailAsync(Item.Path, ThumbnailBucket, CancellationToken.None);
+            _dragVisual = await ImageSourceHelper.TryCreateDragVisualAsync(
+                result.ImageBytes, DragVisualShortSide, CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            // 拖拽小图属锦上添花：任何失败静默降级（null → 回退链），不影响拖拽主链路。
+        }
+
+        return _dragVisual;
     }
 }
 

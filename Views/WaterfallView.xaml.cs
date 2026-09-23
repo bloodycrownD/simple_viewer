@@ -179,7 +179,7 @@ public sealed partial class WaterfallView : UserControl
     /// Button.CanDrag 不会触发 DragStarting（已知问题）——cr/P1-6 卡片 Button 化时拖拽源随之失效，
     /// 官方解法是拖拽源放外层普通 UIElement；Tag 槽位由 OnElementPrepared 写在模板根（即宿主 Grid）。
     /// </summary>
-    private void OnCardDragStarting(object sender, DragStartingEventArgs e)
+    private async void OnCardDragStarting(object sender, DragStartingEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: GalleryItemViewModel cardVm })
         {
@@ -197,18 +197,44 @@ public sealed partial class WaterfallView : UserControl
         e.Data.SetData(CardDragFormat, paths.Count.ToString());
         e.AllowedOperations = DataPackageOperation.Copy;
 
-        // 拖拽跟随视觉（优先级：预生成小位图 > 缩略图 BitmapImage > 系统默认整卡快照）。
+        // 拖拽跟随视觉（优先级：常驻小位图 > 懒生成小位图 > 缩略图 BitmapImage > 系统默认整卡快照）。
+        // 懒生成（2026-09-23 冻结修复）：小位图不再随缩略图预生成（预生成全链跑在 UI STA，WIC 完成
+        // 封送回 STA 与首帧布局互等成零 CPU 死锁——实机 8 次 ≥15s 冻结），改为拖拽发起时按需生成
+        //（GetDeferral 保持拖拽会话等位图就绪，字节走缩略图缓存命中 + 毫秒级小图解码，全程后台线程）。
         if (cardVm.DragVisual is { PixelWidth: > 0, PixelHeight: > 0 } visual)
         {
             // anchorPoint 语义 = 小图视觉上与鼠标指针对齐的点，取中心使指针居中于缩略图。
             e.DragUI.SetContentFromSoftwareBitmap(
                 visual,
                 new Point(visual.PixelWidth / 2.0, visual.PixelHeight / 2.0));
+            return;
         }
-        else if (cardVm.Thumbnail is BitmapImage fallback && fallback.PixelWidth > 0)
+
+        var deferral = e.GetDeferral();
+        try
         {
-            // 回退：直接用缩略图源（DragUI 渲染位图不缩放，bucket 360+ 显示偏大，但仍优于整卡快照）。
-            e.DragUI.SetContentFromBitmapImage(fallback);
+            var lazy = await cardVm.GetOrCreateDragVisualAsync();
+            if (lazy is { PixelWidth: > 0, PixelHeight: > 0 } lazyVisual)
+            {
+                e.DragUI.SetContentFromSoftwareBitmap(
+                    lazyVisual,
+                    new Point(lazyVisual.PixelWidth / 2.0, lazyVisual.PixelHeight / 2.0));
+                return;
+            }
+
+            if (cardVm.Thumbnail is BitmapImage fallback && fallback.PixelWidth > 0)
+            {
+                // 回退：直接用缩略图源（DragUI 渲染位图不缩放，bucket 360+ 显示偏大，但仍优于整卡快照）。
+                e.DragUI.SetContentFromBitmapImage(fallback);
+            }
+        }
+        catch (Exception)
+        {
+            // 跟随视觉属锦上添花：任何失败走系统默认整卡快照，不影响拖拽主链路。
+        }
+        finally
+        {
+            deferral.Complete();
         }
     }
 
