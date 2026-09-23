@@ -1567,10 +1567,22 @@ public partial class MainViewModel : ObservableObject
 
             // 候选转换（ApplyTagToPathsAsync 同口径）：优先呈现集中同路径项（宽高/排序 key 继承，
             // 瀑布流卡片就地更新不失真）；索引行本身即完整 GalleryItem，未命中呈现集时直接可用。
+            // vm/B-3：候选集来自 QueryByTagsAsync 全库命中（误打大标签可达数万~十万级），原先
+            // 每项 FindPresentedItemByPath 线性扫描 = 命中数×呈现集 次 UI 线程字符串比较（O(N×M)，
+            // 分钟级冻结）；改为循环前对呈现集预建路径字典一次 O(M)（OrdinalIgnoreCase，与
+            // FindPresentedItemByPath 同比较口径；呈现集路径唯一，索引器覆盖赋值无语义差），
+            // 循环内 O(1) 查找，总 O(N+M)，常规场景零行为变化。
+            var presentedByPath = new Dictionary<string, GalleryItem>(
+                _waterfall.Items.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var viewModel in _waterfall.Items)
+            {
+                presentedByPath[viewModel.Item.Path] = viewModel.Item;
+            }
+
             var candidates = new List<GalleryItem>(queried.Count);
             foreach (var queriedItem in queried)
             {
-                candidates.Add(FindPresentedItemByPath(queriedItem.Path) ?? queriedItem);
+                candidates.Add(presentedByPath.GetValueOrDefault(queriedItem.Path) ?? queriedItem);
             }
 
             _isTagOperationRunning = true;
