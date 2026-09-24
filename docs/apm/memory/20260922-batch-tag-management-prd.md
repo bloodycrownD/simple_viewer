@@ -196,3 +196,9 @@ user:
 
 assistant:
 **SetBitmapAsync 取证 + 假警报翻案轮（2026-09-24 深夜，d3924a2）**：①错误源头排除——scan-pixel-format/probe-decode-alpha 两探针对 245 张图库按 LoadAsync 真实参数（Bgra8/Premultiplied/EXIF）全量解码，输出全部合规 → 异常只能来自运行期位图状态劣化（代码无任何 Dispose 位图路径，机制未定）。修=FromLoadedImageAsync 位图守卫（IsSetBitmapCompatible 读实际状态）+不合规则 SoftwareBitmap.Convert 自愈+状态合规仍被拒时转换副本重试+全路径现场落日志（格式/alpha/尺寸/路径）；LoadCurrentAsync catch 补落日志（此前只弹 InfoBar 瞎）。②「卡顿=GC？」用数据回答：看门狗 v2 加 GC 停顿采样（30s 周期：代数/提交量/pause%/最近5次停顿落 startup.log+环形缓冲）——采样实锤托管堆仅 4-5MB、停顿毫秒级，**GC 无罪**。③**假警报翻案（本轮最大教训）**：日志当日 43 条「≥15s UI 无响应」、恢复条目 0 条（全历史也无）——真卡死恢复必打「UI 恢复响应」，只报不恢复=报警器死了。实锤：心跳 DispatcherQueueTimer 是局部变量，不被队列强持有，冷启动分配风暴一轮 GC 即静默停跳 → 每次启动 ~15-20s 处固定一条假警报（此前多日「疑误报/瞬时」的 15s 告警同源）。修=静态根引用；修复后三轮冷启动零误报且判定从此可信。④**连环证伪链**（每步都有实验数据）：a) 16ms 节流版首应用 79ms→仍卡；b) Rendering 首拍闸门→仍卡（首拍=帧开始非呈现完成）；c) LayoutUpdated+400ms 安定闸门→应用降到 15-31ms→仍卡；d) UriSource 异步管线→应用 0ms→「仍卡」；e) 缩略图全链跳过（消融）→「仍卡」——至此发现 b-e 全在 chase 一个假信号，而环形缓冲「静默」是我自己 1/25 稀疏化把小图库环变空造成的误读。期间还排除：火绒挂起（抓到的 73/73 Suspended 是自家 dotnet-stack 诊断挂起）、存储过滤器（冻结窗口外部读毫秒级）。⑤**真性能改进照常保留**（独立于翻案成立）：UriSource 应用（磁盘缓存 JPEG 交 XAML 图像线程，78ms→0ms；GIF 单图分支同款先例）、GetSoftwareBitmapAsync 直出+SetSoftwareBitmap 直读（消每张 0.5-2MB LOH churn；19041 投影无 Async 版用同步成员——版本门控入 RULE）、FirstFrameGate 首帧安定闸门、ThumbnailResult.CachePath。⑥看门狗 v2：外部 dotnet-stack 抓全线程栈（dbghelp 自 dump 五连败 E_HANDLE 后改诊断管道，实测首抓 5.5KB 现场 exit=0）。⑦顺手修潜伏 Core glob 超编（ImageSourceRetirement 混编靠还原踩踏侥幸过一天）。验证：build 0 警告+120/120+walkthrough2/zoom-path/冷启动 3 轮零误报/缩略图上屏像素断言/新管线冷缓存 JPEG 落盘合法。RULE 新增：DispatcherQueueTimer 根引用+「报了不恢复=报警器死」判别式+装置自身要验证、埋点稀疏化保底、19041 投影版本门控、Helpers UI-only 文件同步 Core Remove。**待用户**：实机再遇 SetBitmapAsync 错误时日志已有完整现场（自愈也可能直接治好）；tag v1.0.2 移 d3924a2 重推待 CI。
+
+user:
+下次不用着急打tag，你这样重复打tag毫无意义，应该不断+0.0.1
+
+assistant:
+流程拍板收口（2026-09-24 深夜）：tag 不可变，每轮修复收口出包一律递增 patch（v1.0.3、v1.0.4…）——CHANGELOG 开新版本节、打新 tag、CI 出新 draft、提醒用户删旧 draft；不再同号强推重打（v1.0.2 九连推为止）。当前 v1.0.2 保持不动（draft 已是最新内容），下次修复起生效。RULE 发布节已补「版本与 tag 规则」条目。
