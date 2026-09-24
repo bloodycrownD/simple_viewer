@@ -1,8 +1,8 @@
 ---
-date: 2026-09-24 01:30
-title: 批量标签管理迭代全周期：PRD→spec→dev-ready→走查→性能根除→CR 两轮→修复执行→v1.0.2 发布→左栏交互糊弄纠错
-keywords: 批量移除标签, 两层模型, 未定义标签, 图库右栏, 工具栏分簇, 删选中集, 走查修复, 布局列, 不透明chrome, 顶部横条, WIC-on-STA 死锁, SoftwareBitmap, 换源管线, 顿挫, flyout 拍板, code-review-loop, fix-spec-2, 互斥闸, 备份还原窗口, 并行提交事故
-abstract: batch-tag-management 全周期闭环（分支 feature/batch-tag-management，叠 feature/tag-filter-tree 未合并）：六轮问答 PRD→spec 四路探索→spec-check Go→13 波次 dev-ready（118/118）→九轮实机走查修复→两项性能根除（WIC-on-STA 冻结死锁+换源管线全后台化）→flyout 拍板①→CR 两轮收敛（四路评审+review-full，16 条 must-fix，4 deviations 回写）→CR 修复执行 dev-ready（16 条全闭合+3 处意图增补，HEAD=9adb45d，build 0 警告+118/118+三实机脚本复跑，cr-func func-ready）。后续：走查尾款五项（含 vm/B-1 时序断言）→合并 master→可选 v1.0.2；观察项 RenameFilesAsync 无互斥闸下轮 CR 认定。
+date: 2026-09-24 21:30
+title: 批量标签管理全周期+v1.0.2 发布与四轮实机修复（左栏交互/悬空/闪退三修/冷缓存卡死根治）
+keywords: 批量移除标签, 两层模型, 条件树筛选, Explorer 心智, 悬空, InfoBar 浮层, SHFileOperationW STA, ImageSourceRetirement, 消融二分, 冷缓存风暴, SetSourceAsync 合成器, 看门狗, 压测脚本族, v1.0.2, Publish 待用户
+abstract: v1.0.2 全周期收口（master HEAD=0e67969/tag 38e0a7b/CI Success/本机 43MB 包已更新，待用户实机验证后 Publish draft）：合并发布后用户连报四轮实机问题全部修复——左栏点击恢复 Explorer 心智（推翻 QuickAdd 拍板）、悬空双层根治（画布底色+InfoBar 回执浮层化）、闪退三修（SHFileOperationW 须 STA 专用线程=真凶；XAML 图像源退役队列；全仓审计 3P1+2P2）、冷缓存卡死根治（缩略图 UI 应用段 16ms 节流；消融二分实锤连续 SetSourceAsync 打爆合成器；打标改名=制造冷缓存条目=「多次打标卡死」同源）。取证装置入库：管线分段埋点+卡死自动 dump+压测脚本族五只。RULE 新增三铁律（XAML 对象禁裸 GC/Shell 调用 STA 要求/裸 await 不可信）。
 ---
 
 user:
@@ -178,3 +178,15 @@ user:
 
 assistant:
 **冷缓存卡死根治轮（2026-09-24 深夜，2f9cd6f）**：按用户三指令全做（日志/1000 张压测/定位修复）。**取证链**：看门狗实锤启动首屏 22.6s 无响应（两次压测时长恒定）→ 排除法：热缓存零卡死（零交互 90s 观测）/冷缓存（全新路径 1000 张）必卡 → 排除 Defender（MsMpEng CPU 全程 0）/托管层（dotnet-stack 三定点+621MB 诊断管道 dump 全进程无活动托管帧，UI 线程纯 native——dotnet-dump 无 dumpstack 命令、dbghelp 自 dump 被本机安全软件拦 E_ACCESSDENIED=取证死角）→ **消融实验二分（SV_ABLATION 临时开关）：跳过缩略图全链不卡/解码缓存照跑仅跳过 UI 应用段不卡/全开必卡 → 锁定应用段**——冷风暴期 20 张 BitmapImage 连续 SetSourceAsync 与首帧渲染/合成器交互致 UI 失联 22.6s（与 2026-09-17 UiApplyGate 记载的 SetSourceAsync 合成器死锁同族，串行化只治常规场景）。**修=应用段后 16ms 最小间隔节流**（摊开风暴、正常滚动无感）——终验三轮冷启动零无响应。「多次打标签卡死」同源解释：打标改名=新路径=缩略图缓存全失效=每次打标制造冷条目风暴。**交付取证装置**：管线分段埋点（tag-op/sync-renamed/filter:reset/thumb:apply 耗时，startup.log 可见）+卡死自动 dump 尝试+压测脚本族五只（1000 张用户规格/冷启动观测+看门狗判定/定点 dotnet-stack/诊断管道 dump/Defender 排除）。**方法论沉淀（RULE 候选）**：①「卡死时长恒定」是强线索（超时/吞吐常量，非 GC/竞态）；②Responding 假活铁律重申——脚本监测必须以进程内心跳看门狗为准；③消融开关二分是 UI/native 黑盒问题的定位利器（环境变量开关+一轮跑一个分支）；④「渲染管线失联」类问题（托管栈空闲+native 忙+泵活）没法从托管侧取证，只能消融二分；⑤dbghelp 自 dump 在有 EDR 的机器会被拦——诊断管道（dotnet-dump collect -p）是替代。**回应用户质问（诚实）**：性能重构搬迁的是解码/换源管线（修顿挫与冻结，方向正确）；频繁崩溃的根因=v1.0.2 新功能的新 native 路径（批量删除 STA/新图像源生命周期）+ 冷缓存风暴是**存量**问题（首版就有，规模到 245 张大图库才显性）——不是重构引入，但重构期间没做大规模 e2e 是事实，本轮补上（1000 张×4 轮打标/移除+大集合 970 张）。v1.0.2 tag 第八次强推（2f9cd6f）。
+
+user:
+（上下文压缩前）更新记忆。
+
+assistant:
+**压缩前全局状态备查（2026-09-24 21:26，master HEAD=0e67969，tag v1.0.2=38e0a7b，工作区干净）**：
+①**今日v1.0.2全周期**：合并 master（f0ffafb）→发布→用户连报四轮问题并全部修复：a)左栏点击交互（恢复09-19拍板 Explorer 心智，推翻 tag-filter-tree QuickAdd——教训：spec「有拍板依据」须核对适用范围，demo 行为不得外推；历史拍板被推翻须显式确认）；b)「返回悬空」双层（画布底色断层+InfoBar 回执占位顶横条→回执浮层化）；c)闪退三修（XAML 图像源退役队列 ImageSourceRetirement；批量回收站删除 SHFileOperationW 须 STA 专用线程——Task.Run 池 MTA 是真凶；全仓审计修 3P1+2P2：ThumbnailService 解码链 CA(false)/画刷静态缓存/Cts 竞态守卫）；d)冷缓存卡死根治（缩略图 UI 应用段 16ms 节流——消融二分实锤连续 SetSourceAsync 打爆合成器；打标改名=新路径=制造冷缓存条目是用户「多次打标卡死」同源）。
+②**取证装置已入库**：看门狗卡死自动 dump 尝试（dbghelp 被本机 EDR 拦 E_ACCESSDENIED，替代=dotnet-dump collect -p 诊断管道）；管线分段埋点（tag-op/sync-renamed/filter:reset/thumb:apply 耗时→startup.log）；压测脚本族五只（repro-hang-1000=1000张用户规格/repro-hang-observe=冷启动观测+看门狗判定/repro-hang-stack=定点dotnet-stack/repro-hang-dump=诊断管道dump/repro-defender-check）+repro-strip-float 1~3+repro-crash-tag+sidebar-select-verify。
+③**待用户**：实机验证（打标/移除/删除不再闪退、冷缓存不再冻结）→Releases 页 Publish v1.0.2 draft；若再卡死→startup.log 分段耗时+CrashDumps 新 dump 即可精确定位。
+④**RULE 今日新增铁律**：XAML 对象（DependencyObject 族）永不可裸交 GC（ImageSourceRetirement 模式）；SHFileOperationW 带 FOF_ALLOWUNDO 必须 STA（Shell/OLE 类 P/Invoke 先查单元要求）；裸 await「外层已 CA(false)」不可信（同步完成路径仍回 UI 并捕获上下文，WinRT 链逐 await 自证）。
+⑤**开放项**：DEV-2 筛选面板两态按钮 vs 下拉未拍板；走查尾款（浅色主题实测等）；RenameFilesAsync 无互斥闸（下轮 CR）；两种闪退机制修复均为「机制修复+用户实机待验」（本地未能复现崩溃本身，证据=dump+消融）；分支 feature/tag-filter-tree、feature/batch-tag-management 已并入 master 可删。
+⑥**恢复路径**：本记忆（含全周期轮次）+RULE+docs\.iteration-state.yaml+cr-fix-spec-2.md（executed）；CI 已成功（run#17）；本机 release\SimpleViewer-v1.0.2-win-x64.zip 43MB 已含全部修复。
