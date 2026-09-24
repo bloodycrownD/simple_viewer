@@ -3457,7 +3457,9 @@ public partial class MainViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                ImageSource = null;
+                // 旧源经退役队列处置（2026-09-24 审计修复）：同图重载失败路径此前裸置 null——
+                // 旧源（XAML 对象）落入 GC 终结器跨线程 Release，是已实锤堆损坏崩溃机制的漏网第五点。
+                ReleaseCurrentImageSource();
                 HasImage = false;
                 ClearFileNameSegments();
                 // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar。

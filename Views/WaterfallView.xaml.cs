@@ -367,6 +367,14 @@ public static class WaterfallConverters
     private static SolidColorBrush? _accentBorderBrush;
     private static SolidColorBrush? _transparentBorderBrush;
 
+    // 勾选章/角标画刷静态缓存（2026-09-24 审计修复）：色值组合有限（未选/选中各一、角标按 hue），
+    // 此前每次求值 new——滚动万张卡片产生数万 Brush（DependencyObject 族）裸交 GC 终结器，
+    // 违反「XAML 对象永不可裸交给 GC」铁律的全场最大批量点；缓存后每色值仅一份、复用终身。
+    private static SolidColorBrush? _checkBackgroundUnselected;
+    private static SolidColorBrush? _checkBackgroundSelected;
+    private static SolidColorBrush? _checkBorderUnselected;
+    private static readonly Dictionary<int, SolidColorBrush> _badgeBackgrounds = [];
+
     /// <summary>卡片边框画刷：选中 = 系统强调色；未选 = 透明（demo .card border 2px transparent）。</summary>
     public static Brush CardBorderBrush(bool isSelected)
     {
@@ -374,36 +382,54 @@ public static class WaterfallConverters
         return isSelected ? _accentBorderBrush! : _transparentBorderBrush!;
     }
 
-    /// <summary>勾选章底色：未选 = 黑 35%；选中 = 强调色 85%（demo --sel）。</summary>
+    /// <summary>勾选章底色：未选 = 黑 35%；选中 = 强调色 85%（demo --sel；缓存复用）。</summary>
     public static Brush CheckBackground(bool isSelected)
     {
         if (!isSelected)
         {
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(0x59, 0x00, 0x00, 0x00));
+            return _checkBackgroundUnselected ??= new SolidColorBrush(Windows.UI.Color.FromArgb(0x59, 0x00, 0x00, 0x00));
         }
 
-        EnsureBorderBrushes();
-        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(0xD9, accent.R, accent.G, accent.B));
+        return _checkBackgroundSelected ??= CreateAccentBrush(0xD9);
     }
 
-    /// <summary>勾选章描边：未选 = 白 90%；选中 = 与底色一致的强调色。</summary>
+    /// <summary>勾选章描边：未选 = 白 90%；选中 = 与底色一致的强调色（缓存复用）。</summary>
     public static Brush CheckBorderBrush(bool isSelected)
     {
         if (!isSelected)
         {
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
+            return _checkBorderUnselected ??= new SolidColorBrush(Windows.UI.Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF));
         }
 
         EnsureBorderBrushes();
         return _accentBorderBrush!;
     }
 
-    /// <summary>标签角标底色：hue &lt; 0 = 「+N」黑 55% 底；否则组 hue 92% 不透明（demo .badge）。</summary>
+    /// <summary>标签角标底色：hue &lt; 0 = 「+N」黑 55% 底；否则组 hue 92% 不透明（demo .badge；按 hue 缓存）。</summary>
     public static Brush BadgeBackground(int hue)
-        => hue < 0
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(0x8C, 0x00, 0x00, 0x00))
-            : TagSidebarConverters.FromHsl(hue, 0.50, 0.45, 0xEB);
+    {
+        if (hue < 0)
+        {
+            return _badgeBackgrounds.TryGetValue(-1, out var more)
+                ? more
+                : (_badgeBackgrounds[-1] = new SolidColorBrush(Windows.UI.Color.FromArgb(0x8C, 0x00, 0x00, 0x00)));
+        }
+
+        if (!_badgeBackgrounds.TryGetValue(hue, out var badge))
+        {
+            badge = TagSidebarConverters.FromHsl(hue, 0.50, 0.45, 0xEB);
+            _badgeBackgrounds[hue] = badge;
+        }
+
+        return badge;
+    }
+
+    /// <summary>按 alpha 构建强调色画刷（选中态复用同一强调色源）。</summary>
+    private static SolidColorBrush CreateAccentBrush(byte alpha)
+    {
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(alpha, accent.R, accent.G, accent.B));
+    }
 
     /// <summary>缩略图透明度：未到位为 0（浅色占位），到位为 1（经 OpacityTransition 渐入）。</summary>
     public static double PresenceOpacity(object? value) => value is null ? 0d : 1d;

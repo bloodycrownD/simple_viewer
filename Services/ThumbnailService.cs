@@ -204,20 +204,26 @@ public sealed class ThumbnailService : IThumbnailService
         }
     }
 
-    /// <summary>WIC 降采样解码 + JPEG q80 编码；GIF 取首帧静态图（GetFrameAsync(0)）。</summary>
+    /// <summary>
+    /// WIC 降采样解码 + JPEG q80 编码；GIF 取首帧静态图（GetFrameAsync(0)）。
+    /// 全链 WinRT await 补 AsTask().ConfigureAwait(false)（2026-09-24 审计修复，对齐 ImageLoaderService
+    /// 与拖拽小图链的既有口径）：此前裸 await 在「磁盘缓存未命中 + 解码闸门空闲」的同步完成路径下，
+    /// 整链从 UI 线程发起并捕获 UI 上下文——续体全部回投 UI STA，与 2026-09-23 已根治的 WIC-on-STA
+    /// 互等死锁同源（当时只修了拖拽小图链，缩略图主链漏网）；行为还随缓存命中/并发度非确定漂移。
+    /// </summary>
     private static async Task<byte[]> DecodeWithWicAsync(string path, int bucket, CancellationToken cancellationToken)
     {
-        var storageFile = await StorageFile.GetFileFromPathAsync(path);
+        var storageFile = await StorageFile.GetFileFromPathAsync(path).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var stream = await storageFile.OpenAsync(FileAccessMode.Read);
+        using var stream = await storageFile.OpenAsync(FileAccessMode.Read).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var decoder = await BitmapDecoder.CreateAsync(stream);
+        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         // GIF 一律取首帧静态图（瀑布流不做动画）；其余格式 GetFrameAsync(0) 等价于容器首帧。
-        var frame = await decoder.GetFrameAsync(0);
+        var frame = await decoder.GetFrameAsync(0).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var transform = CreateTransform(frame.PixelWidth, frame.PixelHeight, bucket);
@@ -226,7 +232,7 @@ public sealed class ThumbnailService : IThumbnailService
             BitmapAlphaMode.Premultiplied,
             transform,
             ExifOrientationMode.RespectExifOrientation,
-            ColorManagementMode.DoNotColorManage);
+            ColorManagementMode.DoNotColorManage).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var pixels = pixelData.DetachPixelData();
@@ -238,7 +244,7 @@ public sealed class ThumbnailService : IThumbnailService
         {
             ["ImageQuality"] = new BitmapTypedValue(JpegQuality, PropertyType.Single),
         };
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encoded, encoderProperties);
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encoded, encoderProperties).AsTask().ConfigureAwait(false);
         encoder.SetPixelData(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
@@ -247,10 +253,10 @@ public sealed class ThumbnailService : IThumbnailService
             96,
             96,
             pixels);
-        await encoder.FlushAsync();
+        await encoder.FlushAsync().AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return await ReadStreamBytesAsync(encoded);
+        return await ReadStreamBytesAsync(encoded).ConfigureAwait(false);
     }
 
     /// <summary>按目标宽度分桶缩放；源图不放大（宽不超桶宽时保持原尺寸）。
@@ -465,7 +471,8 @@ public sealed class ThumbnailService : IThumbnailService
     {
         stream.Seek(0);
         using var reader = new DataReader(stream);
-        await reader.LoadAsync((uint)stream.Size);
+        // 同 DecodeWithWicAsync：WIC/流异步链全程不回 UI STA（2026-09-24 审计修复）。
+        await reader.LoadAsync((uint)stream.Size).AsTask().ConfigureAwait(false);
         var bytes = new byte[checked((int)stream.Size)];
         reader.ReadBytes(bytes);
         return bytes;

@@ -23,6 +23,11 @@ internal static class ImageSourceRetirement
     /// <summary>退役一个图像源（可空安全）。之后调用 <see cref="Drain"/> 收尾超窗旧源。</summary>
     internal static void Retire(ImageSource? source)
     {
+        // 防御断言（2026-09-24 审计）：静态队列零防护，未来若在池线程误调即引入跨线程 Dispose——
+        // Debug 构建立即暴露，Release 静默（与既有四个接入点的 UI 线程约定一致）。
+        System.Diagnostics.Debug.Assert(
+            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() is not null,
+            "ImageSourceRetirement 必须在 UI 线程调用（XAML 对象须在创建线程析构）");
         if (source is not null)
         {
             _pending.Enqueue(source);

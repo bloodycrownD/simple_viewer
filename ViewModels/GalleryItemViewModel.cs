@@ -262,6 +262,10 @@ public partial class GalleryItemViewModel : ObservableObject
 
     private async Task LoadThumbnailAsync(CancellationToken cancellationToken)
     {
+        // 捕获本次加载所属的 cts（2026-09-24 审计修复）：「回收→快速复用→再回收」两跳窗口里，
+        // 旧加载的 finally 会误 dispose 掉已被替换的新 cts——取消保证失效，已回收卡片的续体
+        // 仍可赋值 Thumbnail，产生绕过退役队列的悬挂 BitmapImage（裸交 GC）。
+        var ownCts = _thumbnailCts;
         try
         {
             var result = await _thumbnailService.GetThumbnailAsync(Item.Path, ThumbnailBucket, cancellationToken);
@@ -307,8 +311,12 @@ public partial class GalleryItemViewModel : ObservableObject
         }
         finally
         {
-            _thumbnailCts?.Dispose();
-            _thumbnailCts = null;
+            // 仅当字段仍指向本次加载的 cts 才清理（见方法头注释的竞态说明）。
+            if (ReferenceEquals(_thumbnailCts, ownCts))
+            {
+                ownCts?.Dispose();
+                _thumbnailCts = null;
+            }
         }
     }
 
