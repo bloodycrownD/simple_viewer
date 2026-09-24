@@ -3482,6 +3482,9 @@ public partial class MainViewModel : ObservableObject
                 ReleaseCurrentImageSource();
                 HasImage = false;
                 ClearFileNameSegments();
+                // 落诊断日志（2026-09-24 实机 SetBitmapAsync E_INVALIDARG 取证盲区）：此前只弹 InfoBar，
+                // 异常细节与路径不落 startup.log——实机报错后无从对证哪张图/什么状态。
+                App.WriteDiagnosticLog($"[单图加载失败] path={path} attempt={attempt}", ex);
                 // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar。
                 ShowInstantTagFeedback(InfoBarSeverity.Error, "加载失败", ex.Message, []);
                 return;

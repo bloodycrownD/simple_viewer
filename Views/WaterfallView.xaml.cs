@@ -75,6 +75,11 @@ public sealed partial class WaterfallView : UserControl
         // 尾部 Add 由布局按计数差增量续算，无需处理。
         viewModel.Waterfall.Items.CollectionChanged += OnItemsSourceChanged;
 
+        // 首帧闸门武装点①（2026-09-24 首帧卡死根治，见 Services/FirstFrameGate.cs 背景）：
+        // 瀑布流进入树即闭闸，布局安定 400ms 后开闸——冷缓存风暴期的缩略图应用段被整体推迟到
+        // 首个大批量呈现完成之后，移出与合成器互等的竞态窗口。
+        Loaded += OnWaterfallViewLoaded;
+
         // resize 去抖：连续 SizeChanged 只重置计时器，静止后触发一次强制重排。
         _resizeDebounceTimer = DispatcherQueue.CreateTimer();
         _resizeDebounceTimer.Interval = TimeSpan.FromMilliseconds(ResizeDebounceMilliseconds);
@@ -353,6 +358,55 @@ public sealed partial class WaterfallView : UserControl
 
         Masonry.ForceRecompute = true;
         Repeater.InvalidateMeasure();
+
+        // 首帧闸门武装点②（2026-09-24）：Reset/Replace/Remove 触发全量重排 = 新布局代——
+        // 筛选切换后瀑布流重新 Realize 的风暴与冷启动首帧同构（21:21 用户会话卡死现场），
+        // 该代首帧呈现前同样不进缩略图应用段。
+        ArmFirstFrameGate();
+    }
+
+    /// <summary>首帧闸门开安定计时器（null=未武装）。</summary>
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _firstFrameSettleTimer;
+
+    /// <summary>闸门武装代是否已见到布局完成（LayoutUpdated 后才开始安定计时）。</summary>
+    private bool _firstFrameLayoutSeen;
+
+    private void OnWaterfallViewLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        Loaded -= OnWaterfallViewLoaded;
+        ArmFirstFrameGate();
+    }
+
+    /// <summary>
+    /// 武装首帧闸门：闭闸 → 等本代布局完成（LayoutUpdated）→ 400ms 安定期 → 开闸。
+    /// 不用 CompositionTarget.Rendering 计帧：Rendering 首拍=帧开始渲染而非呈现完成，
+    /// 首版实机复测仍卡（apply 落进合成器消化 245 卡首呈现的窗口）；确定性时序免疫帧计数死角
+    ///（开闸仅需合成器消化完大批量首呈现，~数百毫秒；应用段本有 16ms 节流续摊）。
+    /// </summary>
+    private void ArmFirstFrameGate()
+    {
+        Services.FirstFrameGate.Arm();
+        _firstFrameLayoutSeen = false;
+        Repeater.LayoutUpdated -= OnGateGenerationLayoutUpdated;
+        Repeater.LayoutUpdated += OnGateGenerationLayoutUpdated;
+    }
+
+    private void OnGateGenerationLayoutUpdated(object? sender, object e)
+    {
+        if (_firstFrameLayoutSeen)
+        {
+            return;
+        }
+
+        _firstFrameLayoutSeen = true;
+        Repeater.LayoutUpdated -= OnGateGenerationLayoutUpdated;
+
+        _firstFrameSettleTimer?.Stop();
+        _firstFrameSettleTimer = DispatcherQueue.CreateTimer();
+        _firstFrameSettleTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _firstFrameSettleTimer.IsRepeating = false;
+        _firstFrameSettleTimer.Tick += (_, _) => Services.FirstFrameGate.Open();
+        _firstFrameSettleTimer.Start();
     }
 }
 

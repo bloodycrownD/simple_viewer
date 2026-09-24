@@ -139,14 +139,20 @@ public partial class App : Application
         _ = viewModel.InitializeAsync(launchOptions);
     }
 
+    /// <summary>心跳计时器根引用（DispatcherQueueTimer 不被队列强持有，GC 后静默停跳）。</summary>
+    private static Microsoft.UI.Dispatching.DispatcherQueueTimer? _heartbeatTimer;
+
     /// <summary>
     /// UI 心跳看门狗（2026-09-17 走查诊断）：UI 线程每秒自增心跳并记录自身托管堆栈快照；
     /// 后台线程每 5s 检查，连续 15s 无心跳视为无响应，把最近操作追踪 + 最后一份 UI 线程堆栈
     /// 转储进诊断日志（定位"打开图库卡死"类问题的现场）。每次无响应只记录一次，恢复后重置。
     /// 2026-09-24 卡死取证升级：100ms 栈快照只能拍到「空闲时刻」（快照在 timer 回调里拍，
     /// 真正的阻塞帧永远不会被拍到——此前日志里的「UI 线程堆栈」恒为 timer 自身栈，无现场价值）。
-    /// 检测到无响应时由后台线程写进程 MiniDump（dbghelp MiniDumpWriteDump，单元无要求），
-    /// 事后 dotnet-dump 分析 dump 即得 UI 线程真实阻塞栈。每次无响应周期至多一份 dump。
+    /// 检测到无响应时由后台线程双路取证：①外部 dotnet-stack（诊断管道）抓全部托管线程真实栈；
+    /// ②dbghelp MiniDumpWriteDump 兜底（本机安全软件拦截概率高）。每次无响应周期至多一套。
+    /// 同线程每 30s 采样 GC 停顿数据（代数/提交量/停顿占比）——2026-09-24 实机多次无响应的
+    /// 现场指纹是「池线程解码打点与 UI 心跳同时静默」= 全进程托管线程齐停，GC 全停是头号嫌疑，
+    /// 此采样即裁决数据（环形追踪常驻、Gen2 变化/停顿抬升时落 startup.log）。
     /// </summary>
     private static void StartUiHeartbeatWatchdog()
     {
@@ -169,15 +175,58 @@ public partial class App : Application
         };
         timer.Start();
 
+        // 根引用（2026-09-24 看门狗假警报根治）：DispatcherQueueTimer 不被队列强持有，
+        // 局部变量在冷启动分配风暴中被 GC 后计时器静默停跳——此后每次会话都在 ~15-20s 处
+        // 报一条假「UI 无响应」（当日 43 条假警报、恢复条目 0 条的实锤），且真正的后续卡死
+        // 反而全部漏报。静态根引用保证心跳与会话同生命周期。
+        _heartbeatTimer = timer;
+
         _ = Task.Run(async () =>
         {
             var lastSeen = Interlocked.Read(ref heartbeat);
             var stalled = 0;
             var dumpedThisStall = false;
+
+            // GC 停顿采样（2026-09-24 用户实机"卡顿是不是 GC"取证）：30s 一次把 GC 代数/提交量/
+            // 停顿占比写入环形追踪（无响应转储时 GC 现场随之可见）；Gen2 新增或停顿占比抬升时
+            // 同步落 startup.log——今夜 7 次无响应的环形缓冲均呈「解码打点（池线程）与 UI 心跳
+            // 同时静默」= 全进程托管线程齐停的 GC 全停指纹，此采样即该假说的裁决数据。
+            var lastGen2 = -1;
+            var lastPausePct = -1.0;
+            var gcTick = 0;
+
             while (true)
             {
                 await Task.Delay(5000);
                 var current = Interlocked.Read(ref heartbeat);
+
+                gcTick++;
+                if (gcTick >= 6)
+                {
+                    gcTick = 0;
+                    try
+                    {
+                        var gen2 = GC.CollectionCount(2);
+                        var info = GC.GetGCMemoryInfo();
+                        var pausePct = Math.Round(info.PauseTimePercentage, 2);
+                        var recentPauses = FormatRecentGcPauses(info);
+                        var line = $"gc g0/g1/g2={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{gen2}"
+                            + $" committed={info.TotalCommittedBytes >> 20}MB"
+                            + $" pause%={pausePct:F2} last5=[{recentPauses}]ms";
+                        DiagnosticTrace.Mark(line);
+                        if (gen2 != lastGen2 || Math.Abs(pausePct - lastPausePct) >= 0.5)
+                        {
+                            lastGen2 = gen2;
+                            lastPausePct = pausePct;
+                            WriteDiagnosticLog($"[GC 采样] {line}");
+                        }
+                    }
+                    catch
+                    {
+                        // 诊断代码静默
+                    }
+                }
+
                 if (current == lastSeen)
                 {
                     stalled++;
@@ -185,13 +234,16 @@ public partial class App : Application
                     {
                         WriteDiagnosticLog(
                             $"[UI 无响应] 心跳停止 ≥15s（疑似卡死）。最近操作追踪：{Environment.NewLine}{DiagnosticTrace.Dump()}"
-                            + $"{Environment.NewLine}最后一份 UI 线程堆栈（注意：快照仅能拍到空闲时刻，真实现场见 hang dump）：{Environment.NewLine}{lastUiStack}");
+                            + $"{Environment.NewLine}最后一份 UI 线程堆栈（注意：快照仅能拍到空闲时刻，真实现场见 hang 栈/dump）：{Environment.NewLine}{lastUiStack}");
                     }
 
-                    // ≥20s 仍无响应且本周期未 dump：写卡死现场 MiniDump（后台线程，UI 卡着不受影响）。
+                    // ≥20s 仍无响应且本周期未取证：外部 dotnet-stack 抓全部托管线程栈（诊断管道，
+                    // 不依赖 dbghelp——本机 MiniDumpWriteDump 五连败 E_HANDLE/E_ACCESSDENIED，实测
+                    // dotnet-stack/dotnet-dump 经诊断管道可用），MiniDump 兜底保留。
                     if (stalled >= 4 && !dumpedThisStall)
                     {
                         dumpedThisStall = true;
+                        CaptureHangStacks();
                         WriteHangDump();
                     }
                 }
@@ -208,6 +260,73 @@ public partial class App : Application
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// 外部 dotnet-stack 抓当前进程全部托管线程栈到日志目录（2026-09-24）：UI 心跳停止时唯一能拍到
+    /// 「阻塞帧」的取证（100ms 栈快照在 timer 回调里拍，真正的阻塞帧永远拍不到；dbghelp 自 dump 被
+    /// 本机安全软件拦）。dotnet-stack 为全局 dotnet 工具（%USERPROFILE%\.dotnet\tools），不在 PATH
+    /// 或超时则静默失败，MiniDump 兜底。卡死期间后台线程照常运行，此调用不受 UI 阻塞影响。
+    /// </summary>
+    private static void CaptureHangStacks()
+    {
+        try
+        {
+            var pid = Environment.ProcessId;
+            Directory.CreateDirectory(HangDumpDirectory);
+            var path = Path.Combine(HangDumpDirectory, $"hang-stack-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet-stack",
+                Arguments = $"report -p {pid}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null)
+            {
+                WriteDiagnosticLog("[卡死现场托管栈失败] Process.Start 返回 null（dotnet-stack 不可用？）");
+                return;
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(45_000))
+            {
+                try { process.Kill(); } catch { /* 尽力回收 */ }
+                WriteDiagnosticLog("[卡死现场托管栈失败] dotnet-stack 超时 45s");
+                return;
+            }
+
+            var stdout = stdoutTask.IsCompleted ? stdoutTask.Result : string.Empty;
+            var stderr = stderrTask.IsCompleted ? stderrTask.Result : string.Empty;
+            File.WriteAllText(path, stdout + Environment.NewLine + "--- stderr ---" + Environment.NewLine + stderr);
+            WriteDiagnosticLog($"[卡死现场托管栈] exit={process.ExitCode} bytes={stdout.Length} {path}");
+        }
+        catch (Exception ex)
+        {
+            WriteDiagnosticLog("[卡死现场托管栈异常]", ex);
+        }
+    }
+
+    /// <summary>格式化最近 5 次 GC 停顿（毫秒）。PauseDurations 是 ReadOnlySpan（ref 结构体），
+    /// 不得进入 async 方法体——提取为本同步辅助。</summary>
+    private static string FormatRecentGcPauses(System.GCMemoryInfo info)
+    {
+        try
+        {
+            var pauses = info.PauseDurations;
+            var last = pauses.Length <= 5 ? pauses.ToArray() : pauses[^5..].ToArray();
+            return string.Join(",", last.Select(d => $"{d.TotalMilliseconds:F0}"));
+        }
+        catch
+        {
+            return "?";
+        }
     }
 
     /// <summary>卡死现场 MiniDump 落盘路径目录（与诊断日志同目录）。</summary>

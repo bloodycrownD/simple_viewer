@@ -15,6 +15,7 @@
     <Compile Include="Helpers\**\*.cs" />
     <!-- WinUI-only; lives under Helpers/ for namespace consistency -->
     <Compile Remove="Helpers\ImageSourceHelper.cs" />
+    <Compile Remove="Helpers\ImageSourceRetirement.cs" />
   </ItemGroup>
 
   <ItemGroup>

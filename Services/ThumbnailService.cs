@@ -36,6 +36,9 @@ public sealed class ThumbnailService : IThumbnailService
     private readonly SemaphoreSlim _decodeGate = new(MaxConcurrentDecodes, MaxConcurrentDecodes);
     private readonly ConcurrentDictionary<CacheKey, TaskCompletionSource<ThumbnailResult>> _inFlight = new();
 
+    /// <summary>解码埋点稀疏化计数（每 25 张记一次，防环形缓冲洪泛）。</summary>
+    private static long _decodeMarkCounter;
+
     private readonly object _memoryLock = new();
     private readonly Dictionary<CacheKey, LinkedListNode<MemoryEntry>> _memoryMap = new();
     private readonly LinkedList<MemoryEntry> _memoryOrder = new();
@@ -94,7 +97,7 @@ public sealed class ThumbnailService : IThumbnailService
         var diskHit = await TryReadDiskCacheAsync(diskCachePath, cancellationToken).ConfigureAwait(false);
         if (diskHit is not null)
         {
-            var fromDisk = CreateResult(path, bucket, diskHit);
+            var fromDisk = CreateResult(path, bucket, diskHit, diskCachePath);
             AddMemory(cacheKey, fromDisk);
             return fromDisk;
         }
@@ -170,7 +173,13 @@ public sealed class ThumbnailService : IThumbnailService
         await _decodeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            DiagnosticTrace.Mark($"thumb:decode {Path.GetFileName(path)}");
+            // 埋点稀疏化（2026-09-24）：千张冷启动风暴期每张解码都打点会 6s 洪泛 200 条环形缓冲，
+            // 把 scan/tag/gc 上下文全部挤掉——无响应转储变得没有诊断价值。每 25 张记一次。
+            if (Interlocked.Increment(ref _decodeMarkCounter) % 25 == 1)
+            {
+                DiagnosticTrace.Mark($"thumb:decode {Path.GetFileName(path)}");
+            }
+
             // 双检：排队等待期间缓存可能已被填充（如另一实例并发落盘）。
             if (TryGetMemory(cacheKey, out var memoryAgain))
             {
@@ -180,7 +189,7 @@ public sealed class ThumbnailService : IThumbnailService
             var diskAgain = await TryReadDiskCacheAsync(diskCachePath, cancellationToken).ConfigureAwait(false);
             if (diskAgain is not null)
             {
-                var fromDisk = CreateResult(path, bucket, diskAgain);
+                var fromDisk = CreateResult(path, bucket, diskAgain, diskCachePath);
                 AddMemory(cacheKey, fromDisk);
                 return fromDisk;
             }
@@ -194,7 +203,9 @@ public sealed class ThumbnailService : IThumbnailService
 
             await TryWriteDiskCacheAsync(diskCachePath, jpegBytes, cancellationToken).ConfigureAwait(false);
 
-            var result = CreateResult(path, bucket, jpegBytes);
+            // CachePath=UriSource 优先路径的依据（2026-09-24 首帧卡死根治）；写盘失败时 UI 层
+            // File.Exists 守卫自动回退 ImageBytes 流。
+            var result = CreateResult(path, bucket, jpegBytes, diskCachePath);
             AddMemory(cacheKey, result);
             return result;
         }
@@ -205,9 +216,14 @@ public sealed class ThumbnailService : IThumbnailService
     }
 
     /// <summary>
-    /// WIC 降采样解码 + JPEG q80 编码；GIF 取首帧静态图（GetFrameAsync(0)）。
+    /// WIC 降采样解码 + JPEG q80 编码；GIF 取首帧静态图（解码器级 API 即首帧）。
+    /// 解码直出 SoftwareBitmap、编码器 SetSoftwareBitmapAsync 直读（2026-09-24 LOH churn 根治）：
+    /// 原管线 GetPixelDataAsync→DetachPixelData 每张分配 ~0.5-2MB 原始像素 byte[]（360/720 桶全在
+    /// 大对象堆），千张冷启动 = GB 级 LOH churn → Gen2 全停 GC——实机多次无响应的现场指纹正是
+    /// 「池线程解码打点与 UI 心跳同时静默」（全进程托管线程齐停，startup.log 2026-09-24 晚 7 次）。
+    /// 直出后原始像素全程留在 native，托管侧只剩 JPEG 字节（缓存与 UI 应用必需，量级小一个数量级）。
     /// 全链 WinRT await 补 AsTask().ConfigureAwait(false)（2026-09-24 审计修复，对齐 ImageLoaderService
-    /// 与拖拽小图链的既有口径）：此前裸 await 在「磁盘缓存未命中 + 解码闸门空闲」的同步完成路径下，
+    /// 与拖拽小图链的既有口径）：裸 await 在「磁盘缓存未命中 + 解码闸门空闲」的同步完成路径下，
     /// 整链从 UI 线程发起并捕获 UI 上下文——续体全部回投 UI STA，与 2026-09-23 已根治的 WIC-on-STA
     /// 互等死锁同源（当时只修了拖拽小图链，缩略图主链漏网）；行为还随缓存命中/并发度非确定漂移。
     /// </summary>
@@ -222,12 +238,10 @@ public sealed class ThumbnailService : IThumbnailService
         var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // GIF 一律取首帧静态图（瀑布流不做动画）；其余格式 GetFrameAsync(0) 等价于容器首帧。
-        var frame = await decoder.GetFrameAsync(0).AsTask().ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var transform = CreateTransform(frame.PixelWidth, frame.PixelHeight, bucket);
-        var pixelData = await frame.GetPixelDataAsync(
+        // 解码器级 API 即容器首帧（GIF 取首帧静态图与原 GetFrameAsync(0) 等价）；EXIF 方向由
+        // RespectExifOrientation 在 WIC 内烘焙，与单图管线（ImageLoaderService.LoadAsync）同口径。
+        var transform = CreateTransform(decoder.PixelWidth, decoder.PixelHeight, bucket);
+        var bitmap = await decoder.GetSoftwareBitmapAsync(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Premultiplied,
             transform,
@@ -235,28 +249,27 @@ public sealed class ThumbnailService : IThumbnailService
             ColorManagementMode.DoNotColorManage).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var pixels = pixelData.DetachPixelData();
-        var width = transform.ScaledWidth > 0 ? (int)transform.ScaledWidth : (int)frame.PixelWidth;
-        var height = transform.ScaledHeight > 0 ? (int)transform.ScaledHeight : (int)frame.PixelHeight;
-
-        using var encoded = new InMemoryRandomAccessStream();
-        var encoderProperties = new BitmapPropertySet
+        try
         {
-            ["ImageQuality"] = new BitmapTypedValue(JpegQuality, PropertyType.Single),
-        };
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encoded, encoderProperties).AsTask().ConfigureAwait(false);
-        encoder.SetPixelData(
-            BitmapPixelFormat.Bgra8,
-            BitmapAlphaMode.Premultiplied,
-            (uint)width,
-            (uint)height,
-            96,
-            96,
-            pixels);
-        await encoder.FlushAsync().AsTask().ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
+            using var encoded = new InMemoryRandomAccessStream();
+            var encoderProperties = new BitmapPropertySet
+            {
+                ["ImageQuality"] = new BitmapTypedValue(JpegQuality, PropertyType.Single),
+            };
+            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encoded, encoderProperties).AsTask().ConfigureAwait(false);
+            // 本投影（19041）SetSoftwareBitmap 为同步成员（设置帧数据引用，实际编码在 FlushAsync）；
+            // 仅支持 Rgba8/Bgra8 输入——上方解码已固定 Bgra8/Premultiplied。
+            encoder.SetSoftwareBitmap(bitmap);
+            await encoder.FlushAsync().AsTask().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return await ReadStreamBytesAsync(encoded).ConfigureAwait(false);
+            return await ReadStreamBytesAsync(encoded).ConfigureAwait(false);
+        }
+        finally
+        {
+            // SoftwareBitmap 具敏捷性（GC 终结合法），但显式释放更优——解码风暴期少给终结器派活。
+            bitmap.Dispose();
+        }
     }
 
     /// <summary>按目标宽度分桶缩放；源图不放大（宽不超桶宽时保持原尺寸）。
@@ -346,11 +359,12 @@ public sealed class ThumbnailService : IThumbnailService
         }
     }
 
-    private static ThumbnailResult CreateResult(string path, int bucket, byte[] imageBytes) => new()
+    private static ThumbnailResult CreateResult(string path, int bucket, byte[] imageBytes, string? cachePath) => new()
     {
         Path = path,
         Bucket = bucket,
         ImageBytes = imageBytes,
+        CachePath = cachePath,
     };
 
     private static string NormalizePath(string path) => Path.GetFullPath(path).ToLowerInvariant();

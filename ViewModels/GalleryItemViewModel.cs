@@ -260,6 +260,9 @@ public partial class GalleryItemViewModel : ObservableObject
     /// </summary>
     private static readonly SemaphoreSlim UiApplyGate = new(1, 1);
 
+    /// <summary>应用埋点稀疏化计数（每 25 张记一次，防风暴期洪泛 200 条环形缓冲挤掉 gc/scan 上下文）。</summary>
+    private static long _applyMarkCounter;
+
     private async Task LoadThumbnailAsync(CancellationToken cancellationToken)
     {
         // 捕获本次加载所属的 cts（2026-09-24 审计修复）：「回收→快速复用→再回收」两跳窗口里，
@@ -274,21 +277,48 @@ public partial class GalleryItemViewModel : ObservableObject
             // JPEG 字节 → BitmapImage：UI 线程创建（ElementPrepared 与本 await 续体均在 UI 线程）；
             // 应用段经闸门串行（见 UiApplyGate 注释）。2026-09-24 卡死取证：记录排队与应用耗时
             //（风暴期 gate 深度与单张应用耗时是「打标重排后 UI 长时间忙」的关键量）。
+            // 首帧闸门（2026-09-24 首帧卡死根治，Services/FirstFrameGate.cs）：当前布局代的首帧
+            // 呈现前不进应用段——冷缓存风暴期第一次 SetSourceAsync 与首帧渲染在合成器内互等，
+            // 实测 UI 线程纯 native 阻塞 ≥15s（ring+dotnet-stack 现场）。3s 超时兜底：闸门异常
+            // （合成帧未到/宿主未武装）时退化为既有 16ms 节流，绝不悬挂加载管线。
+            try
+            {
+                await Services.FirstFrameGate.FirstFrameCompleted.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // 超时放行：降级为节流路径。
+            }
+
             var gateStart = Environment.TickCount64;
             await UiApplyGate.WaitAsync(cancellationToken);
             try
             {
                 var applyStart = Environment.TickCount64;
+                // UriSource 优先（2026-09-24 首帧卡死根治）：磁盘缓存 JPEG 交 XAML 图像线程异步解码，
+                // UI 线程零解码成本——SetSourceAsync 流式解码在冷启动大批量首呈现窗口与合成器互等
+                //（实测推迟首应用 400ms 后第一次真实纹理上传仍卡 ≥15s）。缓存文件缺失（写盘失败/
+                // 缓存被清）回退字节流路径。绝对文件路径 UriSource 与单图 GIF 分支同款先例。
                 var bitmap = new BitmapImage();
-                using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+                if (!string.IsNullOrEmpty(result.CachePath) && File.Exists(result.CachePath))
                 {
-                    await bitmap.SetSourceAsync(stream);
+                    bitmap.UriSource = new Uri(result.CachePath, UriKind.Absolute);
+                }
+                else
+                {
+                    using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+                    {
+                        await bitmap.SetSourceAsync(stream);
+                    }
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
                 Thumbnail = bitmap;
-                SimpleViewer.Services.DiagnosticTrace.Mark(
-                    $"thumb:apply gate等{applyStart - gateStart}ms 应用{Environment.TickCount64 - applyStart}ms");
+                if (Interlocked.Increment(ref _applyMarkCounter) % 25 == 1)
+                {
+                    SimpleViewer.Services.DiagnosticTrace.Mark(
+                        $"thumb:apply gate等{applyStart - gateStart}ms 应用{Environment.TickCount64 - applyStart}ms");
+                }
 
                 // 应用段最小间隔节流（2026-09-24 冷缓存卡死根治）：冷缓存风暴期 20 张缩略图连续
                 // SetSourceAsync 与首帧渲染/合成器交互，曾致 UI 无响应 22.6s（消融实验实锤：解码照跑

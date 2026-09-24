@@ -36,9 +36,64 @@ internal static class ImageSourceHelper
         //（本方法续体在 UI 线程）。
         if (loaded.DecodedBitmap is { } decoded)
         {
-            var source = new SoftwareBitmapSource();
-            await source.SetBitmapAsync(decoded);
-            return source;
+            // 2026-09-24 实机 SetBitmapAsync E_INVALIDARG 取证+自愈：用户实机会话报"only supports
+            // SoftwareBitmap with positive width/height, bgra8 pixel format and pre-multiplied or no
+            // alpha"，但对全图库 245 张按本管线参数实测全部输出 Bgra8/Premultiplied/正尺寸
+            //（scripts\probe-decode-alpha.ps1）——源头不可能产出非法位图，异常只能来自运行期位图
+            // 状态劣化。Set 前读实际状态：不合规则转换自愈（格式/alpha 异常可治；属性读不出
+            // =位图已劣化，落日志后抛给上层按加载失败处理）；状态合规却仍被拒，用转换副本
+            //（全新 native 对象）重试一次绕开劣化，成功与否均落完整现场（下次复现即有数据）。
+            var bitmap = decoded;
+            if (!IsSetBitmapCompatible(decoded))
+            {
+                var before = DescribeBitmap(decoded);
+                try
+                {
+                    bitmap = SoftwareBitmap.Convert(
+                        decoded, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                }
+                catch (Exception convertEx)
+                {
+                    App.WriteDiagnosticLog($"[换源位图自愈失败] state={before} path={loaded.Path}", convertEx);
+                    throw;
+                }
+
+                App.WriteDiagnosticLog(
+                    $"[换源位图自愈] before={before} after={DescribeBitmap(bitmap)} path={loaded.Path}");
+            }
+
+            try
+            {
+                var source = new SoftwareBitmapSource();
+                await source.SetBitmapAsync(bitmap);
+                return source;
+            }
+            catch (Exception ex) when (ReferenceEquals(bitmap, decoded))
+            {
+                // 属性读数正常但仍被拒：转换副本重试一次（全新 native 位图，绕开状态劣化）。
+                try
+                {
+                    var copy = SoftwareBitmap.Convert(
+                        decoded, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                    var retrySource = new SoftwareBitmapSource();
+                    await retrySource.SetBitmapAsync(copy);
+                    App.WriteDiagnosticLog(
+                        $"[SetBitmapAsync 副本重试成功] state={DescribeBitmap(decoded)} path={loaded.Path}", ex);
+                    return retrySource;
+                }
+                catch (Exception retryEx)
+                {
+                    App.WriteDiagnosticLog(
+                        $"[SetBitmapAsync 副本重试仍失败] state={DescribeBitmap(decoded)} path={loaded.Path}", retryEx);
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                App.WriteDiagnosticLog(
+                    $"[SetBitmapAsync 失败] state={DescribeBitmap(bitmap)} path={loaded.Path}", ex);
+                throw;
+            }
         }
 
         if (loaded.DecodedPixelData is null || loaded.DecodedWidth <= 0 || loaded.DecodedHeight <= 0)
@@ -58,6 +113,41 @@ internal static class ImageSourceHelper
         var fallbackSource = new SoftwareBitmapSource();
         await fallbackSource.SetBitmapAsync(fallback);
         return fallbackSource;
+    }
+
+    /// <summary>
+    /// 位图是否满足 <see cref="SoftwareBitmapSource.SetBitmapAsync"/> 的校验（正宽高 + Bgra8 +
+    /// Premultiplied/Ignore）。属性读取本身抛异常（位图已劣化/dispose）按不合规处理。
+    /// </summary>
+    private static bool IsSetBitmapCompatible(SoftwareBitmap bitmap)
+    {
+        try
+        {
+            return bitmap.PixelWidth > 0
+                && bitmap.PixelHeight > 0
+                && bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8
+                && (bitmap.BitmapAlphaMode == BitmapAlphaMode.Premultiplied
+                    || bitmap.BitmapAlphaMode == BitmapAlphaMode.Ignore);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>安全读位图状态描述（属性可能抛——诊断代码不许再抛出去）。</summary>
+    private static string DescribeBitmap(SoftwareBitmap? bitmap)
+    {
+        try
+        {
+            return bitmap is null
+                ? "<null>"
+                : $"{bitmap.BitmapPixelFormat}/{bitmap.BitmapAlphaMode} {bitmap.PixelWidth}x{bitmap.PixelHeight}";
+        }
+        catch (Exception e)
+        {
+            return $"<属性读取抛 {e.GetType().Name}>";
+        }
     }
 
     /// <summary>

@@ -18,6 +18,14 @@ public sealed class ThumbnailResult
     /// <summary>JPEG 编码后的缩略图字节（静态图；GIF 已取首帧，瀑布流不做动画）。</summary>
     public byte[] ImageBytes { get; init; } = [];
 
+    /// <summary>
+    /// 磁盘缓存 JPEG 路径（best-effort：写盘失败/无缓存时为 null 或文件不存在）。
+    /// UI 层优先用它构造 BitmapImage.UriSource——解码走 XAML 图像线程异步管线，UI 线程零解码
+    /// 成本（2026-09-24 首帧卡死根治：SetSourceAsync 流式解码在冷启动大批量首呈现窗口与合成器
+    /// 互等，实测推迟首应用 400ms 仍卡；标准 ListView 图像路径即 UriSource）。
+    /// </summary>
+    public string? CachePath { get; init; }
+
     /// <summary>UI 层桥接槽位；Core 不填充（沿用 LoadedImage.ImageSource 模式）。</summary>
     public object? ImageSource { get; init; }
 }
