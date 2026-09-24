@@ -143,6 +143,10 @@ public partial class App : Application
     /// UI 心跳看门狗（2026-09-17 走查诊断）：UI 线程每秒自增心跳并记录自身托管堆栈快照；
     /// 后台线程每 5s 检查，连续 15s 无心跳视为无响应，把最近操作追踪 + 最后一份 UI 线程堆栈
     /// 转储进诊断日志（定位"打开图库卡死"类问题的现场）。每次无响应只记录一次，恢复后重置。
+    /// 2026-09-24 卡死取证升级：100ms 栈快照只能拍到「空闲时刻」（快照在 timer 回调里拍，
+    /// 真正的阻塞帧永远不会被拍到——此前日志里的「UI 线程堆栈」恒为 timer 自身栈，无现场价值）。
+    /// 检测到无响应时由后台线程写进程 MiniDump（dbghelp MiniDumpWriteDump，单元无要求），
+    /// 事后 dotnet-dump 分析 dump 即得 UI 线程真实阻塞栈。每次无响应周期至多一份 dump。
     /// </summary>
     private static void StartUiHeartbeatWatchdog()
     {
@@ -169,6 +173,7 @@ public partial class App : Application
         {
             var lastSeen = Interlocked.Read(ref heartbeat);
             var stalled = 0;
+            var dumpedThisStall = false;
             while (true)
             {
                 await Task.Delay(5000);
@@ -180,7 +185,14 @@ public partial class App : Application
                     {
                         WriteDiagnosticLog(
                             $"[UI 无响应] 心跳停止 ≥15s（疑似卡死）。最近操作追踪：{Environment.NewLine}{DiagnosticTrace.Dump()}"
-                            + $"{Environment.NewLine}最后一份 UI 线程堆栈：{Environment.NewLine}{lastUiStack}");
+                            + $"{Environment.NewLine}最后一份 UI 线程堆栈（注意：快照仅能拍到空闲时刻，真实现场见 hang dump）：{Environment.NewLine}{lastUiStack}");
+                    }
+
+                    // ≥20s 仍无响应且本周期未 dump：写卡死现场 MiniDump（后台线程，UI 卡着不受影响）。
+                    if (stalled >= 4 && !dumpedThisStall)
+                    {
+                        dumpedThisStall = true;
+                        WriteHangDump();
                     }
                 }
                 else
@@ -191,9 +203,64 @@ public partial class App : Application
                     }
 
                     stalled = 0;
+                    dumpedThisStall = false;
                     lastSeen = current;
                 }
             }
         });
     }
+
+    /// <summary>卡死现场 MiniDump 落盘路径目录（与诊断日志同目录）。</summary>
+    private static string HangDumpDirectory
+        => Path.Combine(Path.GetDirectoryName(DiagnosticLogPath)!, "hangdumps");
+
+    /// <summary>
+    /// 后台线程写当前进程 MiniDump（dbghelp）：卡死现场的唯一可靠取证（100ms 栈快照拍不到阻塞帧）。
+    /// WithPrivateReadWriteMemory 档含托管堆，事后 dotnet-dump analyze 可得全部线程真实栈。
+    /// 失败静默（诊断代码不许再抛）；保留最近 5 份防磁盘膨胀。
+    /// </summary>
+    private static void WriteHangDump()
+    {
+        try
+        {
+            // 先落 %TEMP%（LocalAppData 下曾报 E_ACCESSDENIED 0x80070005，2026-09-24 首次实战未取到现场；
+            // TEMP 权限最宽松，成功后再考虑回收站式挪到 logs 目录）。
+            var dir = Path.Combine(Path.GetTempPath(), "SimpleViewerHangDumps");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"hang-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            if (MiniDumpWriteDump(process.Handle, (uint)process.Id, path, MiniDumpWithPrivateReadWriteMemory,
+                    IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
+            {
+                WriteDiagnosticLog($"[卡死现场 dump] {path}");
+                foreach (var stale in Directory.GetFiles(dir, "hang-*.dmp")
+                             .OrderByDescending(f => f)
+                             .Skip(5))
+                {
+                    try { File.Delete(stale); } catch { /* 清理失败忽略 */ }
+                }
+            }
+            else
+            {
+                WriteDiagnosticLog($"[卡死现场 dump 失败] GetLastError={System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteDiagnosticLog("[卡死现场 dump 异常]", ex);
+        }
+    }
+
+    private const uint MiniDumpWithPrivateReadWriteMemory = 0x00000200;
+
+    [System.Runtime.InteropServices.DllImport("dbghelp.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool MiniDumpWriteDump(
+        IntPtr hProcess,
+        uint processId,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string dumpPath,
+        uint dumpType,
+        IntPtr exceptionParam,
+        IntPtr userStreamParam,
+        IntPtr callbackParam);
 }

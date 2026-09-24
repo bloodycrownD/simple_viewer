@@ -272,10 +272,13 @@ public partial class GalleryItemViewModel : ObservableObject
             cancellationToken.ThrowIfCancellationRequested();
 
             // JPEG 字节 → BitmapImage：UI 线程创建（ElementPrepared 与本 await 续体均在 UI 线程）；
-            // 应用段经闸门串行（见 UiApplyGate 注释）。
+            // 应用段经闸门串行（见 UiApplyGate 注释）。2026-09-24 卡死取证：记录排队与应用耗时
+            //（风暴期 gate 深度与单张应用耗时是「打标重排后 UI 长时间忙」的关键量）。
+            var gateStart = Environment.TickCount64;
             await UiApplyGate.WaitAsync(cancellationToken);
             try
             {
+                var applyStart = Environment.TickCount64;
                 var bitmap = new BitmapImage();
                 using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
                 {
@@ -284,6 +287,15 @@ public partial class GalleryItemViewModel : ObservableObject
 
                 cancellationToken.ThrowIfCancellationRequested();
                 Thumbnail = bitmap;
+                SimpleViewer.Services.DiagnosticTrace.Mark(
+                    $"thumb:apply gate等{applyStart - gateStart}ms 应用{Environment.TickCount64 - applyStart}ms");
+
+                // 应用段最小间隔节流（2026-09-24 冷缓存卡死根治）：冷缓存风暴期 20 张缩略图连续
+                // SetSourceAsync 与首帧渲染/合成器交互，曾致 UI 无响应 22.6s（消融实验实锤：解码照跑
+                // 仅跳过应用段即不卡；与 2026-09-17 UiApplyGate 记载的 SetSourceAsync 合成器死锁同族，
+                // 串行化只治常规场景，连续应用仍打爆合成器）。每张让渡一拍给渲染管线；正常滚动
+                // 加载的渐入观感无感知差异（缩略图本有渐入过渡）。
+                await Task.Delay(16);
             }
             finally
             {

@@ -1876,8 +1876,11 @@ public partial class MainViewModel : ObservableObject
             : tags => TagSemantics.Apply(tags, group, tagName);
 
         var processed = 0;
+        var pipelineStart = Environment.TickCount64;
+        SimpleViewer.Services.DiagnosticTrace.Mark($"tag-op:start {(remove ? "remove" : "add")} {tagName} x{candidates.Count}");
         for (var offset = 0; offset < candidates.Count; offset += TagBatchSize)
         {
+            var batchStart = Environment.TickCount64;
             var batch = candidates.Skip(offset).Take(TagBatchSize).ToList();
             var batchPaths = batch.Select(static c => c.Path).ToList();
             var result = remove
@@ -1889,6 +1892,7 @@ public partial class MainViewModel : ObservableObject
             var sync = await SyncRenamedItemsAsync(batch, transform);
             syncedTotal += sync.Synced;
             failedTotal += sync.Failed;
+            SimpleViewer.Services.DiagnosticTrace.Mark($"tag-op:batch {processed + batch.Count}/{candidates.Count} {Environment.TickCount64 - batchStart}ms");
 
             processed += batch.Count;
             if (showProgress && processed < candidates.Count)
@@ -1897,6 +1901,8 @@ public partial class MainViewModel : ObservableObject
                 TagFeedbackMessage = $"正在处理 {processed}/{candidates.Count} 张";
             }
         }
+
+        SimpleViewer.Services.DiagnosticTrace.Mark($"tag-op:end {Environment.TickCount64 - pipelineStart}ms ok={succeeded}");
 
         // 图库右栏挂点②（D6）：批量打标/移除统一管线收口——所有改标签路径（批量打标/单图右栏 ✕/
         // 图库右栏 chip ✕/未定义区连锁删）汇入本管线，完成后重算一次选中集并集
@@ -2153,6 +2159,7 @@ public partial class MainViewModel : ObservableObject
     private void ApplyTagFilter()
     {
         var gallery = SnapshotGalleryItems();
+        var filterStart = Environment.TickCount64;
 
         List<GalleryItem> target;
         if (IsUntaggedFilterActive)
@@ -2178,8 +2185,17 @@ public partial class MainViewModel : ObservableObject
         if (!_waterfall.PresentsExactly(target))
         {
             ClearCardSelection();
+            var resetStart = Environment.TickCount64;
             _waterfall.ResetFrom(target);
+            SimpleViewer.Services.DiagnosticTrace.Mark(
+                $"filter:reset {target.Count} 项 {Environment.TickCount64 - resetStart}ms");
         }
+        else
+        {
+            SimpleViewer.Services.DiagnosticTrace.Mark("filter:skip（呈现序列未变）");
+        }
+
+        SimpleViewer.Services.DiagnosticTrace.Mark($"filter:apply 总 {Environment.TickCount64 - filterStart}ms");
 
         WaterfallEmptyText = target.Count == 0
             ? (IsUntaggedFilterActive || TagFilterState.CollectReferencedTags(_filterRoot).Count > 0
@@ -2635,6 +2651,8 @@ public partial class MainViewModel : ObservableObject
         IReadOnlyList<GalleryItem> candidates,
         Func<IReadOnlyList<string>, IReadOnlyList<string>> transform)
     {
+        var syncStart = Environment.TickCount64;
+        SimpleViewer.Services.DiagnosticTrace.Mark($"sync-renamed:start {candidates.Count} 张");
         // 阶段一（UI 线程）：宽松预测新路径。
         // 宽松口径（2026-09-17 走查修复）：本阶段运行在 TagService 改名落盘之后，
         // 预测出的目标路径必然已存在——若沿用 BuildNewPath 的目标存在性冲突预检，
@@ -2700,6 +2718,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         failed += predicted.Count - renamed.Count;
+        SimpleViewer.Services.DiagnosticTrace.Mark(
+            $"sync-renamed:end {Environment.TickCount64 - syncStart}ms ok={synced} fail={failed}");
         return new SyncResult(synced, failed);
     }
 
