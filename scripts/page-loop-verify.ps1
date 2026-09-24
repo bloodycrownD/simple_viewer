@@ -55,7 +55,20 @@ function HasImageContent($hwnd) {
 }
 
 try {
-  $libDir = 'F:\Pictures\Storage\new\114299\good'
+  # temp fixture library (user's real libraries move around mid-session; 2026-09-25 lesson:
+  # a vanished -d dir silently degrades to empty-gallery and poisons the assertions)
+  $libDir = Join-Path $env:TEMP 'sv-page-loop-lib'
+  if (Test-Path $libDir) { Remove-Item $libDir -Recurse -Force }
+  New-Item -ItemType Directory -Path $libDir | Out-Null
+  Add-Type -AssemblyName System.Drawing
+  for ($n = 1; $n -le 15; $n++) {
+    $bmp = New-Object System.Drawing.Bitmap 3200, 2100
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::FromArgb(255, 30 + $n * 8, 60, 90))
+    $g.FillRectangle((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 200, 150, 40))), ($n * 100), ($n * 80), 700, 500)
+    $g.Dispose(); $bmp.Save((Join-Path $libDir ("p{0:d2}.jpg" -f $n)), [System.Drawing.Imaging.ImageFormat]::Jpeg); $bmp.Dispose()
+  }
+  Write-Output ("fixture: " + (Get-ChildItem $libDir).Count + " images")
   $json = Get-Content $settings -Raw -Encoding UTF8 | ConvertFrom-Json
   $json.LastLibraryRoot = $libDir
   $json.shortcuts = @()

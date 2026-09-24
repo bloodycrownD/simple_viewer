@@ -245,29 +245,45 @@ public sealed partial class WaterfallView : UserControl
 
     private void OnElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
     {
-        // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查释放视觉资源（cr/P1-5）。
-        if (Repeater.ItemsSourceView?.GetAt(args.Index) is GalleryItemViewModel viewModel
-            && args.Element is FrameworkElement element)
+        // XAML 回调异常防弹（2026-09-25 0xc000027b stowed 闪退实锤）：ElementPrepared 在
+        // MeasureOverride 内同步触发，此回调内逃逸的任何托管异常会被 XAML stowed 直接杀进程
+        //（不经过 UnhandledException/看门狗，日志全干净+dump 栈实锤）——回调体只做接线，
+        // 全 try/catch 兜底落日志。
+        try
         {
-            element.Tag = viewModel;
-            viewModel.BeginLoadThumbnail();
-
-            // 命令式拖拽（2026-09-19 拖拽二次修复）：CanDrag 手势路径在"Button 子元素拉伸占满宿主"时
-            // 永远不触发（Button 捕获指针拦截手势识别，Q&A "Drag Grid with Streached elements" 实锤）——
-            // 改为 handledEventsToo 监听按压/移动，位移超阈值主动 StartDragAsync（官方命令式 API，
-            // 绕开手势识别）。Click/双击不受影响（小位移释放仍走 Button）。
-            var handlers = new[]
+            // ItemsRepeater 不设置元素 DataContext：经 Tag 槽位记录 VM，ElementClearing 时回查释放视觉资源（cr/P1-5）。
+            if (Repeater.ItemsSourceView?.GetAt(args.Index) is GalleryItemViewModel viewModel
+                && args.Element is FrameworkElement element)
             {
-                new PointerEventHandler(OnCardPointerPressed),
-                new PointerEventHandler(OnCardPointerMoved),
-                new PointerEventHandler(OnCardPointerReleased),
-                new PointerEventHandler(OnCardPointerCaptureLost),
-            };
-            element.AddHandler(UIElement.PointerPressedEvent, handlers[0], handledEventsToo: true);
-            element.AddHandler(UIElement.PointerMovedEvent, handlers[1], handledEventsToo: true);
-            element.AddHandler(UIElement.PointerReleasedEvent, handlers[2], handledEventsToo: true);
-            element.AddHandler(UIElement.PointerCaptureLostEvent, handlers[3], handledEventsToo: true);
-            _cardPointerHandlers[element] = handlers;
+                element.Tag = viewModel;
+
+                // 缩略图加载启动脱离布局回调（2026-09-25 同一闪退）：此前同步启动的异步链在
+                // 全同步完成路径下（内存未命中→磁盘读秒回→解码启动）整链跑穿在 MeasureOverride
+                // 内——回调内异常=stowed 死刑 + 布局被 IO 拖长。TryEnqueue 推迟到布局外再启动。
+                var vm = viewModel;
+                _ = DispatcherQueue.TryEnqueue(() => vm.BeginLoadThumbnail());
+
+                // 命令式拖拽（2026-09-19 拖拽二次修复）：CanDrag 手势路径在"Button 子元素拉伸占满宿主"时
+                // 永远不触发（Button 捕获指针拦截手势识别，Q&A "Drag Grid with Streached elements" 实锤）——
+                // 改为 handledEventsToo 监听按压/移动，位移超阈值主动 StartDragAsync（官方命令式 API，
+                // 绕开手势识别）。Click/双击不受影响（小位移释放仍走 Button）。
+                var handlers = new[]
+                {
+                    new PointerEventHandler(OnCardPointerPressed),
+                    new PointerEventHandler(OnCardPointerMoved),
+                    new PointerEventHandler(OnCardPointerReleased),
+                    new PointerEventHandler(OnCardPointerCaptureLost),
+                };
+                element.AddHandler(UIElement.PointerPressedEvent, handlers[0], handledEventsToo: true);
+                element.AddHandler(UIElement.PointerMovedEvent, handlers[1], handledEventsToo: true);
+                element.AddHandler(UIElement.PointerReleasedEvent, handlers[2], handledEventsToo: true);
+                element.AddHandler(UIElement.PointerCaptureLostEvent, handlers[3], handledEventsToo: true);
+                _cardPointerHandlers[element] = handlers;
+            }
+        }
+        catch (Exception ex)
+        {
+            App.WriteDiagnosticLog($"[ElementPrepared 异常兜底] index={args.Index}", ex);
         }
     }
 

@@ -71,6 +71,22 @@ public class MasonryLayout : VirtualizingLayout
     /// <inheritdoc />
     protected override Size MeasureOverride(VirtualizingLayoutContext context, Size availableSize)
     {
+        // XAML 布局覆写异常防弹（2026-09-25 0xc000027b stowed 闪退）：覆写抛出的任何托管异常
+        // 会被 XAML stowed 直接杀进程（不经过托管 handler，日志干净+dump 实锤）——兜底落日志
+        // 并按空尺寸返回，绝不外抛。
+        try
+        {
+            return MeasureCore(context, availableSize);
+        }
+        catch (Exception ex)
+        {
+            App.WriteDiagnosticLog("[MasonryLayout.Measure 异常兜底]", ex);
+            return new Size(0, 0);
+        }
+    }
+
+    private Size MeasureCore(VirtualizingLayoutContext context, Size availableSize)
+    {
         var state = context.LayoutState as MasonryPlanner ?? new MasonryPlanner();
         context.LayoutState = state;
 
@@ -118,23 +134,32 @@ public class MasonryLayout : VirtualizingLayout
     /// <inheritdoc />
     protected override Size ArrangeOverride(VirtualizingLayoutContext context, Size finalSize)
     {
-        if (context.LayoutState is MasonryPlanner state)
+        // 同 MeasureOverride：布局覆写内异常=stowed 死刑，兜底防弹。
+        try
         {
-            var realizationRect = ExpandRect(context.RealizationRect, RealizationBuffer);
-            for (var i = 0; i < state.Count; i++)
+            if (context.LayoutState is MasonryPlanner state)
             {
-                var slot = state[i];
-                if (!Intersects(new Rect(slot.X, slot.Y, slot.Width, slot.Height), realizationRect))
+                var realizationRect = ExpandRect(context.RealizationRect, RealizationBuffer);
+                for (var i = 0; i < state.Count; i++)
                 {
-                    continue;
+                    var slot = state[i];
+                    if (!Intersects(new Rect(slot.X, slot.Y, slot.Width, slot.Height), realizationRect))
+                    {
+                        continue;
+                    }
+
+                    // 与 Measure 同窗口：已 realize 的直接返回同一元素。
+                    context.GetOrCreateElementAt(i).Arrange(new Rect(slot.X, slot.Y, slot.Width, slot.Height));
                 }
-
-                // 与 Measure 同窗口：已 realize 的直接返回同一元素。
-                context.GetOrCreateElementAt(i).Arrange(new Rect(slot.X, slot.Y, slot.Width, slot.Height));
             }
-        }
 
-        return finalSize;
+            return finalSize;
+        }
+        catch (Exception ex)
+        {
+            App.WriteDiagnosticLog("[MasonryLayout.Arrange 异常兜底]", ex);
+            return finalSize;
+        }
     }
 
     /// <summary>视口宽度：无限约束（理论上不出现，ScrollViewer 横向禁用）时用兜底假设值。</summary>

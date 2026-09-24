@@ -208,3 +208,9 @@ user:
 
 assistant:
 **RO_E_CLOSED 破案轮（2026-09-24 深夜，v1.0.3）**：昨晚布下的取证装置首轮建功——日志实锤 `[换源位图自愈失败] state=Unknown/Ignore 0x0` + ObjectDisposedException at SoftwareBitmap.Convert：**位图到达换源时已被关闭（宽高读出哨兵值 0），昨晚的 SetBitmapAsync E_INVALIDARG 同根**。机制闭环：`SoftwareBitmapSource` 随 ImageSourceRetirement 退役 Dispose 时**连带关闭它呈现过的位图**——用户「来回切换」场景：LRU（容量 6）条目未被淘汰、旧源已过保留窗口（8）被 Drain → 翻回时缓存命中拿到已关位图 → 换源炸。双层修复：①ImageLoaderService.TryGetCached 命中体检（宽高>0，已关条目移除按未命中重新解码，2 次属性读成本，覆盖 LoadAsync/EnsureFullResolution/MigrateCache 共享引用条目）；②LoadCurrentAsync 换源失败按「陈旧位图」（ObjectDisposed/0x80000013，IsStaleDecodedBitmap）重试一次，覆盖「体检通过后、换源前被 Drain」的毫秒级竞态窗。验证：120/120 + page-loop-verify（真实图库 -d 直开、UIA 下一张/上一张 12进12退×3=72 次翻页）零加载失败、最终画面像素有真实图像内容。RULE 铁律补附注（SoftwareBitmapSource.Dispose 连带关闭呈现位图=缓存持有方必须体检）。**v1.0.3 按新 tag 规则发布**：CHANGELOG 开新节（1.0.2 未 Publish，夜间全部工作归 1.0.3）、新 tag、CI 新 draft、提醒用户删 v1.0.2 旧 draft。坑：自己新写的验证脚本又踩 PS5.1 无 BOM 中文注释坑（乱码破坏解析致 Add-Type 失效）——重写为纯 ASCII（中文按钮名用 char 码拼）。
+
+user:
+直接闪退了，什么情况
+
+assistant:
+**stowed 闪退破案轮（2026-09-25 凌晨，v1.0.4）**：事件日志实锤 0xc000027b @Microsoft.UI.Xaml.dll + 新 dump 44.6MB；dotnet-dump 解剖（堆无损、终结队列干净、无托管异常在案）+ UI 线程全栈：**Main→Start→MeasureOverride→GetOrCreateElementAt→ElementPrepared→BeginLoadThumbnail→整条缩略图异步链同步跑穿（内存未命中→磁盘读秒回→解码启动）→死在 GetFileFromPathAsync 的 WinRT 启动上**。机制：XAML 对回调内逃逸异常不弹不记直接处决（stowed），且同步完成链把 IO/WinRT 活拖进布局回调。三层修复：①OnElementPrepared 里缩略图启动改 DispatcherQueue.TryEnqueue 推迟（回调只剩纯接线，布局不被 IO 拖长）；②OnElementPrepared/MeasureOverride/ArrangeOverride 全 try/catch 兜底落日志绝不外抛；③缩略图链本有 catch-all（无补丁需要）。**过程中两次乌龙**：a)「测试回归」——page-loop/直开全 miss 按钮+无图，追查半天实为用户把 114299 图库整个归档移走了（-d 指向不存在目录→按设计回空图库→无翻页按钮），夹具改为 TEMP 生成；b) 僵尸进程 5012 没被 taskkill 清干净，截图/UIA 三轮全命中它（同像素统计=同窗口）。教训入册：验证脚本断言前先验证夹具存在；多实例场景进程/窗口要用 PID 锚定。回归全绿：冷重建+120/120+page-loop 72 次+walkthrough2+zoom-path+冷启动。RULE 新铁律：XAML 回调内异常逃逸=stowed 死刑（TryEnqueue 推迟+回调防弹+同步前缀无可抛操作）。v1.0.4 按 tag 规则新号发布（v1.0.2/v1.0.3 draft 均未 Publish 待用户清理）。
