@@ -166,3 +166,9 @@ user:
 
 assistant:
 **STA 真凶轮（2026-09-24）**：新 dump 终结器仍停 Finalize（退役修复没治到）+ 三小时窗口无 1000/1026 事件——回到用户场景词「**删除标签**」=删除选中集，**亲手复查 FileOperationService（勿再信子代理「已核对」）实锤**：批量 DeleteToRecycleBin 注释自述「批量删除走线程池（Task.Run）」——**SHFileOperationW 带 FOF_ALLOWUNDO（回收站）要求 STA**（内部走 OLE/Shell 对象，MTA 上未定义行为）——池线程每删一批都在赌运气，原生堆损坏 fastfail @ucrtbase 完美吻合，且删除选中集是 v1.0.2 新功能（旧版本无此路径=以前不崩）。修=专用 STA 后台线程（SetApartmentState(STA)+TaskCompletionSource 桥接，不阻塞调用方）。验证：120/120+toolbar-catalog 删除端到端（确认→回收站→已选 0）全过。**教训**：①P/Invoke 审查只查了封送布局没查**单元要求（STA/MTA）**——Shell/OLE/剪贴板类 API 必查；②「Task.Run 后台化」重构对 native API 可能改变单元语义=引入崩溃；③终结器停在 Finalize 的 dump 模式是**高频背景噪音**（终结器永远在忙），两次同款不能直接定因果——因果要用「崩溃码+模块+用户场景」三角定位；④ImageSource 退役修复虽非本次真凶，但机制正确（dump2 堆损坏期间确有终结风暴）保留作纵深防御。RULE 补 STA 铁律。v1.0.2 tag 第六次强推重出。
+
+user:
+「为什么如此容易出现崩溃？还有类似代码问题吗？」
+
+assistant:
+**审计加固轮（2026-09-24，611da47）**：回答用户两问——①「为什么容易崩」=WinUI3 托管裹原生互操作的系统性难点（XAML 线程亲和/Shell 单元要求/WIC 管线约束，编译器不查、崩溃离根因远）× v1.0.2 线程模型大迁移（UI→后台搬家扩大暴露面）× 测试盲区（单测全纯逻辑、崩溃概率性竞态脚本跑不出来）；②「还有吗」不空答，派两路 readonly 审计（P/Invoke 单元要求/封送 + WinRT 对象生命周期）——**P/Invoke 面 5 处全安全**；修掉 3 P1：ThumbnailService 解码主链 8 处裸 await（**同步完成路径 CA(false) 不救：await 已完成 Task 同步继续留在原线程并捕获上下文**——外层 10 处 CA(false) 是假象，冷缓存+闸门空闲时整链从 UI 发起回投 STA，冻结死锁同源主链漏网）、LoadCurrentAsync 失败分支裸置 null（崩溃机制第五漏网点）、瀑布流卡片模板 brush-per-evaluation（全场最大批量 XAML 对象裸 GC 点，静态缓存清零）+2 P2（Cts 竞态守卫/退役队列线程断言）。**审计另实锤两个「安全证明」**：SoftwareBitmap 官方 Agile+GCPressure（终结器释放合法——之前 dump 终结器停 Finalize 归因需修正为背景噪音）；SetBitmapAsync 走 CopyImage 像素拷贝（微软源码核实，与缓存共享位图无 double-free）。**审计方法论沉淀**：①裸 await 的「外层已 CA(false)」不可信——同步完成路径仍回 UI 线程并捕获上下文，WinRT 链必须逐 await 自证；②P/Invoke 审查维度=封送布局+**单元要求**+缓冲区契约三件套缺一不可；③dump 终结器停 Finalize 是高频背景，因果要「崩溃码+模块+场景」三角定位。v1.0.2 tag 第七次强推（611da47）。
