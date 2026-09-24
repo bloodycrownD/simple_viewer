@@ -30,7 +30,8 @@
 
 ## 架构与边界
 
-- 双 csproj 白名单：`Services\ Models\ Helpers\` 自动编入 Core（可单测）；UI 工程需要的新 Helper 须双侧 csproj 显式 Include（先例：ImageSourceHelper/ConsoleHelper）。tests 只引用 Core，可测逻辑必须下沉 Core。
+- 双 csproj 白名单：`Services\ Models\ Helpers\` 自动编入 Core（可单测）；UI 工程需要的新 Helper 须双侧 csproj 显式 Include（先例：ImageSourceHelper/ConsoleHelper）。tests 只引用 Core，可测逻辑必须下沉 Core。**Helpers 下新增 UI-only 文件必须同步 Core csproj 的 `<Compile Remove>`**（2026-09-24 实锤：ImageSourceRetirement 混编 Core 靠「还原踩踏的主工程视角污染」侥幸编过一整天，干净串行还原后 CS0234 现形）。
+- **19041 投影的版本门控**：`BitmapEncoder.SetSoftwareBitmapAsync` 文档存在但投影被裁（CS1061），同步版 `SetSoftwareBitmap`（void，帧数据引用设置、实际编码在 FlushAsync）可用——遇「文档有但 CS1061」的 WinRT API 先反射/试编译确认投影再绕行。
 - 索引（SQLite）与缩略图缓存是可丢弃缓存，事实源永远是文件名（TagSpaces 文件名协议 `base[tag1 tag2].ext`）；打开图库 = 清表重扫（`ClearAllItemsAsync`，防孤儿行污染候选集）。
 - 缩略图 UI 应用必须走 `GalleryItemViewModel.UiApplyGate` 串行闸门（并发 SetSourceAsync 在首帧渲染期死锁过 UI）。
 - **WinRT WIC/解码异步链路严禁跑在 UI STA 上下文**（2026-09-23 冻结根因实锤）：`BitmapDecoder/GetPixelDataAsync` 等若由 STA 创建流、无 `ConfigureAwait(false)`，其完成需封送回流所属 STA——首帧布局期 UI 线程在原生工作中不泵消息时，WIC 线程等封送、UI 等解码完成，互等成**零 CPU 死锁**（实机 8 次 ≥15s 冻结+复现 6 次；窗口 Responding=True 假活、看门狗栈无托管帧）。修法：整链 `Task.Run` 包裹 + 每个 WinRT await `.AsTask().ConfigureAwait(false)`（先例 `ImageSourceHelper.TryCreateDragVisualAsync`）；派生结论——按需资源别在滚动/首帧路径急切预生成，改消费点懒生成。
@@ -43,6 +44,8 @@
 ## 诊断
 
 - 崩溃/卡死先看 `%LocalAppData%\SimpleViewer\logs\startup.log`：全局未处理异常 + UI 心跳看门狗（≥15s 无响应自动转储操作追踪与 UI 线程堆栈）+ 缩略图失败明细。
+- **DispatcherQueueTimer 不被 DispatcherQueue 强持有**（2026-09-24 看门狗假警报实锤）：局部变量创建+Start 后无人持引用，冷启动分配风暴一轮 GC 即被静默收走——此后每次会话在 ~15-20s 处固定报一条假「UI 无响应」（当日 43 条假警报、恢复条目 0 条）。**判别式：真卡死恢复后必有「UI 恢复响应」条目；只见报警从不恢复=报警器死了**。计时器一律静态字段根引用；诊断装置上线后先跑一次「已知正常」场景验证装置本身的行为（假警报比没有警报更糟，会派生整条错误假设链）。
+- **环形缓冲埋点稀疏化要保底信息量**（2026-09-24 误读教训）：1/25 稀疏后小图库视口内不足 25 张、环里只剩 scan:start/end 几条——「标记静默」被误读为进程停摆，引发一整轮错误归因。稀疏化必须保证环内留有跨时间的关键锚点（计数兜底/周期心跳标记）。
 - **冻结探测用应用自身心跳看门狗，别信 `Process.Responding`**（2026-09-23 实锤）：XAML 调度器死透时 Win32 消息泵仍活着、Responding=True 假活——复现脚本模式见 `scripts\repro-freeze5.ps1`（轮询 startup.log「UI 无响应」即冻结进行中，立即 `dotnet-stack report -p <pid>` + 线程 CPU 增量采样）。**冻结期全进程零 CPU 增量 = 等待型死锁（查跨线程封送/互等），单线程 CPU 打满 = 自旋/GC**；间歇性 bug 用消融实验二分（临时开关可疑段，每配置多轮对照）。
 - `Services\DiagnosticTrace` 打点关键路径；`scripts\fg-monitor.ps1`（前置窗口监控）、`scripts\freeze-stress.ps1`（清缓存冻结压力测试）。
 

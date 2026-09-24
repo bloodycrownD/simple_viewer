@@ -1,8 +1,8 @@
 ---
-date: 2026-09-24 21:30
-title: 批量标签管理全周期+v1.0.2 发布与四轮实机修复（左栏交互/悬空/闪退三修/冷缓存卡死根治）
-keywords: 批量移除标签, 两层模型, 条件树筛选, Explorer 心智, 悬空, InfoBar 浮层, SHFileOperationW STA, ImageSourceRetirement, 消融二分, 冷缓存风暴, SetSourceAsync 合成器, 看门狗, 压测脚本族, v1.0.2, Publish 待用户
-abstract: v1.0.2 全周期收口（master HEAD=0e67969/tag 38e0a7b/CI Success/本机 43MB 包已更新，待用户实机验证后 Publish draft）：合并发布后用户连报四轮实机问题全部修复——左栏点击恢复 Explorer 心智（推翻 QuickAdd 拍板）、悬空双层根治（画布底色+InfoBar 回执浮层化）、闪退三修（SHFileOperationW 须 STA 专用线程=真凶；XAML 图像源退役队列；全仓审计 3P1+2P2）、冷缓存卡死根治（缩略图 UI 应用段 16ms 节流；消融二分实锤连续 SetSourceAsync 打爆合成器；打标改名=制造冷缓存条目=「多次打标卡死」同源）。取证装置入库：管线分段埋点+卡死自动 dump+压测脚本族五只。RULE 新增三铁律（XAML 对象禁裸 GC/Shell 调用 STA 要求/裸 await 不可信）。
+date: 2026-09-24 22:50
+title: 批量标签管理全周期+v1.0.2 发布与五轮实机修复（左栏交互/悬空/闪退三修/冷缓存卡死/看门狗假警报翻案）
+keywords: 批量移除标签, 两层模型, 条件树筛选, Explorer 心智, 悬空, InfoBar 浮层, SHFileOperationW STA, ImageSourceRetirement, 消融二分, 冷缓存风暴, SetSourceAsync 合成器, 看门狗, 压测脚本族, v1.0.2, Publish 待用户, SetBitmapAsync 取证, DispatcherQueueTimer GC, 假警报, UriSource, LOH churn, FirstFrameGate
+abstract: v1.0.2 全周期+压缩后两轮实机修复：四轮已知修复（左栏 Explorer 心智/悬空双层/闪退三修/16ms 节流）后，用户再报 SetBitmapAsync 参数错误弹窗+使用中卡顿——一夜连环取证翻案：245 张图库源头排除格式问题、GC 采样无罪、四个应用层假设（节流/双版首帧闸门/UriSource）连环证伪，最终实锤「≥15s UI 无响应」全部是看门狗心跳 DispatcherQueueTimer 被 GC 静默停跳的假警报（当日 43 条报警 0 条恢复的判别式）。真改进照常落地：缩略图应用改磁盘 URI 异步管线（78ms→0ms）、解码直出消 LOH churn、首帧安定闸门、看门狗 v2（外部 dotnet-stack 抓栈+GC 采样）、SetBitmapAsync 位图守卫+Convert 自愈+现场落日志。tag v1.0.2 第九次移至 d3924a2 待 CI。
 ---
 
 user:
@@ -190,3 +190,9 @@ assistant:
 ④**RULE 今日新增铁律**：XAML 对象（DependencyObject 族）永不可裸交 GC（ImageSourceRetirement 模式）；SHFileOperationW 带 FOF_ALLOWUNDO 必须 STA（Shell/OLE 类 P/Invoke 先查单元要求）；裸 await「外层已 CA(false)」不可信（同步完成路径仍回 UI 并捕获上下文，WinRT 链逐 await 自证）。
 ⑤**开放项**：DEV-2 筛选面板两态按钮 vs 下拉未拍板；走查尾款（浅色主题实测等）；RenameFilesAsync 无互斥闸（下轮 CR）；两种闪退机制修复均为「机制修复+用户实机待验」（本地未能复现崩溃本身，证据=dump+消融）；分支 feature/tag-filter-tree、feature/batch-tag-management 已并入 master 可删。
 ⑥**恢复路径**：本记忆（含全周期轮次）+RULE+docs\.iteration-state.yaml+cr-fix-spec-2.md（executed）；CI 已成功（run#17）；本机 release\SimpleViewer-v1.0.2-win-x64.zip 43MB 已含全部修复。
+
+user:
+（上下文压缩恢复后）看下这个错误，又出问题了，而且感觉到使用过程中出现了卡顿现象，我还以为是要卡死了，但是没有。难道是在gc？感觉有点奇怪【附截图：单图模式「加载失败 参数错误 SoftwareBitmapSource::SetBitmapAsync only supports SoftwareBitmap with positive width/height, bgra8 pixel format and pre-multiplied or no alpha」】
+
+assistant:
+**SetBitmapAsync 取证 + 假警报翻案轮（2026-09-24 深夜，d3924a2）**：①错误源头排除——scan-pixel-format/probe-decode-alpha 两探针对 245 张图库按 LoadAsync 真实参数（Bgra8/Premultiplied/EXIF）全量解码，输出全部合规 → 异常只能来自运行期位图状态劣化（代码无任何 Dispose 位图路径，机制未定）。修=FromLoadedImageAsync 位图守卫（IsSetBitmapCompatible 读实际状态）+不合规则 SoftwareBitmap.Convert 自愈+状态合规仍被拒时转换副本重试+全路径现场落日志（格式/alpha/尺寸/路径）；LoadCurrentAsync catch 补落日志（此前只弹 InfoBar 瞎）。②「卡顿=GC？」用数据回答：看门狗 v2 加 GC 停顿采样（30s 周期：代数/提交量/pause%/最近5次停顿落 startup.log+环形缓冲）——采样实锤托管堆仅 4-5MB、停顿毫秒级，**GC 无罪**。③**假警报翻案（本轮最大教训）**：日志当日 43 条「≥15s UI 无响应」、恢复条目 0 条（全历史也无）——真卡死恢复必打「UI 恢复响应」，只报不恢复=报警器死了。实锤：心跳 DispatcherQueueTimer 是局部变量，不被队列强持有，冷启动分配风暴一轮 GC 即静默停跳 → 每次启动 ~15-20s 处固定一条假警报（此前多日「疑误报/瞬时」的 15s 告警同源）。修=静态根引用；修复后三轮冷启动零误报且判定从此可信。④**连环证伪链**（每步都有实验数据）：a) 16ms 节流版首应用 79ms→仍卡；b) Rendering 首拍闸门→仍卡（首拍=帧开始非呈现完成）；c) LayoutUpdated+400ms 安定闸门→应用降到 15-31ms→仍卡；d) UriSource 异步管线→应用 0ms→「仍卡」；e) 缩略图全链跳过（消融）→「仍卡」——至此发现 b-e 全在 chase 一个假信号，而环形缓冲「静默」是我自己 1/25 稀疏化把小图库环变空造成的误读。期间还排除：火绒挂起（抓到的 73/73 Suspended 是自家 dotnet-stack 诊断挂起）、存储过滤器（冻结窗口外部读毫秒级）。⑤**真性能改进照常保留**（独立于翻案成立）：UriSource 应用（磁盘缓存 JPEG 交 XAML 图像线程，78ms→0ms；GIF 单图分支同款先例）、GetSoftwareBitmapAsync 直出+SetSoftwareBitmap 直读（消每张 0.5-2MB LOH churn；19041 投影无 Async 版用同步成员——版本门控入 RULE）、FirstFrameGate 首帧安定闸门、ThumbnailResult.CachePath。⑥看门狗 v2：外部 dotnet-stack 抓全线程栈（dbghelp 自 dump 五连败 E_HANDLE 后改诊断管道，实测首抓 5.5KB 现场 exit=0）。⑦顺手修潜伏 Core glob 超编（ImageSourceRetirement 混编靠还原踩踏侥幸过一天）。验证：build 0 警告+120/120+walkthrough2/zoom-path/冷启动 3 轮零误报/缩略图上屏像素断言/新管线冷缓存 JPEG 落盘合法。RULE 新增：DispatcherQueueTimer 根引用+「报了不恢复=报警器死」判别式+装置自身要验证、埋点稀疏化保底、19041 投影版本门控、Helpers UI-only 文件同步 Core Remove。**待用户**：实机再遇 SetBitmapAsync 错误时日志已有完整现场（自愈也可能直接治好）；tag v1.0.2 移 d3924a2 重推待 CI。
