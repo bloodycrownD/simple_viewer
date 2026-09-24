@@ -3459,15 +3459,19 @@ public partial class MainViewModel : ObservableObject
                 // 已被更新的导航或尺寸重载取代。
                 return;
             }
-            catch (Exception) when (attempt == 0
+            catch (Exception staleOrRenameEx) when (attempt == 0
                 && _currentIndex >= 0
                 && _currentIndex < _imageFiles.Count
                 && (!string.Equals(_imageFiles[_currentIndex], path, StringComparison.OrdinalIgnoreCase)
-                    || (_isTagOperationRunning && !File.Exists(path))))
+                    || (_isTagOperationRunning && !File.Exists(path))
+                    || IsStaleDecodedBitmap(staleOrRenameEx)))
             {
                 // 文件在加载期间被就地改名：按当前列表中的新路径重试一次。
                 // 路径未变但文件消失且打标在途：同步阶段即将替换路径——短暂等待后重读再试
                 //（诊断日志实锤过此窗口：异常时 _imageFiles 尚未替换，路径比对过滤器单独不命中）。
+                // 缓存位图已被关闭（2026-09-24 RO_E_CLOSED 实锤：退役源 Dispose 连带关闭其呈现过的
+                // 位图，来回翻页时 LRU 命中陈旧条目）也重试一次：ImageLoaderService 的命中体检会在
+                // 二次 LoadAsync 时移除陈旧条目并重新解码——覆盖「体检通过后、换源前」被 Drain 的竞态窗口。
                 if (string.Equals(_imageFiles[_currentIndex], path, StringComparison.OrdinalIgnoreCase))
                 {
                     await Task.Delay(80, CancellationToken.None);
@@ -3490,6 +3494,25 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// 是否「解码位图已被关闭」类失败（RO_E_CLOSED 0x80000013，CsWinRT 映射为 ObjectDisposedException）：
+    /// SoftwareBitmapSource 随退役队列 Dispose 时会连带关闭它呈现过的位图——来回翻页命中 LRU 中
+    /// 陈旧条目时换源抛此错（2026-09-24 实锤 state=Unknown/Ignore 0x0）。用于触发一次重试
+    ///（重试的 LoadAsync 命中体检会移除陈旧条目并重新解码）。
+    /// </summary>
+    private static bool IsStaleDecodedBitmap(Exception exception)
+    {
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is ObjectDisposedException || e.HResult == unchecked((int)0x80000013))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void ReleaseCurrentImageSource()

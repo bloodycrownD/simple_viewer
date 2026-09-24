@@ -202,3 +202,9 @@ user:
 
 assistant:
 流程拍板收口（2026-09-24 深夜）：tag 不可变，每轮修复收口出包一律递增 patch（v1.0.3、v1.0.4…）——CHANGELOG 开新版本节、打新 tag、CI 出新 draft、提醒用户删旧 draft；不再同号强推重打（v1.0.2 九连推为止）。当前 v1.0.2 保持不动（draft 已是最新内容），下次修复起生效。RULE 发布节已补「版本与 tag 规则」条目。
+
+user:
+图片来回切换，然后就出现这个错了【截图：「加载失败 该对象已关闭」】
+
+assistant:
+**RO_E_CLOSED 破案轮（2026-09-24 深夜，v1.0.3）**：昨晚布下的取证装置首轮建功——日志实锤 `[换源位图自愈失败] state=Unknown/Ignore 0x0` + ObjectDisposedException at SoftwareBitmap.Convert：**位图到达换源时已被关闭（宽高读出哨兵值 0），昨晚的 SetBitmapAsync E_INVALIDARG 同根**。机制闭环：`SoftwareBitmapSource` 随 ImageSourceRetirement 退役 Dispose 时**连带关闭它呈现过的位图**——用户「来回切换」场景：LRU（容量 6）条目未被淘汰、旧源已过保留窗口（8）被 Drain → 翻回时缓存命中拿到已关位图 → 换源炸。双层修复：①ImageLoaderService.TryGetCached 命中体检（宽高>0，已关条目移除按未命中重新解码，2 次属性读成本，覆盖 LoadAsync/EnsureFullResolution/MigrateCache 共享引用条目）；②LoadCurrentAsync 换源失败按「陈旧位图」（ObjectDisposed/0x80000013，IsStaleDecodedBitmap）重试一次，覆盖「体检通过后、换源前被 Drain」的毫秒级竞态窗。验证：120/120 + page-loop-verify（真实图库 -d 直开、UIA 下一张/上一张 12进12退×3=72 次翻页）零加载失败、最终画面像素有真实图像内容。RULE 铁律补附注（SoftwareBitmapSource.Dispose 连带关闭呈现位图=缓存持有方必须体检）。**v1.0.3 按新 tag 规则发布**：CHANGELOG 开新节（1.0.2 未 Publish，夜间全部工作归 1.0.3）、新 tag、CI 新 draft、提醒用户删 v1.0.2 旧 draft。坑：自己新写的验证脚本又踩 PS5.1 无 BOM 中文注释坑（乱码破坏解析致 Add-Type 失效）——重写为纯 ASCII（中文按钮名用 char 码拼）。

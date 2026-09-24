@@ -271,9 +271,39 @@ public sealed class ImageLoaderService : IImageLoaderService
         {
             if (_cacheMap.TryGetValue(key, out var node))
             {
+                var candidate = node.Value.Image;
+
+                // 命中体检（2026-09-24 RO_E_CLOSED 实锤闭环）：SoftwareBitmapSource 随退役队列
+                // Dispose 时会连带关闭它呈现过的位图——「来回翻页」场景（LRU 条目未被淘汰、
+                // 但旧源已过保留窗口被 Drain）命中缓存拿到已关位图，换源必炸（ObjectDisposed
+                // 或 SetBitmapAsync 校验失败，dump 实锤 state=Unknown/Ignore 0x0）。已关位图
+                // 的属性读数不抛而回哨兵值（宽高 0），据此视为陈旧：移除条目按未命中重新解码。
+                // 体检成本为 2 次属性读，覆盖 LoadAsync/EnsureFullResolutionAsync 全部命中路径；
+                // MigrateCache 复制共享位图引用的条目同被保护。
+                if (candidate.DecodedBitmap is { } cachedBitmap)
+                {
+                    var healthy = true;
+                    try
+                    {
+                        healthy = cachedBitmap.PixelWidth > 0 && cachedBitmap.PixelHeight > 0;
+                    }
+                    catch (Exception)
+                    {
+                        healthy = false;
+                    }
+
+                    if (!healthy)
+                    {
+                        _cacheOrder.Remove(node);
+                        _cacheMap.Remove(key);
+                        image = null!;
+                        return false;
+                    }
+                }
+
                 _cacheOrder.Remove(node);
                 _cacheOrder.AddFirst(node);
-                image = node.Value.Image;
+                image = candidate;
                 return true;
             }
         }
