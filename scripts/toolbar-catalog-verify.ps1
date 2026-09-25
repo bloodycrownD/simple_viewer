@@ -147,24 +147,30 @@ try {
   Start-Sleep -Milliseconds 300
   $wsh.SendKeys('{ENTER}')
   Start-Sleep -Milliseconds 1200
-  $backBtn = $null
-  for ($i = 0; $i -lt 3 -and -not $backBtn; $i++) {
-    $backBtn = FindBtnByName $win '返回图库'
-    if (-not $backBtn) {
+  $singleProbe = $null
+  for ($i = 0; $i -lt 3 -and -not $singleProbe; $i++) {
+    # 单图态探针 = 「上一张」（detail-view-return-entry-simplify 2026-09-25：工具栏「返回图库」
+    # 按钮已删——单图返回入口唯一化为顶部横条首元素「◀ 返回图库」，不再可用作探针）
+    $singleProbe = FindBtnByName $win '上一张'
+    if (-not $singleProbe) {
       [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
       Start-Sleep -Milliseconds 1500
     }
   }
-  if ($backBtn) { Write-Output ('SINGLE-MODE-ENTERED: via Enter（尝试 ' + $i + ' 次）') } else { Write-Output 'SINGLE-MODE-ENTER-FAILED: Enter 未生效（IME/前台竞态；产品路径有历史走查覆盖，本节断言跳过）' }
+  if ($singleProbe) { Write-Output ('SINGLE-MODE-ENTERED: via Enter（尝试 ' + $i + ' 次）') } else { Write-Output 'SINGLE-MODE-ENTER-FAILED: Enter 未生效（IME/前台竞态；产品路径有历史走查覆盖，本节断言跳过）' }
   Start-Sleep -Milliseconds 600
   Shot 's3-single-toolbar.png'
-  if ($backBtn) {
+  if ($singleProbe) {
     foreach ($n in @('打开', '打开图库', '设置')) { AssertBtn $win $n $true 'S' }
-    foreach ($n in @('返回图库', '上一张', '下一张', '左旋', '右旋')) { AssertBtn $win $n $true 'S' }
+    foreach ($n in @('上一张', '下一张', '左旋', '右旋')) { AssertBtn $win $n $true 'S' }
+    # 工具栏「返回图库」已删（精确名匹配：横条按钮 Name 为「◀ 返回图库」不命中该断言）
+    AssertBtn $win '返回图库' $false 'S'
     $ftbS = FindId $win 'FilterToggleButton'
     if ($ftbS -and $ftbS.Current.IsOffscreen) { Write-Output 'BTN-S-OK: [筛选按钮] 隐藏' } else { Write-Output 'BTN-S-FAIL: [筛选按钮] 期望隐藏实际可见' }
     foreach ($n in @('全选', '删除')) { AssertBtn $win $n $false 'S' }
-    Invoke $backBtn   # UIA 点「返回图库」回图库（比 Esc 注入稳）
+    # 回图库改走唯一保留的横条入口「◀ 返回图库」（UIA 点它比 Esc 注入稳）
+    $stripBack = FindBtnByName $win '◀ 返回图库'
+    if ($stripBack) { Invoke $stripBack } else { Write-Output 'STRIP-BACK-BTN-MISSING: 横条「◀ 返回图库」缺失' }
     Start-Sleep -Milliseconds 1200
   }
 

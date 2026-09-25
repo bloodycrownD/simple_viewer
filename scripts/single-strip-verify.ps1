@@ -80,9 +80,11 @@ try {
 
   Shot 's5-single.png'
 
-  # 1) 单图模式工具栏分簇 D1（此前 Enter 注入不稳从未自动断言过）
+  # 单图模式工具栏分簇 D1（此前 Enter 注入不稳从未自动断言过）
+  # 返回图库断言用横条首元素「◀ 返回图库」（detail-view-return-entry-simplify 2026-09-25：
+  # 工具栏同名按钮已删，单图返回入口唯一化为横条按钮）
   Write-Output '=== 1. 单图工具栏 D1 ==='
-  foreach ($n in @('返回图库', '上一张', '下一张', '左旋', '右旋', '设置')) {
+  foreach ($n in @('◀ 返回图库', '上一张', '下一张', '左旋', '右旋', '设置')) {
     $b = FindBtn $win $n
     Write-Output ($n + ': ' + $(if ($b -and -not $b.Current.IsOffscreen) { '可见' } else { '缺失/隐藏' }))
   }

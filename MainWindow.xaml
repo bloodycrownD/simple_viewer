@@ -35,7 +35,9 @@
 
         <!-- 工具栏（2026-09-19 左对齐重做；batch-tag-management Step 6 左右簇 + 场景显隐 D8）：
              外层 Grid 两列——左簇左对齐（打开/打开图库 常显 + 选择/⧩筛选/删除 仅图库模式）、
-             右簇右对齐（返回图库/上一张/下一张/左旋/右旋 仅单图模式 + 设置/主题/全屏 常显收尾）；
+             右簇右对齐（上一张/下一张/左旋/右旋 仅单图模式 + 设置/主题/全屏 常显收尾；
+             原「返回图库」按钮已删——detail-view-return-entry-simplify 2026-09-25，单图返回入口
+             唯一化为顶部信息横条首元素「◀ 返回图库」，工具栏不再承载重复入口）；
              模式组整体嵌套 StackPanel + Visibility 绑派生属性（GalleryOnlyControlsVisibility /
              SingleOnlyControlsVisibility，挂 OnCurrentModeChanged 通知链），隐藏 = Collapsed 非禁用
              （PRD：按钮直接隐藏；快捷键走 OnPreviewKeyDown 与按钮无关，零影响）。
@@ -157,23 +159,16 @@
                         HorizontalAlignment="Right"
                         Orientation="Horizontal"
                         Spacing="2">
-                        <!-- 单图操作组（仅单图模式显示，D8）：返回图库 | 翻页 | 旋转 三段语义分组
-                             竖线沿用 2026-09-19 视觉节奏，随组整体隐藏；组尾竖线为与常显收尾组的分界，
-                             同组隐藏（图库模式下右簇仅剩 设置/主题/全屏 右对齐） -->
+                        <!-- 单图操作组（仅单图模式显示，D8）：翻页 | 旋转 二段语义分组
+                             （原三段「返回图库 | 翻页 | 旋转」的头段与其前置竖线已删——
+                             detail-view-return-entry-simplify 2026-09-25：删按钮必须同删其前置竖线，
+                             否则组首悬空竖线；返回入口唯一化为顶部信息横条首元素）。
+                             组内竖线沿用 2026-09-19 视觉节奏，随组整体隐藏；组尾竖线为与常显收尾组的
+                             分界，同组隐藏（图库模式下右簇仅剩 设置/主题/全屏 右对齐） -->
                         <StackPanel
                             Orientation="Horizontal"
                             Spacing="2"
                             Visibility="{x:Bind ViewModel.SingleOnlyControlsVisibility, Mode=OneWay}">
-                            <Button
-                                Command="{x:Bind ViewModel.BackToGalleryCommand}"
-                                Content="返回图库"
-                                Style="{StaticResource GhostButtonStyle}" />
-                            <Rectangle
-                                Width="1"
-                                Height="16"
-                                Margin="6,0"
-                                VerticalAlignment="Center"
-                                Fill="{ThemeResource CardStrokeColorDefaultBrush}" />
                             <Button
                                 Command="{x:Bind ViewModel.PrevCommand}"
                                 Content="上一张"

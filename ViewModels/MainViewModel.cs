@@ -3252,8 +3252,11 @@ public partial class MainViewModel : ObservableObject
         CurrentMode == ViewerMode.Gallery ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
-    /// 工具栏「单图组」按钮可见性（D8）：返回图库 / 上一张 / 下一张 / 左旋 / 右旋
+    /// 工具栏「单图组」按钮可见性（D8）：上一张 / 下一张 / 左旋 / 右旋
     /// 仅单图模式显示（隐藏 = Collapsed；单图 Delete 等快捷键路径不受按钮隐藏影响）。
+    /// 原组首「返回图库」按钮已删（detail-view-return-entry-simplify 2026-09-25）——
+    /// 单图返回入口唯一化为顶部信息横条首元素「◀ 返回图库」（BackToGalleryCommand 唯一可见绑定点），
+    /// 本属性仍是该组（含组尾分界竖线）的整体显隐开关，勿因删按钮而误删。
     /// </summary>
     public Visibility SingleOnlyControlsVisibility =>
         CurrentMode == ViewerMode.Single ? Visibility.Visible : Visibility.Collapsed;
