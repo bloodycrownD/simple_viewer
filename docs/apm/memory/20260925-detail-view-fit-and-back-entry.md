@@ -24,3 +24,11 @@ Step 3 派实现子代理（inline，一次通过）：①`MainWindow.xaml` 删�
 Step 4 主代理独立复核：`dotnet test` 自跑 120/120 绿；`build.ps1` 成功（第 2 次尝试，首次失败属 RULE 已知间歇）；`fit-verify.ps1` 自跑数字与实现子代理逐位一致——修复后 band 尺寸 == UIA 盒尺寸（整张可见）、band 宽高比 == 源宽高比（1.332/3.989/0.200/1.332 vs 1.333/4.0/0.2/1.333）、small 714x536@(483,346) 与 spec 几何推导互证；截图字符画确认红块四边均让开 chrome；单图态 UIA 无精确名「返回图库」、横条「◀ 返回图库」在；`single-strip-verify.ps1` 实机全绿（NO-RED-SEAM / 六按钮 / SETTINGS-RESTORED）。RULE 追加两条：适配盒=可见区口径（含"只能实机量"教训）、几何探针必须 DPI 感知。
 
 收尾：本轮改动以 FF 合并入 master；`E:\App\Others\viewer` 仍停 v1.0.4（未出 v1.0.5 包、未重新部署——版本/tag/CI 属发布决策，等用户拍板）。待用户实机确认两处观感：小图会被放大到可见区（含放大，与旧 Python 版一致）、收展左右栏图片会跟随重适配；已知限制：旋转后不重适配。
+
+user:
+没什么问题，感觉可以发布1.0.5，并更新本地、
+
+assistant:
+按 RULE:13 出 v1.0.5 并更新本地安装。①CHANGELOG 开 `## [1.0.5] - 2026-09-25` 节（用户可感知口径：可见区适配 / 返回入口唯一化 / 旋转不重适配的已知限制），提交 933f025；②`scripts\release.ps1 -Version 1.0.5` **一次成功**（无 XamlCompiler 重试）→ `release\publish`（244 文件，脚本先清空重建；v1.0.4 的 publish 因此被覆盖，旧版回滚靠 `release\SimpleViewer-v1.0.4-win-x64.zip`）+ `release\SimpleViewer-v1.0.5-win-x64.zip`（45,057,966 B）；③发布三步：annotated tag `v1.0.5` + `git push origin master`（8804295..2836729，6 提交）+ `git push origin v1.0.5` → CI release.yml 触发，run 36158329243 **success**（约 2 分钟），GitHub Draft Release 已生成；④本地安装：先 robocopy /MIR **预演**（只需替换 9 文件/1.14MB、无多余文件待删——目标里没有用户自加文件，故 /MIR 安全），再实铺，244/244 文件字节一致 + 六个关键文件 SHA256 与源相同；⑤对**部署后的正式构建**实测（不是只看 Debug）：`fit-verify.ps1` 四夹具数字与 Debug 逐位一致（small 714x536@(483,346)、band==盒尺寸、宽高比与源一致），单图态 UIA 只有「◀ 返回图库」、无工具栏重复按钮；⑥顺手修验证资产传参坑：cmd 下 `-Fixtures a,b,c` 被当单字符串会落到 Bitmap 构造器抛「stream 无效」误导性异常，现给可读报错（提交 2836729，已含在 tag 内）。
+
+**新发现（待用户处置）**：GitHub 侧 `/releases` 公开列表为**空数组** = 历史所有 CI draft（v1.0.0~v1.0.4）从未点 Publish。v1.0.5 的 draft 已生成待点 Publish；按 RULE:13 建议顺手清理旧 draft。发布后状态：master=2836729 干净、tag v1.0.5 已推、本地安装=v1.0.5、`viewer.old-py39` 备份仍在（确认后可删）。
