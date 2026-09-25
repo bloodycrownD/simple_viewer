@@ -44,6 +44,11 @@ $fixtureSpec = @{
 
 function New-Fixture([string]$name) {
     $spec = $fixtureSpec[$name]
+    if (-not $spec) {
+        # 注意：经 -File 调用时 PowerShell 不认数组字面量（-Fixtures small,wide 会是单个字符串），
+        # 传错名字要给可读错误，而不是落到 Bitmap 构造器的 "stream 无效" 误导性异常。
+        throw "未知夹具名 '$name'；可选：$($fixtureSpec.Keys -join ', ')（经 -File 调用请省略 -Fixtures 跑全量，或用 -Command 传数组）"
+    }
     $dir = Join-Path $OutDir $name
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $path = Join-Path $dir 'red.png'
