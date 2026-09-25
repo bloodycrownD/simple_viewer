@@ -4,10 +4,15 @@
 //         仅响应显示名/完整名属性变更重建文件名文本，其余绑定走 XAML x:Bind；
 //         遮盖式布局（2026-09-19）：ImageHost 画布铺满整根（几何=整窗恒定），右栏（280/36）与
 //         文件名栏为浮层——收展右栏只改变遮盖范围，画布几何不变、不触发重解码；
+//         图片适配盒 = 可见区（2026-09-25 detail-view-fit-visible-area）：ViewerImage 靠
+//         ApplyChromeInsets 设 Margin（左=左栏宽 / 上=顶部信息横条底边 / 右=右栏宽 / 下=0）+
+//         Stretch 对齐，把「整窗 contain」收窄为「未遮挡可见区 contain」——图片不再被 chrome 切掉；
+//         画布几何与解码尺寸链（VM 仍取 max(画布宽,高)）都不受本改动影响；
 //         ImageHost.SizeChanged 仍是解码尺寸源（仅窗口 resize 触发）；
 //         缩放/平移是纯视图交互态（不入 VM）：切图（ImageSource 变化）与双击复位；
 //         CompositeTransform 应用顺序 Scale→Rotate→Translate——平移在最外层，
-//         拖拽按屏幕 delta 直接累加；光标锚点缩放需按旋转角变换指针向量。
+//         拖拽按屏幕 delta 直接累加；光标锚点缩放需按旋转角变换指针向量，
+//         且锚点中心按「Margin 内缩后的元素盒」实算（见 ZoomAt，上下内缩不对称）。
 
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
@@ -28,7 +33,7 @@ public sealed partial class SingleImageView : UserControl
     /// <summary>滚轮每格缩放倍率（前滚放大；1.15^±1 每格）。</summary>
     private const double ZoomStepFactor = 1.15;
 
-    /// <summary>缩放下限（相对 fit 尺寸）。</summary>
+    /// <summary>缩放下限（相对 fit 尺寸；fit = Scale 1 时的「可见区 contain」尺寸，见 <see cref="ApplyChromeInsets"/>）。</summary>
     private const double MinZoom = 0.1;
 
     /// <summary>缩放上限（相对 fit 尺寸；放大超过解码分辨率会像素化，属已知限制）。</summary>
@@ -37,6 +42,8 @@ public sealed partial class SingleImageView : UserControl
     /// <summary>
     /// 全分辨率重解码触发阈值（2026-09-19）：解码尺寸 ≈ fit 尺寸，缩放超过此值即放大了
     /// 解码像素，通知 VM 按需加载全分辨率版本（每图一次，失败不重试）。
+    /// 「相对 fit 尺寸」自 2026-09-25 起字面成立：Scale=1 即图片按 Uniform contain 进可见区适配盒
+    /// （detail-view-fit-visible-area），故该阈值判定的仍是"大于 fit 显示尺寸"。
     /// </summary>
     private const double FullResZoomThreshold = 1.2;
 
@@ -45,6 +52,19 @@ public sealed partial class SingleImageView : UserControl
 
     /// <summary>左栏折叠窄条宽度（逻辑 px；与 MainWindow 左栏折叠态 Border Width 一致；图库右栏 GallerySelectionPanelControl 折叠宽 36 同族锚点，改值两处同步）。</summary>
     private const double SidebarCollapsedWidth = 36;
+
+    /// <summary>单图右栏展开宽度（逻辑 px；与 XAML InfoPanelOverlay.Width 一致；左栏 SidebarExpandedWidth 同族锚点，改值两处同步）。</summary>
+    private const double InfoPanelExpandedWidth = 280;
+
+    /// <summary>单图右栏折叠窄条宽度（逻辑 px；与 XAML InfoPanelCollapsedBar.Width 一致；左栏 SidebarCollapsedWidth 同族锚点，改值两处同步）。</summary>
+    private const double InfoPanelCollapsedWidth = 36;
+
+    /// <summary>
+    /// 顶部信息横条高度回退值（逻辑 px，detail-view-fit-visible-area）：首帧
+    /// <see cref="TopStatusStrip"/> 的 ActualHeight 尚为 0 时用它算上内缩——宁大勿小（图片最多偏小、
+    /// 不会顶出可见区被横条切掉）；横条尺寸就绪后 SizeChanged 触发重算修正（实测横条 43 DIP）。
+    /// </summary>
+    private const double TopStatusStripFallbackHeight = 48;
 
     /// <summary>缩放/平移交互态归属的图路径（切图复位依据；同图分辨率升级不重置）。</summary>
     private string? _zoomOwnerPath;
@@ -66,6 +86,23 @@ public sealed partial class SingleImageView : UserControl
         ViewModel.CurrentImageRenamed += OnCurrentImageRenamed;
         RebuildFileNameInlines();
         ApplyChromeInsets();
+
+        // 顶部信息横条尺寸就绪/变化 → 重算图片适配盒的上内缩（detail-view-fit-visible-area）：
+        // 首帧 ActualHeight=0 时 ApplyChromeInsets 走 TopStatusStripFallbackHeight 保守值，
+        // 本回调在其量测完成后修正为真实底边。XAML 回调异常防弹铁律：回调体只做轻量赋值，
+        // 整体 try/catch 兜底落日志绝不外抛（回调内逃逸异常 = XAML stowed 直接杀进程，
+        // 不弹不记；先例 WaterfallView.OnElementPrepared / MasonryLayout 覆写）。
+        TopStatusStrip.SizeChanged += (_, _) =>
+        {
+            try
+            {
+                ApplyChromeInsets();
+            }
+            catch (Exception ex)
+            {
+                App.WriteDiagnosticLog("[SingleImageView.TopStatusStrip.SizeChanged 异常兜底]", ex);
+            }
+        };
 
         // 视口尺寸源（2026-09-19 修复二次缩放锯齿 + 遮盖式布局）：解码尺寸贴合画布实际区，
         // 显示层 1:1 无重采样。画布铺满整窗且几何恒定——仅窗口 resize 触发 SizeChanged；
@@ -115,9 +152,11 @@ public sealed partial class SingleImageView : UserControl
             }
         }
         else if (e.PropertyName is nameof(MainViewModel.TopChromeHeight)
-            or nameof(MainViewModel.IsSidebarCollapsed))
+            or nameof(MainViewModel.IsSidebarCollapsed)
+            or nameof(MainViewModel.IsInfoPanelCollapsed))
         {
-            // 顶部 chrome 行高与左栏收展都影响浮层避让（返回按钮左侧让出左栏实际宽度）。
+            // 顶部 chrome 行高、左栏收展、右栏收展都影响 chrome 让位与图片适配盒内缩
+            //（返回按钮左侧让出左栏实际宽度；图片可见区右侧让出右栏实际宽度）。
             ApplyChromeInsets();
         }
     }
@@ -132,6 +171,11 @@ public sealed partial class SingleImageView : UserControl
     /// 旧行为回执弹出时横条被顶离工具栏悬在画布中部。
     /// 返回图库按钮（2026-09-19 引入，走查 6 收进顶部信息横条首元素）：CanExecute=HasGallery，
     /// CLI 直开无图库时禁用灰态。
+    /// 2026-09-25 图片适配盒改「可见区」（detail-view-fit-visible-area）：在既有浮层避让之外，
+    /// 额外把 <see cref="ViewerImage"/> 的 Margin 设为可见区内缩——左=左栏实际宽 / 上=顶部信息横条
+    /// 底边 / 右=右栏实际宽 / 下=0。ViewerImage 对齐为 Stretch，故「宿主 - Padding - Margin」
+    /// 即元素盒（可见区），Uniform 再按比例把图片 contain 进该盒（Scale=1 即可见区 fit）。
+    /// 画布几何（ImageHost=整窗恒定）与解码尺寸链都不受影响——本方法只改图片自身的适配盒。
     /// </summary>
     private void ApplyChromeInsets()
     {
@@ -145,6 +189,13 @@ public sealed partial class SingleImageView : UserControl
         TopStatusStrip.Margin = new Thickness(0, Math.Max(0, top - 2), 0, 0);
         var sidebarWidth = ViewModel.IsSidebarCollapsed ? SidebarCollapsedWidth : SidebarExpandedWidth;
         StripContent.Margin = new Thickness(sidebarWidth + 14, 0, 14, 0);
+
+        // 图片适配盒 = 可见区（2026-09-25 detail-view-fit-visible-area）：上内缩取横条底边
+        //（= 横条 Margin.Top + 实际高）——ActualHeight 首帧未就绪（0）时退回保守常量，
+        // 待 TopStatusStrip.SizeChanged 重算修正；右内缩随右栏收展在 280/36 间切换。
+        var infoPanelWidth = ViewModel.IsInfoPanelCollapsed ? InfoPanelCollapsedWidth : InfoPanelExpandedWidth;
+        var stripHeight = TopStatusStrip.ActualHeight > 0 ? TopStatusStrip.ActualHeight : TopStatusStripFallbackHeight;
+        ViewerImage.Margin = new Thickness(sidebarWidth, TopStatusStrip.Margin.Top + stripHeight, infoPanelWidth, 0);
     }
 
     // ==================== 滚轮缩放 / 拖拽平移（2026-09-19：单图查看核心交互） ====================
@@ -225,16 +276,38 @@ public sealed partial class SingleImageView : UserControl
     /// 推导（变换序 Scale→Rotate→Translate，原点在元素布局中心 C）：屏幕点 = C + T + R·(s·p)。
     /// 锚点 A 对应元素点在 s→s' 后不动：T' = v − (s'/s)·(v − T)，v = A − C——
     /// 旋转矩阵在推导中消去（R·k·R⁻¹ = k），与当前旋转角无关。
+    /// 2026-09-25（detail-view-fit-visible-area）：C 不再等于宿主中心——可见区适配盒左右/上下内缩
+    /// 不对称（左让左栏、上让信息横条、右让右栏、下 0），C 必须按 <see cref="ViewerImage"/> 元素盒
+    /// 实算（见 <see cref="GetViewerImageBoxCenter"/>），否则滚轮缩放锚点会纵向偏移约一个横条高。
     /// </summary>
     private void ZoomAt(Windows.Foundation.Point anchor, double targetScale)
     {
-        var vx = anchor.X - ImageHost.ActualWidth / 2;
-        var vy = anchor.Y - ImageHost.ActualHeight / 2;
+        var center = GetViewerImageBoxCenter();
+        var vx = anchor.X - center.X;
+        var vy = anchor.Y - center.Y;
         var ratio = targetScale / ViewerTransform.ScaleX;
         ViewerTransform.TranslateX = vx - ratio * (vx - ViewerTransform.TranslateX);
         ViewerTransform.TranslateY = vy - ratio * (vy - ViewerTransform.TranslateY);
         ViewerTransform.ScaleX = targetScale;
         ViewerTransform.ScaleY = targetScale;
+    }
+
+    /// <summary>
+    /// <see cref="ViewerImage"/> 元素盒（= 可见区适配盒）中心在 ImageHost 坐标系中的位置，
+    /// 即 ZoomAt 推导中的 C：元素左上 = ImageHost.Padding + ViewerImage.Margin
+    /// （Grid.Padding 内缩子元素布局，XAML 中 Padding="8"）——Padding 项不可省，否则锚点恒偏 8 DIP。
+    /// 盒尚未布局（ActualWidth/Height 为 0，切图首帧）时退回宿主中心，与旧口径一致（对称内缩时二者相等）。
+    /// </summary>
+    private Windows.Foundation.Point GetViewerImageBoxCenter()
+    {
+        if (ViewerImage.ActualWidth > 0 && ViewerImage.ActualHeight > 0)
+        {
+            return new Windows.Foundation.Point(
+                ImageHost.Padding.Left + ViewerImage.Margin.Left + ViewerImage.ActualWidth / 2,
+                ImageHost.Padding.Top + ViewerImage.Margin.Top + ViewerImage.ActualHeight / 2);
+        }
+
+        return new Windows.Foundation.Point(ImageHost.ActualWidth / 2, ImageHost.ActualHeight / 2);
     }
 
     private void ResetZoom()

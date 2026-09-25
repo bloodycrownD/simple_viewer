@@ -11,6 +11,10 @@
               几何恒定=整窗，收展侧栏/右栏不再改变显示区、不触发重解码）；右栏（280 展开/36 折叠）与
               返回按钮为 chrome 浮层（ZIndex=1，右/左上对齐，不透明背景遮盖画布）；放大保持画布层
               置底、溢出被 chrome/浮层遮盖属预期（2026-09-19 用户拍板置底）。
+              2026-09-25 适配盒改「可见区」（detail-view-fit-visible-area）：画布仍是整窗恒定，
+              但 ViewerImage 改 Stretch 对齐 + code-behind 设 Margin（左=左栏宽 / 上=顶部横条底边 /
+              右=右栏宽）——元素盒 = 未被 chrome 遮挡的可见区，Uniform 仍按比例 contain 进该盒，
+              图片整体可见、不再被左栏/右栏/顶部横条切掉（画布几何与解码链不变）。
               绑定惯例：命令 OneTime、状态 OneWay（对齐 MainWindow 既有 x:Bind 惯例）。
               约束：不用 DockPanel；✕/＋/◀ 为 BMP 文本字符（不用 FontIcon/SymbolIcon Glyph）。 -->
 
@@ -31,13 +35,20 @@
             PointerWheelChanged="OnImagePointerWheelChanged">
             <Image
                 x:Name="ViewerImage"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
                 DoubleTapped="OnImageDoubleTapped"
                 RenderTransformOrigin="0.5,0.5"
                 Source="{x:Bind ViewModel.ImageSource, Mode=OneWay}"
                 Stretch="Uniform"
                 Visibility="{x:Bind ViewModel.ImageVisibility, Mode=OneWay}">
+                <!-- 对齐 = Stretch（2026-09-25 适配盒改可见区）：元素盒撑满「宿主 - Padding - Margin」
+                     （宿主 Padding="8"，见上方 ImageHost），Margin 由 ApplyChromeInsets 设
+                     （左=左栏宽 / 上=顶部横条底边 / 右=右栏宽），即未被 chrome 遮挡的可见区；
+                     Stretch=Uniform 再把位图按比例 contain 进该盒（WinUI Image 在位图小于盒时居中放置，
+                     故位图中心 == 元素盒中心 == 变换原点 0.5,0.5）。
+                     原 Center 对齐下元素盒 = 位图盒（Image 期望尺寸 = contain 盒），图片按整窗适配
+                     后被 chrome 遮掉约四成宽度——本次基准盒换为可见区即根治。 -->
                 <Image.RenderTransform>
                     <!-- CompositeTransform：旋转（VM 绑定）+ 缩放/平移（code-behind 滚轮缩放）；
                          应用顺序 Scale→Rotate→Translate，平移在最外层故拖拽按屏幕 delta 累加即可。 -->
