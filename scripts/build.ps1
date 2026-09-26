@@ -10,13 +10,35 @@ param(
     [int]$MaxAttempts = 3
 )
 
-$solution = Join-Path $PSScriptRoot "..\SimpleViewer.sln"
+$root = Join-Path $PSScriptRoot ".."
+$solution = Join-Path $root "SimpleViewer.sln"
+$mainProject = Join-Path $root "SimpleViewer.csproj"
+$coreProject = Join-Path $root "SimpleViewer.Core.csproj"
+$testsProject = Join-Path $root "tests\SimpleViewer.Tests\SimpleViewer.Tests.csproj"
 
-# 前置强制还原：obj 缺失时普通还原有增量误判跳过 UI 项目的已知问题
-Write-Host "[build] 前置还原（--force）..." -ForegroundColor Cyan
-dotnet restore $solution --force --nologo -v q | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[build] 还原失败" -ForegroundColor Red
+# 前置还原：**串行定向**（tests → Core → 主工程 RestoreRecursive=false），与 release.ps1 同法。
+# 禁用 `dotnet restore <sln> --force`：双 csproj 共享 obj\project.assets.json，主工程与其传递
+# Core 的还原在同一 msbuild 内并行竞写、后写完者胜——主工程视角丢 WinAppSDK 引用，表现是
+# XamlCompiler 报 WMC1007 "Cannot resolve metadata for WinUI types"（2026-09-26 实锤，
+# 与 RULE「双 csproj 同目录同 TFM 的还原踩踏」同源）。
+function Invoke-TargetedRestore([switch]$Force) {
+    $f = if ($Force) { "-p:RestoreForce=true" } else { $null }
+    dotnet restore $testsProject --nologo -v q | Out-Null
+    dotnet msbuild $coreProject -t:Restore -p:Platform=x64 -nr:false -nologo -v:q @f | Out-Null
+    # RestoreRecursive=false：主工程还原完全不碰 Core 节点，作为唯一写者压轴
+    dotnet msbuild $mainProject -t:Restore -p:Platform=x64 -p:RestoreRecursive=false -nr:false -nologo -v:q @f | Out-Null
+    return (Select-String -Path (Join-Path $root "obj\project.assets.json") -Pattern 'Microsoft.WindowsAppSDK' -SimpleMatch -Quiet)
+}
+
+Write-Host "[build] 前置还原（tests → Core → 主工程 串行定向）..." -ForegroundColor Cyan
+$assetsOk = Invoke-TargetedRestore
+if (-not $assetsOk) {
+    Write-Host "[build] 还原产物非主工程视角（并行踩踏残留），清缓存强制重还原..." -ForegroundColor Yellow
+    Remove-Item (Join-Path $root "obj\project.assets.json"), (Join-Path $root "obj\SimpleViewer.csproj.nuget.g.props") -Force -ErrorAction SilentlyContinue
+    $assetsOk = Invoke-TargetedRestore -Force
+}
+if ($LASTEXITCODE -ne 0 -or -not $assetsOk) {
+    Write-Host "[build] 还原失败（主工程 assets 缺 WinAppSDK 引用）" -ForegroundColor Red
     exit 1
 }
 
@@ -35,10 +57,12 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     }
 }
 
-# 全部原样重试失败：最后做一次完整冷重建（清 obj + 强制还原）
+# 全部原样重试失败：最后做一次完整冷重建（清 obj + 串行定向强制还原，同上——勿用 sln 还原）
 Write-Host "[build] 原样重试均失败，执行完整冷重建..." -ForegroundColor Yellow
-Remove-Item -Recurse -Force (Join-Path $PSScriptRoot "..\obj") -ErrorAction SilentlyContinue
-dotnet restore $solution --force --nologo -v q | Out-Null
+Remove-Item -Recurse -Force (Join-Path $root "obj") -ErrorAction SilentlyContinue
+if (-not (Invoke-TargetedRestore -Force)) {
+    Write-Host "[build] 冷重建前还原异常（assets 非主工程视角）" -ForegroundColor Red
+}
 dotnet build $solution -c $Configuration -p:Platform=x64 --nologo -v q -m:1 -nr:false
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[build] 冷重建成功" -ForegroundColor Green

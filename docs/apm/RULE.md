@@ -3,6 +3,7 @@
 ## 构建
 
 - 一律用 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1`，不用裸 `dotnet build`。
+- **`build.ps1` 前置还原自 2026-09-26 起为「串行定向」**（tests → Core → 主工程 `RestoreRecursive=false` + 主工程视角校验，与 release.ps1 同法）：此前用 `dotnet restore <sln> --force`，双 csproj 共享 `obj\project.assets.json` 会被并行竞写覆盖，实锤表现为 `XamlCompiler error WMC1007: Cannot resolve metadata for WinUI types`（主工程视角丢 WinAppSDK 引用，**不是** XAML 写错）。碰到 WMC1007 直接按此判：先跑串行还原再 build，别去查 XAML 语法。
 - WinAppSDK 1.6 的 XamlCompiler 有间歇沉默崩溃（MSB3073、退出码 1 无输出，疑似 Defender 冷启动竞态）：脚本已内置 `-m:1 -nr:false` + 分级重试；仍失败时手动执行一次 XamlCompiler.exe 预热再重跑；根治需用户给 NuGet 缓存目录加 Defender 排除（用户未决策）。
 - **MSB3073 排查先跑裸 `dotnet build -v:q -m:1 -nr:false`**（2026-09-22 实锤：build.ps1 的 `| Out-Null` 会吞掉 CS 错误行、只剩 MSB3073 尾巴，极具误导性）——x:Bind 绑定不存在的属性、样式 TargetType 错误、code-behind CS 错误都会以「无输出 MSB3073」形态出现，直跑裸命令看真实错误再分类处置。**再快一档的判别式（2026-09-26 实锤）**：直接手跑 XamlCompiler（`"<nuget>\microsoft.windowsappsdk\<版本>\tools\net472\XamlCompiler.exe" "obj\x64\Debug\net8.0-windows10.0.19041.0\input.json" "obj\x64\Debug\net8.0-windows10.0.19041.0\output.json"`）——**退出 0 且无输出 = XAML 无辜、纯 Defender 冷启动抽风**（预热后 build 一次过；当轮 build.ps1 曾连败 3 次）；有报错 = 真 XAML 问题（x:Bind 成员缺失/样式 TargetType 错）。
 - 冷重建（删 obj）后偶发"CS0234 引用级联失败"（还原增量误判）：`dotnet restore --force` 后再 build，一般第二次成功；成功产物有效，紧随其后的增量 build 失败可忽略。另：还原后校验 `obj\SimpleViewer.csproj.nuget.g.props` 是否存在，缺失则 `dotnet restore SimpleViewer.csproj --force` 重试（间歇不生成该文件时表现即全量 CS0234）。
@@ -17,6 +18,8 @@
 ## XAML 硬约束（违反 = 崩溃或运行期炸）
 
 - 禁止 U+00AB/U+00BB 字面与任何 PUA 字形；FontIcon/SymbolIcon/Glyph 一律不用（图标用文本字符）。
+- **禁止把「元素盒 = 布局槽位」当默认前提（2026-09-26 放大锚点实锤）**：WinUI 的 `Image` 在 `Stretch=Uniform`（对齐 Stretch 也一样）下**不**把元素盒撑满槽位——实测元素盒 = 位图 contain 后的**内容盒**且在槽位内**居中**，`ActualWidth/Height` 即该内容盒尺寸，UIA 报的 Image 盒也是内容盒。凡按「Padding + Margin + ActualWidth/Height」推元素位置/中心/原点的代码，在**留白那一轴**会整段偏掉（先例：`SingleImageView.GetViewerImageBoxCenter` 由此偏 132 DIP，滚轮放大不动点偏离光标约 190 px，用户实报「放大中心不是鼠标」；修复 = 按**适配槽位中心**实算，槽位中心 ≡ 内容盒中心）。**任何几何假设都必须实机量**（先例 `scripts\fit-verify.ps1` 的 UIA 盒 + 像素带双口径），静态读码会把「内容盒居中」误判成「元素撑满」。
+- **量化 UI 几何问题用「反解不动点」法（2026-09-26 定例）**：怀疑某个变换的基准点/原点不对（缩放锚点、旋转中心、平移基准）时别只看代码——①夹具图放高对比标记（纯红方块，阈值法易测）；②注入触发操作（滚轮/点击可注入；**鼠标移动注入会被本机丢弃，故每次注入前先 `SetCursorPos` 再点一下**刷新应用侧指针位置）；③前后各 `PrintWindow` 抓帧，用标记位移与尺寸比反解 `A = p_before − (p_after − p_before)/(ratio − 1)` = **实际不动点**；④与光标/元素中心/窗口中心逐一对照，并**至少跑两个不同光点位**——真锚点跟着光标走，常数偏移就是算错的基准点。应用侧配合：设 `SIMPLEVIEWER_ZOOM_DIAG=1` 让 ZoomAt 落现场日志（`[zoomprobe]` 行：anchor/C/actualTL/盒/边距/宿主/变换），两边数字一对比即知谁错。判定看**修前修后同一残余是否逐位相同**（相同 = 测量噪声，不同 = 真误差）。
 - 不用 DockPanel（WinUI 3 无此控件）。
 - **App.xaml 全局 Style 禁 TargetType=Border**（2026-09-22 实锤：`x:Key + TargetType="Border"` 使 XamlCompiler Pass1 沉默崩溃 MSB3073 退出码 1 无输出）——装饰性 chip/面板样式用 Button 载体（BasedOn GhostButtonStyle 族）或控件内联属性。
 - 含中文的 XAML 必须保存为 UTF-8 带 BOM（丢 BOM 会解析乱码）。

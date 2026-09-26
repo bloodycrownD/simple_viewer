@@ -26,6 +26,13 @@ public partial class App : Application
     /// <summary>主窗口显示缩放（DPI/96，如 150% = 1.5；MainWindow 初始化时写入，缩略图分桶用）。</summary>
     public static double DisplayScale { get; internal set; } = 1.0;
 
+    /// <summary>
+    /// 滚轮缩放诊断开关（排查「放大不动点」用）：置环境变量 SIMPLEVIEWER_ZOOM_DIAG=1 时，
+    /// 每次滚轮缩放向 startup.log 落一行锚点/元素盒/变换现场；默认关（正常使用零开销）。
+    /// </summary>
+    public static bool ZoomDiagnosticsEnabled { get; } =
+        Environment.GetEnvironmentVariable("SIMPLEVIEWER_ZOOM_DIAG") == "1";
+
     public App()
     {
         InitializeComponent();

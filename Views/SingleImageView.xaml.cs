@@ -276,12 +276,22 @@ public sealed partial class SingleImageView : UserControl
     /// 锚点 A 对应元素点在 s→s' 后不动：T' = v − (s'/s)·(v − T)，v = A − C——
     /// 旋转矩阵在推导中消去（R·k·R⁻¹ = k），与当前旋转角无关。
     /// 2026-09-25（detail-view-fit-visible-area）：C 不再等于宿主中心——可见区适配盒左右/上下内缩
-    /// 不对称（左让左栏、上让信息横条、右让右栏、下 0），C 必须按 <see cref="ViewerImage"/> 元素盒
-    /// 实算（见 <see cref="GetViewerImageBoxCenter"/>），否则滚轮缩放锚点会纵向偏移约一个横条高。
+    /// 不对称（左让左栏、上让信息横条、右让右栏、下 0），C 必须按适配槽位实算（见
+    /// <see cref="GetViewerImageBoxCenter"/>），否则滚轮缩放锚点会整体偏移。
     /// </summary>
     private void ZoomAt(Windows.Foundation.Point anchor, double targetScale)
     {
         var center = GetViewerImageBoxCenter();
+        if (App.ZoomDiagnosticsEnabled)
+        {
+            var tl = ViewerImage.TransformToVisual(ImageHost).TransformPoint(new Windows.Foundation.Point(0, 0));
+            App.WriteDiagnosticLog(
+                $"[zoomprobe] anchor=({anchor.X:F1},{anchor.Y:F1}) C=({center.X:F1},{center.Y:F1})" +
+                $" actualTL=({tl.X:F1},{tl.Y:F1}) box={ViewerImage.ActualWidth:F1}x{ViewerImage.ActualHeight:F1}" +
+                $" margin=({ViewerImage.Margin.Left:F1},{ViewerImage.Margin.Top:F1})" +
+                $" host={ImageHost.ActualWidth:F1}x{ImageHost.ActualHeight:F1}" +
+                $" s={ViewerTransform.ScaleX:F3} t=({ViewerTransform.TranslateX:F1},{ViewerTransform.TranslateY:F1})");
+        }
         var vx = anchor.X - center.X;
         var vy = anchor.Y - center.Y;
         var ratio = targetScale / ViewerTransform.ScaleX;
@@ -292,20 +302,26 @@ public sealed partial class SingleImageView : UserControl
     }
 
     /// <summary>
-    /// <see cref="ViewerImage"/> 元素盒（= 可见区适配盒）中心在 ImageHost 坐标系中的位置，
-    /// 即 ZoomAt 推导中的 C：元素左上 = ImageHost.Padding + ViewerImage.Margin
-    /// （Grid.Padding 内缩子元素布局，XAML 中 Padding="8"）——Padding 项不可省，否则锚点恒偏 8 DIP。
-    /// 盒尚未布局（ActualWidth/Height 为 0，切图首帧）时退回宿主中心，与旧口径一致（对称内缩时二者相等）。
+    /// <see cref="ViewerImage"/> 变换原点（= 位图内容盒中心 = 适配槽位中心）在 ImageHost 坐标系中的位置，
+    /// 即 ZoomAt 推导中的 C。
+    /// 2026-09-26（放大锚点修正）：WinUI 的 Image 在 Stretch=Uniform 下**不**把元素盒撑满槽位——
+    /// 实测（ZoomAt 内埋点 + 由内容反解不动点）元素盒 = 位图 contain 后的内容盒、且在槽位内居中，
+    /// <c>ActualWidth/Height</c> 即该内容盒尺寸。所以「元素左上 = Padding + Margin」只在内容盒
+    /// 恰好铺满槽位的那一轴成立：横图纵向差 132.7 DIP（用户实报「放大不动点不是鼠标」，
+    /// 实测不动点偏离光标 68~300 px）。内容盒在槽位内居中 ⇒ 内容盒中心恒等于槽位中心，故按槽位算。
     /// </summary>
     private Windows.Foundation.Point GetViewerImageBoxCenter()
     {
-        if (ViewerImage.ActualWidth > 0 && ViewerImage.ActualHeight > 0)
+        var insetLeft = ImageHost.Padding.Left + ViewerImage.Margin.Left;
+        var insetTop = ImageHost.Padding.Top + ViewerImage.Margin.Top;
+        var slotWidth = ImageHost.ActualWidth - insetLeft - ImageHost.Padding.Right - ViewerImage.Margin.Right;
+        var slotHeight = ImageHost.ActualHeight - insetTop - ImageHost.Padding.Bottom - ViewerImage.Margin.Bottom;
+        if (slotWidth > 0 && slotHeight > 0)
         {
-            return new Windows.Foundation.Point(
-                ImageHost.Padding.Left + ViewerImage.Margin.Left + ViewerImage.ActualWidth / 2,
-                ImageHost.Padding.Top + ViewerImage.Margin.Top + ViewerImage.ActualHeight / 2);
+            return new Windows.Foundation.Point(insetLeft + slotWidth / 2, insetTop + slotHeight / 2);
         }
 
+        // 盒尚未布局（ActualWidth/Height 为 0，切图首帧）时退回宿主中心，与旧口径一致。
         return new Windows.Foundation.Point(ImageHost.ActualWidth / 2, ImageHost.ActualHeight / 2);
     }
 
