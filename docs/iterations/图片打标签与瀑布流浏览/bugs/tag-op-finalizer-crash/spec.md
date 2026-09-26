@@ -69,7 +69,9 @@ agile_trace: true
 2. 尾部 N 条一律不释放——它们尚未跨过任何边界，至少活到下一次 Drain；
 3. 收尾把剩余全部条目计入边界窗口（`_seenCount = _pending.Count`），下一轮它们成为「可释放」的 S 段。
 
-由 ③ 归纳：任一源从入队到被 Dispose 至少经历一次 Drain 边界（一次操作边界 = 换帧窗口）——批量退役（如 `ResetFrom` 逐项 `ReleaseVisuals`）不再出现「只留最后 8 条、其余立即 Dispose」。有界性：③ 保证窗口内保留 ≤ KeepCount 条，加上本轮新增 N 条，峰值 ≤ KeepCount + N。
+由 ③ 归纳：任一源从入队到被 Dispose 至少经历一次 Drain 边界——批量退役（如 `ResetFrom` 逐项 `ReleaseVisuals`）不再出现「只留最后 8 条、其余立即 Dispose」。有界性：③ 保证窗口内保留 ≤ KeepCount 条，加上本轮新增 N 条，峰值 ≤ KeepCount + N。
+
+> 2026-09-26 订正（xaml-finalizer-residuals）：上文「一次操作边界 = 换帧窗口」的表述改为如实口径「**跨一次 Drain 调用边界**」；批量路径的逐项 Drain 已在 `feefa0e` 改为「逐项 deferDrain + 集合替换后统一一次 Drain」，逐项 Drain 的原文口径对批量路径不成立。详见 `bugs/xaml-finalizer-residuals/spec.md`。
 另加硬上限 `HardCap = 512`（防御性）：`Retire`/`Drain` 约定成对调用（全部调用点已配对），若未来出现只 Retire 不 Drain 的路径，超限按 FIFO 释放最老条目并落一条诊断日志（约定破坏在 startup.log 可见）。新增 `Snapshot()`（入队数/释放数/队列长/窗口长）供诊断。
 
 ### 5. 未提交源收口（C②/D）
