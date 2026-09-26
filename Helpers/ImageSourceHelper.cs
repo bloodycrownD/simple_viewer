@@ -62,9 +62,12 @@ internal static class ImageSourceHelper
                     $"[换源位图自愈] before={before} after={DescribeBitmap(bitmap)} path={loaded.Path}");
             }
 
+            // source 在 try 外声明：catch 分支要能退役「Set 失败但已创建的 XAML 源」（D③）。
+            SoftwareBitmapSource? source = null;
+            SoftwareBitmapSource? retrySource = null;
             try
             {
-                var source = new SoftwareBitmapSource();
+                source = new SoftwareBitmapSource();
                 await source.SetBitmapAsync(bitmap);
                 return source;
             }
@@ -75,11 +78,13 @@ internal static class ImageSourceHelper
                 {
                     var copy = SoftwareBitmap.Convert(
                         decoded, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-                    var retrySource = new SoftwareBitmapSource();
+                    retrySource = new SoftwareBitmapSource();
                     await retrySource.SetBitmapAsync(copy);
                     App.WriteDiagnosticLog(
                         $"[SetBitmapAsync 副本重试成功] state={DescribeBitmap(decoded)} path={loaded.Path}", ex);
-                    return retrySource;
+                    var committed = retrySource;
+                    retrySource = null; // 已提交（返回值）：finally 不再退役
+                    return committed;
                 }
                 catch (Exception retryEx)
                 {
@@ -87,9 +92,19 @@ internal static class ImageSourceHelper
                         $"[SetBitmapAsync 副本重试仍失败] state={DescribeBitmap(decoded)} path={loaded.Path}", retryEx);
                     throw;
                 }
+                finally
+                {
+                    // 未提交的 XAML 源一律退役（2026-09-26 tag-op-finalizer-crash 修复 D③）：
+                    // 首个 source（Set 失败）与重试失败时的 retrySource 此前裸丢给 GC 终结器
+                    // 跨线程 Release（RULE:26）。退役放 finally 且晚于副本重试——SoftwareBitmapSource
+                    // 的 Dispose 有连带关闭其呈现过位图的可能（RULE 附注），必须等重试读完 decoded。
+                    RetireUncommittedSources(source, retrySource);
+                }
             }
             catch (Exception ex)
             {
+                // 已转换副本仍失败：source 同样是未提交的 XAML 源（D③ 同口径）。
+                RetireUncommittedSources(source, retrySource: null);
                 App.WriteDiagnosticLog(
                     $"[SetBitmapAsync 失败] state={DescribeBitmap(bitmap)} path={loaded.Path}", ex);
                 throw;
@@ -111,8 +126,30 @@ internal static class ImageSourceHelper
             loaded.DecodedHeight,
             BitmapAlphaMode.Premultiplied);
         var fallbackSource = new SoftwareBitmapSource();
-        await fallbackSource.SetBitmapAsync(fallback);
-        return fallbackSource;
+        try
+        {
+            await fallbackSource.SetBitmapAsync(fallback);
+            return fallbackSource;
+        }
+        catch
+        {
+            // 兜底源 Set 失败时退役（2026-09-26 tag-op-finalizer-crash 修复 D③）：
+            // 此前失败路径直接抛出，fallbackSource（DependencyObject 族）裸交 GC 终结器。
+            RetireUncommittedSources(fallbackSource, retrySource: null);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 退役未提交（Set 失败/被替换）的 XAML 图像源（2026-09-26 tag-op-finalizer-crash 修复 D③）。
+    /// 可空安全；必须在 UI 线程调用（<see cref="ImageSourceRetirement"/> 约定）。两个槽位一次性
+    /// 入队 + 一次 Drain，避免重复调用 Drain。
+    /// </summary>
+    private static void RetireUncommittedSources(ImageSource? source, ImageSource? retrySource)
+    {
+        ImageSourceRetirement.Retire(source);
+        ImageSourceRetirement.Retire(retrySource);
+        ImageSourceRetirement.Drain();
     }
 
     /// <summary>

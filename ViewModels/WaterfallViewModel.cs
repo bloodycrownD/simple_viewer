@@ -91,11 +91,23 @@ public partial class WaterfallViewModel : ObservableObject
     /// 整体重置（筛选切换/重新打开图库；必须在 UI 线程调用）。会丢弃全部卡片 VM——
     /// 缩略图由 ThumbnailService 内存/磁盘缓存兜底，重新 Realize 时快速恢复；
     /// 已呈现路径集随之重建（cr/P1-2：重置后的集合内容 = 当前呈现集）。
+    /// 显式退役旧 VM 视觉资源（2026-09-26 tag-op-finalizer-crash 修复 C②）：此前整体丢弃旧 VM
+    /// 只依赖 ItemsRepeater 的 ElementClearing 时序回收缩略图——筛选切换/重新打开图库时元素
+    /// 未逐一 Clearing（或 Clearing 晚于集合替换）则 Thumbnail（BitmapImage，DependencyObject 族）
+    /// 裸交 GC 终结器，违反 RULE:26。ReleaseVisuals 幂等（无资源时零副作用），逐项调用即可；
+    /// 同时自增各 VM 视图代数，作废已入队未执行的缩略图启动回调（修复 C①）。
     /// </summary>
     public void ResetFrom(IEnumerable<GalleryItem> items)
     {
         // 快照后复用：ResetWith 与路径集重建各枚举一次，输入可能是扫描中的活集合（_galleryItems）。
         var snapshot = items.ToList();
+
+        // 先退役旧集合的视觉资源，再整体替换（顺序不可颠倒：替换后旧 VM 已无引用可遍历）。
+        foreach (var old in Items)
+        {
+            old.ReleaseVisuals();
+        }
+
         Items.ResetWith(snapshot.Select(item => new GalleryItemViewModel(item, this, _thumbnailService)));
         _presentedPaths.ResetWith(snapshot.Select(item => item.Path));
         ItemsChanged?.Invoke();

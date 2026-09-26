@@ -260,8 +260,12 @@ public sealed partial class WaterfallView : UserControl
                 // 缩略图加载启动脱离布局回调（2026-09-25 同一闪退）：此前同步启动的异步链在
                 // 全同步完成路径下（内存未命中→磁盘读秒回→解码启动）整链跑穿在 MeasureOverride
                 // 内——回调内异常=stowed 死刑 + 布局被 IO 拖长。TryEnqueue 推迟到布局外再启动。
+                // 视图代数守卫（2026-09-26 tag-op-finalizer-crash 修复 C①）：入队时捕获代数，
+                // ElementClearing → ReleaseVisuals 先执行（先清后启竞态）时回调被丢弃，不再把
+                // 缩略图挂回已回收 VM（悬挂 BitmapImage 绕过退役队列）。
                 var vm = viewModel;
-                _ = DispatcherQueue.TryEnqueue(() => vm.BeginLoadThumbnail());
+                var generation = vm.VisualGeneration;
+                _ = DispatcherQueue.TryEnqueue(() => vm.BeginLoadThumbnail(generation));
 
                 // 命令式拖拽（2026-09-19 拖拽二次修复）：CanDrag 手势路径在"Button 子元素拉伸占满宿主"时
                 // 永远不触发（Button 捕获指针拦截手势识别，Q&A "Drag Grid with Streached elements" 实锤）——

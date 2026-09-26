@@ -198,8 +198,21 @@ public partial class GalleryItemViewModel : ObservableObject
     /// 开始按需加载缩略图（ItemsRepeater ElementPrepared 触发）。
     /// 幂等：已加载/加载中直接返回；失败保持占位（可由再次 Realize 重试）。
     /// </summary>
-    public void BeginLoadThumbnail()
+    /// <param name="generation">
+    /// 调用方（WaterfallView.OnElementPrepared）入队时捕获的 <see cref="VisualGeneration"/>。
+    /// 视图代数守卫（2026-09-26 tag-op-finalizer-crash 修复 C①）：ElementPrepared 经
+    /// DispatcherQueue.TryEnqueue 推迟到布局外启动（RULE:25），而 ElementClearing →
+    /// <see cref="ReleaseVisuals"/> 可能先于该回调执行——已回收 VM 会被排队的回调重新挂上
+    /// 缩略图（先清后启竞态，绕过退役队列的悬挂 BitmapImage）。代数不符即丢弃本次启动；
+    /// 卡片重新 Realize 时 ElementPrepared 会带新代数再次入队，恢复路径不受影响。
+    /// </param>
+    public void BeginLoadThumbnail(int generation)
     {
+        if (generation != _visualGeneration)
+        {
+            return; // 期间已被回收（ReleaseVisuals 自增代数）：丢弃过期启动。
+        }
+
         if (_thumbnailCts is not null || Thumbnail is not null)
         {
             return;
@@ -229,15 +242,30 @@ public partial class GalleryItemViewModel : ObservableObject
     /// （续体过闸门后仍有 ThrowIfCancellationRequested 检查）。卡片重新 Realize 时
     /// <see cref="BeginLoadThumbnail"/> 幂等条件（cts 与 Thumbnail 均 null）放行，走既有重载路径恢复
     /// （ThumbnailService 内存/磁盘缓存兜底，快速渐入）。
+    /// 2026-09-26 增补：本方法同时自增视图代数作废过期的缩略图启动回调（见 <see cref="BeginLoadThumbnail"/>），
+    /// 并使 <see cref="ResetFrom"/> 的整批回收可显式遍历调用（幂等）。
     /// </summary>
     public void ReleaseVisuals()
     {
+        // 视图代数自增（2026-09-26 tag-op-finalizer-crash 修复 C①）：作废所有已入队但未执行的
+        // BeginLoadThumbnail(generation) 回调（ElementPrepared 的 TryEnqueue 推迟启动）。
+        // 幂等：重复调用只是继续自增，不产生副作用。
+        _visualGeneration++;
         CancelThumbnailLoad();
         ImageSourceRetirement.Retire(Thumbnail);
         ImageSourceRetirement.Drain();
         Thumbnail = null;
         _dragVisual = null;
     }
+
+    /// <summary>
+    /// 视图代数（仅 UI 线程读写）：每次 <see cref="ReleaseVisuals"/> 自增，用于作废过期的
+    /// 缩略图启动回调（见 <see cref="BeginLoadThumbnail"/>）。ElementPrepared 入队时捕获。
+    /// </summary>
+    internal int VisualGeneration => _visualGeneration;
+
+    /// <summary>视图代数计数值（见 <see cref="VisualGeneration"/>）。</summary>
+    private int _visualGeneration;
 
     /// <summary>打标/重命名后就地更新数据项（路径/标签/显示名变化；选中态与滚动位置保持）。</summary>
     public void UpdateFrom(GalleryItem newItem)
