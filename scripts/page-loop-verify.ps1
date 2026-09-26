@@ -13,6 +13,7 @@ using System;
 using System.Runtime.InteropServices;
 public class WPL {
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool repaint);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
 }
@@ -80,7 +81,9 @@ try {
   Start-Process $exe -ArgumentList @('-d', $libDir, '-i', '8')
   Start-Sleep -Seconds 8
   $proc = Get-Process viewer -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-  [WPL]::MoveWindow($proc.MainWindowHandle, 40, 40, 1600, 900, $true) | Out-Null
+  # off-screen placement (RULE: UI verification never steals the foreground; UIA Invoke works
+  # on a window outside the desktop, PrintWindow still renders)
+  [WPL]::MoveWindow($proc.MainWindowHandle, ([WPL]::GetSystemMetrics(0) + 2000), 40, 1600, 900, $true) | Out-Null
   Start-Sleep -Milliseconds 1200
 
   $root = [System.Windows.Automation.AutomationElement]::RootElement

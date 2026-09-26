@@ -1,8 +1,8 @@
 ---
-date: 2026-09-26 18:20
-title: 本会话全程：部署替换旧 Python 版 → 详情页两项优化 → 两轮崩溃根治（终结器跨线程释放 XAML 对象）→ v1.0.5/v1.0.6 发布 → WinAppSDK 升级评估
-keywords: 部署, E:\App\Others\viewer, 旧 Python 版替换, 单图详情页, 适配盒=可见区, 返回入口唯一化, 崩溃根治, 终结器跨线程释放, fastfail 0xc0000409, BitmapImage 无 Dispose, 缩略图对象池, TagBrushCache, 屏幕外验证, v1.0.5, v1.0.6, GitHub draft 未 Publish, WinAppSDK 1.6 停止支持, 升级评估
-abstract: 一条会话记忆，覆盖 2026-09-25~26 五轮：①把 v1.0.4 产物铺到 E:\App\Others\viewer 替换 Python 3.9/PyInstaller 旧版应用（旧目录改名 viewer.old-py39 留回滚）；②详情页两项优化（删工具栏重复「返回图库」+ 适配盒由「整窗」改「未被 chrome 遮挡的可见区」，含"DPI 虚拟化探针误导静态判断"的反转教训）；③打标期崩溃根治（转储铁证=终结器线程跨线程 Release XAML 对象致 native 堆损坏；画刷 churn 静态缓存化 + 图像源四类收口）；④二次全仓扫描后修复残留（BitmapImage 无 IClosable → 退役队列对它是空操作 → 缩略图位图对象池化；退役链异常隔离与 Released/Undisposable 分计；Run/Style 复用；UiKeepAlive 保命环；retire:/pool: 埋点）；⑤发布 v1.0.5 与 v1.0.6（tag+push+CI draft）并更新本地安装；⑥公开资料核证该崩溃类为已知未修互操作坑（CsWinRT #2532 open 无答复）并评估 WinAppSDK 1.6→2.x 升级优缺点。用户明确要求：UI 验证一律屏幕外、不抢前台。待办：Defender 排除、是否启动升级评估、GitHub draft 发布与旧 draft 清理、viewer.old-py39 备份可删。
+date: 2026-09-26 19:00
+title: 本会话全程：部署替换旧 Python 版 → 详情页两项优化 → 两轮崩溃根治（终结器跨线程释放 XAML 对象）→ v1.0.5/v1.0.6 发布 → WinAppSDK 1.6→2.5.1 升级落地
+keywords: 部署, E:\App\Others\viewer, 旧 Python 版替换, 单图详情页, 适配盒=可见区, 返回入口唯一化, 崩溃根治, 终结器跨线程释放, fastfail 0xc0000409, BitmapImage 无 Dispose, 缩略图对象池, TagBrushCache, 屏幕外验证, v1.0.5, v1.0.6, WinAppSDK 2.5.1 升级, BuildTools 下限, XamlCompiler 子包, PrintWindow 口径, v1.1.0
+abstract: 一条会话记忆，覆盖 2026-09-25~26 七轮：①把 v1.0.4 产物铺到 E:\App\Others\viewer 替换 Python 3.9/PyInstaller 旧版应用（旧目录改名 viewer.old-py39 留回滚）；②详情页两项优化（删工具栏重复「返回图库」+ 适配盒由「整窗」改「未被 chrome 遮挡的可见区」，含"DPI 虚拟化探针误导静态判断"的反转教训）；③打标期崩溃根治（转储铁证=终结器线程跨线程 Release XAML 对象致 native 堆损坏；画刷 churn 静态缓存化 + 图像源四类收口）；④二次全仓扫描后修复残留（BitmapImage 无 IClosable → 退役队列对它是空操作 → 缩略图位图对象池化；退役链异常隔离与 Released/Undisposable 分计；Run/Style 复用；UiKeepAlive 保命环；retire:/pool: 埋点）；⑤发布 v1.0.5 与 v1.0.6（tag+push+CI draft）并更新本地安装；⑥公开资料核证该崩溃类为已知未修互操作坑（CsWinRT #2532 open 无答复）并评估 WinAppSDK 1.6→2.x 升级；⑦用户拍板后**直接升级到 2.5.1 落地**（BuildTools 下限/XamlCompiler 子包路径/屏幕外验证的三条边界与 raw 注入例外，全套屏外回归绿，出 v1.1.0 并更新本地安装）。用户明确要求：UI 验证一律屏幕外、不抢前台；回复用中文。待办：v1.1.0 是否打 tag 发布、Defender 排除、旧 draft 清理、viewer.old-py39 与 viewer.old-1.0.6 备份确认后可删。
 ---
 
 user:
@@ -72,3 +72,15 @@ user:
 
 assistant:
 查官方发布通道页 + GitHub 发布记录后，按「对本应用值不值」回答。**最硬的理由是支持状态**：1.6（我们在用）自 **2025-09-04** 起 Out of Support；1.7 于 2026-03-18 停服；1.8 的最后一版服务更新 `1.8.260921001` 发布于 2026-09-24（也已落幕）——**唯一在维护的是 2.x 线**（2.0 起，当前稳定 **2.5.1** / 2026-09-16，支持到 2027-04-29）。不受支持 = 框架侧以后修的崩溃我们永远拿不到、提 issue 也不受理。能具体拿到的：①`StartDragAsync` 之后 GC 回收必崩（microsoft-ui-xaml #10948，**我们拖拽打标正走这个 API**）在 1.8 不再复现；②2.4/2.5 发布说明列出 WinUI 3 / 输入 / 合成 / 部署的多项修复（Storage Picker 焦点恢复、MRT Core 回退路径、运行时目录隔离等）；③新版 CsWinRT 向 GC 上报 native 内存压力 → 该回收的对象更早、更分散地被终结（削弱「成批压到终结器」这一放大因素）；④顺带能力（触控板手势等）+ 待验证项（1.6 的 `WindowsAppSDKSelfContained` XAML 资源解析缺陷若已修，发布布局可简化）。**不会解决**：根因 CsWinRT #2532 仍 open 且无维护者答复 → 画刷缓存/缩略图池/显式退役/保命环这套纪律升级后仍必须保持。代价：2.0 是大版本（迁移面需对照官方说明逐条核；本轮未能抓到完整 breaking changes 列表）、连带要改 csproj / `release.ps1` / CI 的假设、目标机要装 2.x 运行时（现装 1.6）。建议顺序：先让 v1.0.6 跑几天（看 `startup.log` 的 `pool.created` 是否稳定、有无再崩）→ 顺手加 Defender 排除 → 再单独一轮「1.6→2.x 升级评估」（分支试升级 + 全量回归 + 屏外复核）→ 由用户决定是否发。已把「1.6 已停止支持 / 唯一受支持线是 2.x / 升级属待评估」记入 RULE 构建节。
+
+user:
+（看得出上下文被压缩了吧）我还是建议直接使用最新的框架，当初使用旧框架就是不对的。直接升级吧。（中途补充：说中文哈，不要英文回复；没有其他事情了，你继续干吧）
+
+assistant:
+按「独立一轮」流程把 1.6→**2.5.1** 升完（分支 `feature/winappsdk-2x-upgrade`）。**包级事实（全部实证，非文档转述）**：①`net8.0-windows10.0.19041.0` 与 `TargetPlatformMinVersion 10.0.17763.0` 都不必动（WinUI 托管资产是 net6.0-windows10.0.17763.0）；②**`Microsoft.Windows.SDK.BuildTools` 必须 ≥ 10.0.26100.4654**（2.5.1 的 Base 包 buildTransitive 硬校验，低版直接 NU1605 还原失败——实测踩到）；③2.x 已元包化为 10 个子包（Base/Foundation/InteractiveExperiences/WinUI/DWrite/Widgets/AI/ML/Search/Runtime[2.5.1]），**XamlCompiler.exe 从元包移到 `microsoft.windowsappsdk.winui\<ver>\tools\net472\`** → `release.ps1` 的预热 glob 改为扫两族按版本目录取最新（否则预热到旧 1.6 编译器）；④`WindowsAppSDKSelfContained` 对非库工程默认变 true（本项目显式 false 不动）；⑤**运行期兼容策略**：框架依赖应用默认吃「最新 servicing 级别」、bootstrapper 是 [0,max) 区间匹配 → 目标机装了更高 2.x 补丁就会跑那个补丁，「环境记录」必须写运行时具体版本；⑥无官方 1.x→2.0 迁移文档、无破坏性 API 变更、2.5.1 无 known issues（图像解码/拖拽/DispatcherQueue 均无回归条目）；⑦本机已装 WindowsAppRuntime 2.5.1（**PFN 主版本号已从 1 变 2**，别再写死 `Microsoft.WindowsAppRuntime.1_`）；⑧`TitleBar.Content` 拖拽区变更是 2.1.3 默认，本项目不用 TitleBar API，不适用。
+
+**回归全绿（全部屏幕外或可无头）**：build 首试成功、0 新增警告（只剩既有 WMC1506）；`dotnet test` **120/120**；图库屏外 soak（缩略图非背景 0.462、滚动/筛选点击生效、无新崩溃、`brushNew=0`、pool 11/11）；`page-loop` **72/72 零 missed + NO-LOAD-FAILURE**（RO_E_CLOSED 修复在 2.5.1 继续成立）；`tag-op churn` 三轮重建 `brushNew=0`；`tag-op chain` 加标签→右栏 chip **像素差 4462（与 1.6 基线 4462 逐位一致）**→ ✕ 移除→还原、返回图库/筛选/组折叠全过；`fit-verify` 4 夹具 `band==box` 且比例守恒；`walkthrough2` CARDS=2、连点两卡保持「已选 1 张」、chip 在标题区；`zoom-path` 3/3 页红图可见；`cold-start` **0/3 轮**卡死。
+
+**屏外验证暴露的口径坑（已修脚本并写入 RULE「屏幕外三条边界」）**：①`CopyFromScreen` 抓不到屏幕外窗口 → 改 `PrintWindow` 并把窗口内容贴到画布 (40,40) 以保持既有采样字面量口径；②UIA `BoundingRectangle` 是屏幕绝对坐标，`walkthrough2` 用 X∈[500,1100] 圈卡片在屏外恒不命中（假 CARDS-FOUND: 0）→ 改窗口内相对；③采样点写死 (600,400) 在「按可见区适配」后落到图外（假 red=False）→ 改取 UIA Image 元素中心；④**raw 注入与屏幕外互斥**（`SetCursorPos` 被限制在可见桌面内、键盘只进前台）→ `tag-op-finalizer-verify.ps1` 保持屏上 (40,40) 作**唯一例外**（全程 Deactivate-Window 不抢焦点），新检查优先 UIA Invoke；⑤`cold-start-verify.ps1` 原先屏上静置 60s×3（违反约束）→ 启动即移屏外，且补中文注释后按铁律**补 UTF-8 BOM**。另做了一次「同进程屏外 vs 屏上」对照：`redBBox` 逐位相同 → `PrintWindow` 结果与窗口是否在屏内无关。
+
+**出包与部署**：`release.ps1 -Version 1.1.0` 一次成功 → `SimpleViewer-v1.1.0-win-x64.zip` **59.7MB**（1.0.6 是 43MB；2.x 元包未裁剪，多带 AI/ML/Search/Widgets 投影，后续可单独裁剪、不影响运行期）；对 **publish 产物**与**本机安装**各跑一轮屏外 soak 均绿；`E:\App\Others\viewer` 已更新（旧版完整备份为 `viewer.old-1.0.6`）。**版本号取舍**：平台级升级用 minor（1.1.0）而非 patch，已写在 CHANGELOG；tag/发布等用户点头再推（不重复上轮「先发布」的授权）。文档：新增 `docs/iterations/图片打标签与瀑布流浏览/maintenance/winappsdk-2x-upgrade/{prd,spec}.md`（spec 含包级证据、验证矩阵、脚本口径修正五条），RULE 构建节整段重写为 2.5.1 现状。

@@ -28,6 +28,7 @@ public class FitWin {
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
 }
@@ -136,8 +137,10 @@ foreach ($fx in $Fixtures) {
     $win = Wait-Window $proc
     $hwnd = $win.hwnd
     if ($hwnd -eq [IntPtr]::Zero) { "$fx : NO-WINDOW $($win.note)"; continue }
-    # 固定窗口几何（物理像素，可复现），等布局/重解码安定
-    [void][FitWin]::SetWindowPos($hwnd, [IntPtr]::Zero, 40, 40, $WinW, $WinH, 0x0040)
+    # 固定窗口几何（物理像素，可复现），等布局/重解码安定；放到主屏右侧之外 + SWP_NOACTIVATE
+    # （RULE：UI 验证一律屏幕外不抢焦点；PrintWindow/像素带量测不受窗口位置影响）
+    $offX = [FitWin]::GetSystemMetrics(0) + 2000
+    [void][FitWin]::SetWindowPos($hwnd, [IntPtr]::Zero, $offX, 40, $WinW, $WinH, 0x0050)
     Start-Sleep -Milliseconds $SettleMs
 
     $dpi = [FitWin]::GetDpiForWindow($hwnd)

@@ -7,8 +7,11 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+public struct RECT { public int Left, Top, Right, Bottom; }
 public class W7 {
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool repaint);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
@@ -58,12 +61,21 @@ function SelectCount($win) {
   return 'UNKNOWN'
 }
 function Shot($name) {
+  # 屏幕外可用的截图：PrintWindow 取窗口内容（不依赖窗口在屏内、不被遮挡），再按窗口屏幕原点
+  # 贴回全屏尺寸画布——采样坐标口径与旧 CopyFromScreen 版完全一致（绝对屏幕坐标）。
   $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+  $g.Clear([System.Drawing.Color]::Black)
+  $wr = New-Object RECT; [void][W7]::GetWindowRect($hwnd, [ref]$wr)
+  $wb = New-Object System.Drawing.Bitmap ($wr.Right - $wr.Left), ($wr.Bottom - $wr.Top)
+  $wg = [System.Drawing.Graphics]::FromImage($wb)
+  $dc = $wg.GetHdc(); [void][W7]::PrintWindow($hwnd, $dc, 2); $wg.ReleaseHdc($dc)
+  # 贴到画布 (40,40)：下方像素采样用字面量坐标（1300,300 / 1300,900 / 150,400），口径＝旧版
+  # CopyFromScreen「窗口在 (40,40)」的假设；真实窗口现在屏幕外也无妨。
+  $g.DrawImage($wb, 40, 40)
   $bmp.Save((Join-Path $shotDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
-  $g.Dispose(); $bmp.Dispose()
+  $wg.Dispose(); $wb.Dispose(); $g.Dispose(); $bmp.Dispose()
 }
 
 try {
@@ -88,7 +100,9 @@ try {
   Start-Process $exe
   Start-Sleep -Seconds 9
   $proc = Get-Process viewer -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-  [W7]::MoveWindow($proc.MainWindowHandle, 40, 40, 1500, 950, $true) | Out-Null
+  $hwnd = $proc.MainWindowHandle
+  # 屏幕外定位（RULE：UI 验证不抢焦点/不挡用户前台；UIA 与 PrintWindow 均不要求窗口可见）
+  [W7]::MoveWindow($hwnd, ([W7]::GetSystemMetrics(0) + 2000), 40, 1500, 950, $true) | Out-Null
   Start-Sleep -Milliseconds 800
   $root = [System.Windows.Automation.AutomationElement]::RootElement
   $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Simple Viewer')
@@ -114,10 +128,14 @@ try {
   # ── 2. 选择行为验证：UIA 连点两张卡（无键盘路径；按尺寸定位画布区大按钮=卡片） ──
   $btCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
   $allBtns = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btCond)
+  # 画布带判定改用「窗口内坐标」（旧版写死屏幕坐标 500..1100，隐含窗口在 (40,40)；窗口移到
+  # 屏幕外后该字面量恒不命中 —— 2026-09-26 实锤 CARDS-FOUND: 0）。$wr 见 Shot() 的屏幕外改造。
+  $wrCard = New-Object RECT; [void][W7]::GetWindowRect($hwnd, [ref]$wrCard)
   $cards = @()
   foreach ($b in $allBtns) {
     $r = $b.Current.BoundingRectangle
-    if ($r.Width -gt 80 -and $r.Height -gt 90 -and $r.X -gt 500 -and $r.X -lt 1100) { $cards += ,@($r.Y, $b) }
+    $lx = $r.X - $wrCard.Left
+    if ($r.Width -gt 80 -and $r.Height -gt 90 -and $lx -gt 460 -and $lx -lt 1060) { $cards += ,@($r.Y, $b) }
   }
   $cards = $cards | Sort-Object { $_[0] }
   Write-Output ('CARDS-FOUND: ' + $cards.Count)

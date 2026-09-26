@@ -10,7 +10,7 @@ Windows 本地图片查看器，WinUI 3 重写版。
 
 **标签协议**：标签写入文件名 `photo[标签1 标签2].jpg`（在原文件名后追加方括号标签段，空格分隔），与 TagSpaces 文件名标签模式互通——已有标签可被读取与继续编辑，不依赖额外元数据文件。
 
-- 需求与规格：`.apm/kb/docs/Iterations/SimpleViewer-WinUI3/`
+- 需求与规格：`docs/iterations/图片打标签与瀑布流浏览/`；持久规则与记忆：`docs/apm/`
 - Python 旧版在分支 **`v1`**
 
 ## 前置条件
@@ -20,7 +20,7 @@ Windows 本地图片查看器，WinUI 3 重写版。
 | Windows | 10 1809+（推荐 Windows 11） |
 | Visual Studio | 2022 17.10+（含 WinUI / Windows 应用开发工作负载） |
 | .NET SDK | **8.0**（`global.json` 指定 8.0.400+） |
-| Windows App SDK | **1.6+**（NuGet `Microsoft.WindowsAppSDK`） |
+| Windows App SDK | **2.5+**（NuGet `Microsoft.WindowsAppSDK`；目标机需装 Windows App Runtime 2.5） |
 
 ## 构建与测试
 
@@ -40,8 +40,8 @@ dotnet run --project SimpleViewer.csproj -p:Platform=x64
 ```
 
 > `build.ps1` 内置"单节点禁复用 + 3 次原样重试 + 冷重建兜底"的分级重试机制，
-> 用于规避 WinAppSDK 1.6 XamlCompiler 的间歇性沉默崩溃（MSB3073，环境级问题、与源码无关），
-> 验证构建请一律使用该脚本。
+> 用于规避 XamlCompiler 的间歇性沉默崩溃（MSB3073，环境级问题、与源码无关；1.6 上多次实锤，
+> 2.5 升级后未复现），验证构建请一律使用该脚本。
 
 ### 发布
 

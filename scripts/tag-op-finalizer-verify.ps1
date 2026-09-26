@@ -31,6 +31,7 @@ public class Win32Shot {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
@@ -72,6 +73,11 @@ $fixtureView = Join-Path $env:TEMP 'sv-tagop-lib-view'   # 颜色比对用（不
 $fixtureTag = Join-Path $env:TEMP 'sv-tagop-lib-tag'     # 打标用（会被改名）
 $outDir = Join-Path $env:TEMP 'sv-tagop-shots'
 $likeTagId = 'c111c66da6d942dea8200c2b7d2af4aa'          # 配置里「喜欢」的稳定 Id
+# 窗口原点：本脚本是「raw 注入例外」——Double-ClickAt/Send-Key 走 SetCursorPos+mouse_event/keybd_event，
+# 而光标被系统限制在可见桌面内、键盘事件只进前台窗口：窗口移到屏幕外后点击落不到卡片上
+# （2026-09-26 实锤：$winX 改屏幕外后双击不进单图、打标不动，UIA Invoke 类断言仍正常）。
+# 故本脚本保持屏上 (40,40) 且全程 Deactivate-Window 不抢焦点；新增检查优先用 UIA Invoke 走
+# 屏幕外方案（先例 scripts\offscreen-soak-check.ps1）。
 $winX = 40; $winY = 40; $winW = 1600; $winH = 900
 
 # 窗口内相对区域（PrintWindow 位图坐标系 = 窗口左上角为原点）
