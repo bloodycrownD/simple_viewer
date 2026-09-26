@@ -6,6 +6,9 @@
 #       （tests 独立 obj 先还原，主工程定向还原放最后防覆盖）；XamlCompiler 间歇沉默崩溃以重试兜底。
 #       WindowsAppSDKSelfContained=true 自包含布局有 XAML 资源解析缺陷（themeresources 定位失败），
 #       与本地 release.ps1 同策略走框架依赖（2026-09-19；WinAppSDK 2.5.1 未复核该缺陷是否仍存在）。
+# 维护提示（2026-09-26 v1.1.0 run#23）：Actions 报 "Node.js 20 is deprecated"，来自
+#       actions/checkout@v4、actions/setup-dotnet@v4、softprops/action-gh-release@v2 自身——
+#       下轮顺手把这些 action 升到 v5（或对应新主版本），不影响当前构建。
 
 name: release
 
