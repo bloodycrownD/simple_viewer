@@ -74,10 +74,21 @@ public sealed partial class TagFilterPanelControl : UserControl
 
     // ==================== 条件树递归构造（demo renderGroup / renderCond 同构） ====================
 
-    /// <summary>重建条件树 UI：TreeHost 整体替换（滚动偏移先记后恢复，对齐 demo scrollTop 保持）。</summary>
+    /// <summary>
+    /// 重建条件树 UI：TreeHost 整体替换（滚动偏移先记后恢复，对齐 demo scrollTop 保持）。
+    /// 2026-09-26 xaml-finalizer-residuals P1-6：整树重建不重构（每次点击新建 40~300 个 XAML 对象
+    /// 属既有架构，见 spec「已知残留」），改为把旧树根交给 <see cref="UiKeepAlive"/>——有界强引用
+    /// 摊薄「整棵树同一瞬间落入终结器」的压力（有界内存换安全的止血环，非正确释放；语义与代价
+    /// 见 UiKeepAlive 类注释）。
+    /// </summary>
     private void RebuildTree()
     {
         var offset = TreeScroll.VerticalOffset;
+        if (TreeHost.Children.Count > 0)
+        {
+            UiKeepAlive.Hold(TreeHost.Children[0]);
+        }
+
         TreeHost.Children.Clear();
         if (ViewModel.Root is { } root)
         {

@@ -2290,6 +2290,7 @@ public partial class MainViewModel : ObservableObject
             }
 
             LogSidebarBrushChurn(brushBefore, callBefore);
+            LogRetirementSamples();
         }
 
         if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
@@ -2353,6 +2354,41 @@ public partial class MainViewModel : ObservableObject
     /// （明暗双值 × 有限语义组合，实测 ~30-40 条），阈值取 48 留余量且远低于任何 churn 回潮量级。
     /// </summary>
     private const long SidebarBrushChurnWarnThreshold = 48;
+
+    /// <summary>
+    /// 退役队列 / 缩略图池计数埋点（2026-09-26 xaml-finalizer-residuals 修复 P2-8）：与画刷 churn 埋点
+    /// 同点（<see cref="RebuildTagSidebar"/> 收尾），使长会话趋势在 startup.log 可见：
+    ///   · <c>retire: retired=X released=Y undisposable=Z pending=N seen=M</c>——released 与
+    ///     undisposable 分开（P0-4：BitmapImage 退役 no-op 不得记成已释放，否则回归判据假绿）；
+    ///   · <c>pool: acquired=A returned=R created=C pooled=P</c>——created 稳态应在池容量/视口峰值
+    ///     量级（不再随滚动无限增长），是 P0-1 池化生效的核心判据。
+    /// 仅在计数较上次采样有变化时落行（无变化不刷屏；首个采样必落，覆盖冷启动基线）。
+    /// </summary>
+    private static void LogRetirementSamples()
+    {
+        var retire = Helpers.ImageSourceRetirement.Snapshot();
+        if (_lastRetireSample != retire)
+        {
+            _lastRetireSample = retire;
+            App.WriteDiagnosticLog(
+                $"retire: retired={retire.Retired} released={retire.Released}"
+                + $" undisposable={retire.Undisposable} pending={retire.Pending} seen={retire.Seen}");
+        }
+
+        var pool = Views.ThumbnailImagePool.Snapshot();
+        if (_lastPoolSample != pool)
+        {
+            _lastPoolSample = pool;
+            App.WriteDiagnosticLog(
+                $"pool: acquired={pool.Acquired} returned={pool.Returned} created={pool.Created} pooled={pool.Pooled}");
+        }
+    }
+
+    /// <summary>埋点基线：上一次 retire 采样（null = 尚未采样；计数无变化则不再落行）。</summary>
+    private static (long Retired, long Released, long Undisposable, int Pending, int Seen)? _lastRetireSample;
+
+    /// <summary>埋点基线：上一次缩略图池采样（null = 尚未采样）。</summary>
+    private static (long Acquired, long Returned, long Created, int Pooled, long Excluded)? _lastPoolSample;
 
     /// <summary>主题切换后的视觉刷新入口（公开给 MainWindow）：重建侧栏与筛选条，使 x:Bind 颜色函数按新主题重算。</summary>
     public void RefreshThemeDependentVisuals() => RebuildTagSidebar();

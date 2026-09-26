@@ -17,7 +17,6 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using SimpleViewer.ViewModels;
@@ -319,15 +318,17 @@ public sealed partial class SingleImageView : UserControl
     }
 
     /// <summary>
-    /// 按 VM 属性重建文件名显示（2026-09-19 统一口径）：显示处仅右栏信息区 InfoFileNameText
+    /// 按 VM 属性更新文件名显示（2026-09-19 统一口径；2026-09-26 xaml-finalizer-residuals P1-6
+    /// 起直写 Text 不再拼内联）：显示处仅右栏信息区 InfoFileNameText
     ///（底部文件名栏 2026-09-19 用户拍板移除，文件名由右栏承载），显示剥离标签段的显示名
     ///（与瀑布流卡片一致）；标签信息由右栏 chips 与卡片角标承载；完整文件名挂 tooltip。
-    /// 布局固定自动换行多行（None/Wrap；原 RebuildInlinesInto 的 trim 参数唯一调用点恒 false，
-    /// 分支不可达，cr/P2-6 折叠内联）。
+    /// 布局固定自动换行多行（None/Wrap）。
     /// </summary>
     private void RebuildFileNameInlines()
     {
-        InfoFileNameText.Inlines.Clear();
+        // 直写 Text（2026-09-26 xaml-finalizer-residuals P1-6）：原实现每次显示名变化
+        // Inlines.Clear() + new Run——打标改名即触发，每次产生一个 Run（XAML 内联对象）裸交 GC。
+        // 该 Run 无独立样式（前景/字体继承自 TextBlock），直写 Text 与现呈现等价且零新建。
         InfoFileNameText.TextTrimming = TextTrimming.None;
         InfoFileNameText.TextWrapping = TextWrapping.Wrap;
 
@@ -337,10 +338,7 @@ public sealed partial class SingleImageView : UserControl
             InfoFileNameText,
             ViewModel.CurrentFileFullName.Length > 0 ? ViewModel.CurrentFileFullName : null);
 
-        if (!string.IsNullOrEmpty(ViewModel.CurrentImageDisplayName))
-        {
-            InfoFileNameText.Inlines.Add(new Run { Text = ViewModel.CurrentImageDisplayName });
-        }
+        InfoFileNameText.Text = ViewModel.CurrentImageDisplayName;
 
         // 顶部信息横条（走查 5）同步显示名；完整文件名 tooltip 同口径。
         TopStripFileNameText.Text = ViewModel.CurrentImageDisplayName;

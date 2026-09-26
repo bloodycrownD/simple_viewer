@@ -51,6 +51,10 @@ public sealed class ImageLoaderService : IImageLoaderService
         using var stream = await storageFile.OpenAsync(FileAccessMode.Read).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // 注（2026-09-26 xaml-finalizer-residuals P1-7 实证修正）：BitmapDecoder/BitmapEncoder 在本投影
+        //（Microsoft.Windows.SDK.NET.Ref 10.0.19041.56）不实现 IClosable/IDisposable——无 Close/Dispose
+        // 成员、Windows.Foundation.IClosable 未投影（`using` 实测 CS1674 编译失败），无法显式释放；
+        // 二者非 XAML DependencyObject，GC 终结安全，不属「终结器跨线程 Release」崩溃机制的残留。
         var decoder = await BitmapDecoder.CreateAsync(stream).AsTask().ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 

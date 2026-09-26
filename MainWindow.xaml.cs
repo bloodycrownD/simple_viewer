@@ -47,6 +47,16 @@ public sealed partial class MainWindow : Window
     /// <summary>筛选面板本体（tag-filter-tree Step 5，工具栏 Flyout 内容；构造注入一次、全量 Rebuild 复用）。</summary>
     private readonly TagFilterPanelControl _filterPanel;
 
+    /// <summary>
+    /// 筛选 Flyout 的 FlyoutPresenterStyle 缓存（2026-09-26 xaml-finalizer-residuals P1-6）：
+    /// Style 属 XAML 依赖对象且构建后不可变——宽度未变时复用，原实现每次 Opening 都
+    /// new Style + 4 个 Setter（XAML 对象裸交 GC，违反 RULE:26 的创建点审计口径）。
+    /// </summary>
+    private Style? _filterFlyoutStyle;
+
+    /// <summary>缓存 Style 对应的目标宽度（<see cref="double.NaN"/> = 尚无缓存；宽度变化时重建）。</summary>
+    private double _filterFlyoutStyleWidth = double.NaN;
+
     public MainViewModel ViewModel { get; }
 
     public MainWindow(
@@ -222,14 +232,30 @@ public sealed partial class MainWindow : Window
         // FlyoutContentPadding 16×2 + 边框余量 40）。窗口宽取内容根（WinUI Window 无 ActualWidth）。
         var panelWidth = Math.Clamp((int)(RootGrid.ActualWidth - 400), 420, 660);
         _filterPanel.Width = panelWidth;
-        TagFilterFlyout.FlyoutPresenterStyle = BuildFilterFlyoutStyle(panelWidth + 40);
+        TagFilterFlyout.FlyoutPresenterStyle = GetOrCreateFilterFlyoutStyle(panelWidth + 40);
 
         _filterPanel.RequestedTheme = RootGrid.RequestedTheme;
         _filterPanel.RebuildAll();
     }
 
     /// <summary>
-    /// 构建筛选 Flyout 的 FlyoutPresenterStyle（五轮：宽度动态化，Opening 时按窗口宽重建）。
+    /// 取筛选 Flyout 的 FlyoutPresenterStyle（2026-09-26 xaml-finalizer-residuals P1-6）：
+    /// 宽度未变复用缓存实例（Style 构建后不可变，共享同一实例安全）；宽度变化才重建并更新缓存。
+    /// </summary>
+    private Style GetOrCreateFilterFlyoutStyle(double width)
+    {
+        if (_filterFlyoutStyle is null || _filterFlyoutStyleWidth != width)
+        {
+            _filterFlyoutStyle = BuildFilterFlyoutStyle(width);
+            _filterFlyoutStyleWidth = width;
+        }
+
+        return _filterFlyoutStyle;
+    }
+
+    /// <summary>
+    /// 构建筛选 Flyout 的 FlyoutPresenterStyle（五轮：宽度动态化，窗口宽变化时重建，见
+    /// <see cref="GetOrCreateFilterFlyoutStyle"/> 缓存）。
     /// BasedOn DefaultFlyoutPresenterStyle（generic.xaml 核实存在）保默认模板；外层垂直滚动
     /// 禁用不变（二轮修复：防贯穿全高的滚动条压底部命中数字）。
     /// </summary>
