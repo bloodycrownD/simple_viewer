@@ -1,8 +1,8 @@
 ---
-date: 2026-09-26 19:00
-title: 本会话全程：部署替换旧 Python 版 → 详情页两项优化 → 两轮崩溃根治（终结器跨线程释放 XAML 对象）→ v1.0.5/v1.0.6 发布 → WinAppSDK 1.6→2.5.1 升级落地
-keywords: 部署, E:\App\Others\viewer, 旧 Python 版替换, 单图详情页, 适配盒=可见区, 返回入口唯一化, 崩溃根治, 终结器跨线程释放, fastfail 0xc0000409, BitmapImage 无 Dispose, 缩略图对象池, TagBrushCache, 屏幕外验证, v1.0.5, v1.0.6, WinAppSDK 2.5.1 升级, BuildTools 下限, XamlCompiler 子包, PrintWindow 口径, v1.1.0
-abstract: 一条会话记忆，覆盖 2026-09-25~26 七轮：①把 v1.0.4 产物铺到 E:\App\Others\viewer 替换 Python 3.9/PyInstaller 旧版应用（旧目录改名 viewer.old-py39 留回滚）；②详情页两项优化（删工具栏重复「返回图库」+ 适配盒由「整窗」改「未被 chrome 遮挡的可见区」，含"DPI 虚拟化探针误导静态判断"的反转教训）；③打标期崩溃根治（转储铁证=终结器线程跨线程 Release XAML 对象致 native 堆损坏；画刷 churn 静态缓存化 + 图像源四类收口）；④二次全仓扫描后修复残留（BitmapImage 无 IClosable → 退役队列对它是空操作 → 缩略图位图对象池化；退役链异常隔离与 Released/Undisposable 分计；Run/Style 复用；UiKeepAlive 保命环；retire:/pool: 埋点）；⑤发布 v1.0.5 与 v1.0.6（tag+push+CI draft）并更新本地安装；⑥公开资料核证该崩溃类为已知未修互操作坑（CsWinRT #2532 open 无答复）并评估 WinAppSDK 1.6→2.x 升级；⑦用户拍板后**直接升级到 2.5.1 落地**（BuildTools 下限/XamlCompiler 子包路径/屏幕外验证的三条边界与 raw 注入例外，全套屏外回归绿，出 v1.1.0 并更新本地安装）。用户明确要求：UI 验证一律屏幕外、不抢前台；回复用中文。待办：v1.1.0 是否打 tag 发布、Defender 排除、旧 draft 清理、viewer.old-py39 与 viewer.old-1.0.6 备份确认后可删。
+date: 2026-09-26 20:40
+title: 本会话全程：部署替换旧 Python 版 → 详情页两项优化 → 两轮崩溃根治（终结器跨线程释放 XAML 对象）→ v1.0.5/v1.0.6 发布 → WinAppSDK 1.6→2.5.1 升级 → v1.1.0 发布 → 放大锚点修复 v1.1.1
+keywords: 部署, E:\App\Others\viewer, 旧 Python 版替换, 单图详情页, 适配盒=可见区, 返回入口唯一化, 崩溃根治, 终结器跨线程释放, fastfail 0xc0000409, BitmapImage 无 Dispose, 缩略图对象池, TagBrushCache, 屏幕外验证, v1.0.5, v1.0.6, WinAppSDK 2.5.1 升级, BuildTools 下限, XamlCompiler 子包, WMC1007 还原踩踏, 跨版像素 A/B, 放大锚点, 反解不动点, Image 内容盒居中, v1.1.0, v1.1.1
+abstract: 一条会话记忆，覆盖 2026-09-25~26 全程：①把 v1.0.4 产物铺到 E:\App\Others\viewer 替换 Python 3.9/PyInstaller 旧版应用（旧目录改名 viewer.old-py39 留回滚）；②详情页两项优化（删工具栏重复「返回图库」+ 适配盒由「整窗」改「未被 chrome 遮挡的可见区」，含"DPI 虚拟化探针误导静态判断"的反转教训）；③打标期崩溃根治（转储铁证=终结器线程跨线程 Release XAML 对象致 native 堆损坏；画刷 churn 静态缓存化 + 图像源四类收口）；④二次全仓扫描后修复残留（BitmapImage 无 IClosable → 退役队列对它是空操作 → 缩略图位图对象池化；退役链异常隔离与 Released/Undisposable 分计；Run/Style 复用；UiKeepAlive 保命环；retire:/pool: 埋点）；⑤发布 v1.0.5 与 v1.0.6（tag+push+CI draft）并更新本地安装；⑥公开资料核证该崩溃类为已知未修互操作坑（CsWinRT #2532 open 无答复）并评估 WinAppSDK 1.6→2.x 升级；⑦**升级落地到 2.5.1**（BuildTools 下限/XamlCompiler 子包路径/屏幕外三条边界与 raw 注入例外/跨版像素 A/B 判零视觉回归），出 v1.1.0 并更新本地安装、打 tag 推 CI（run#23）；⑧用户报「放大中心是固定点不是鼠标」→ 量化反解不动点 + 应用侧埋点定位根因（WinUI Image 在 Stretch=Uniform 下元素盒=内容盒且居中于槽位，代码按「元素盒=槽位」估变换原点偏 132 DIP）→ 按槽位中心实算修复并复测（偏差 190px→≤15px 噪声），顺带把 build.ps1 前置还原改串行定向根治 WMC1007，出 v1.1.1 + 更新本地安装。用户明确要求：UI 验证一律屏幕外、不抢前台；回复用中文。待办：v1.1.1 是否打 tag（本地包与安装已就绪）、Defender 排除、旧 draft 清理（用户说不用清）、2.x 组件裁剪（可选）、viewer.old-py39 / viewer.old-1.0.6 / viewer.old-1.1.0 备份确认后可删。
 ---
 
 user:
@@ -84,3 +84,21 @@ assistant:
 **屏外验证暴露的口径坑（已修脚本并写入 RULE「屏幕外三条边界」）**：①`CopyFromScreen` 抓不到屏幕外窗口 → 改 `PrintWindow` 并把窗口内容贴到画布 (40,40) 以保持既有采样字面量口径；②UIA `BoundingRectangle` 是屏幕绝对坐标，`walkthrough2` 用 X∈[500,1100] 圈卡片在屏外恒不命中（假 CARDS-FOUND: 0）→ 改窗口内相对；③采样点写死 (600,400) 在「按可见区适配」后落到图外（假 red=False）→ 改取 UIA Image 元素中心；④**raw 注入与屏幕外互斥**（`SetCursorPos` 被限制在可见桌面内、键盘只进前台）→ `tag-op-finalizer-verify.ps1` 保持屏上 (40,40) 作**唯一例外**（全程 Deactivate-Window 不抢焦点），新检查优先 UIA Invoke；⑤`cold-start-verify.ps1` 原先屏上静置 60s×3（违反约束）→ 启动即移屏外，且补中文注释后按铁律**补 UTF-8 BOM**。另做了一次「同进程屏外 vs 屏上」对照：`redBBox` 逐位相同 → `PrintWindow` 结果与窗口是否在屏内无关。
 
 **出包与部署**：`release.ps1 -Version 1.1.0` 一次成功 → `SimpleViewer-v1.1.0-win-x64.zip` **59.7MB**（1.0.6 是 43MB；2.x 元包未裁剪，多带 AI/ML/Search/Widgets 投影，后续可单独裁剪、不影响运行期）；对 **publish 产物**与**本机安装**各跑一轮屏外 soak 均绿；`E:\App\Others\viewer` 已更新（旧版完整备份为 `viewer.old-1.0.6`）。**版本号取舍**：平台级升级用 minor（1.1.0）而非 patch，已写在 CHANGELOG；tag/发布等用户点头再推（不重复上轮「先发布」的授权）。文档：新增 `docs/iterations/图片打标签与瀑布流浏览/maintenance/winappsdk-2x-upgrade/{prd,spec}.md`（spec 含包级证据、验证矩阵、脚本口径修正五条），RULE 构建节整段重写为 2.5.1 现状。
+
+user:
+Releases 不用清理就这样吧。打tag吧 1.1.0可以
+
+assistant:
+**发布走完**：annotated tag `v1.1.0`（指向 281775f，tag 信息含升级一句话要点）+ `git push origin master` → 4a42e48..281775f、`git push origin v1.1.0` → **CI run#23 成功（1m58s）**；工作流最后一步就是「创建 Draft Release 并上传 zip」，该步绿 ⇒ v1.1.0 draft 已生成（draft 未登录看不到，公开 Releases 页仍显示 no releases，符合预期）；旧 draft 按用户指示不动。**两个工具坑**：①`gh` 本机未安装且 GitHub API 对本机 IP 限流（403）→ 改用 WebFetch 读公开 Actions/Releases 页确认状态（run 链接 `https://github.com/bloodycrownD/simple_viewer/actions/runs/36239526716`）；②`git push ... | Select-String`（cmd 里管道接 PowerShell cmdlet）双失败一次、`git commit -F %TEMP%\commit-msg.txt` **误用上次会话遗留的同名临时文件**（标题变成上一轮的 docs 提交）——靠 `git commit --amend -F <新文件>` 修正（未 push，安全）。Actions 提示 Node.js 20 弃用（checkout@v4 / setup-dotnet@v4 / action-gh-release@v2 自带，非本项目代码）→ 记进 release.yml 文件头，下轮升 action 主版本。
+
+user:
+e2e测试都过了？没有问题？
+
+assistant:
+**答「自动化过的」+ 明确「没盖到的」**，并补两项能机械补掉的缺口：①**真 zip 解压后跑**——`SimpleViewer-v1.1.0-win-x64.zip` 解出 264 文件，直接对解压副本跑屏外 soak 全绿（publish 目录 / 解压副本 / 本机安装三处同源同结果）；②**1.6 vs 2.5.1 跨版像素 A/B**（同夹具同设置、屏外同位置同尺寸、PrintWindow 连拍到「两帧相同」取安定帧，并**带同二进制复跑作方法对照**）：Dark 全窗差 **23** 像素/单通道 maxΔ5、Light **46**/1,440,000/maxΔ3，逐像素定位全落在字形抗锯齿边缘；对照（同二进制两次运行）自身就有 30 像素噪声（工作区因缩略图落位可差 19616）⇒ 判「无可感知 UI 变化」，工具栏横条两主题逐位相同。**没被自动化盖到的（明确告知）**：拖拽打标（本机移动注入被丢弃，只能用户手拖）、长会话（15h40m 那类只能靠日常用 + 看日志计数）、滚轮/触控板缩放手势（注入被拒）、旋转后不重适配（既有已知限制）、删除到回收站与设置页的 UI 路径。**A/B 期间两坑**：探针先把「首帧」当比对帧（假差异 4902 像素，改取安定帧）；A/B 脚本 `"$tag-s.png"` 变量名解析踩雷（改 `'{0}-{1}' -f` 拼接）——教训写进 RULE：**「跑绿了」要先确认真启动了你以为的 exe**（曾因 cmd 里 `$env:TEMP` 未展开导致 soak 空跑却报出漂亮数字）。
+
+user:
+放大逻辑不对之前中心点是鼠标，现在是固定点
+
+assistant:
+**量化诊断（不靠读码猜）**：①探针——夹具图（3000×2000 横 / 2000×3000 竖）在 35%/35% 处画红方块；`-d` 直开单图 → 窗口 (40,40) 1200×800（raw 注入例外，屏上跑）→ 双击复位 → `SetCursorPos` **再点一下**（本机注入移动被丢弃，点击才能刷新应用侧指针位置）→ 滚轮 2 档 → PrintWindow 前后帧 → 由标记位移与尺寸比反解实际不动点 `A = p_before − Δp/(ratio−1)`。②结果：X 跟随光标、**Y 是与光标无关的常数偏移**（横图 ~190px、竖图 47~68px）= 用户说的「固定点」。③应用侧加 `SIMPLEVIEWER_ZOOM_DIAG=1` 埋点（ZoomAt 落 `[zoomprobe]` 行）拿到：`anchor=(330.0,244.7)`（与注入光标完全一致 ⇒ **输入侧无辜**）、`C=(392.7,153.7)`、`actualTL=(288.0,216.7)`、`box=209.3x139.3`、`margin=(280,76)`、`host=785.3x496`。④**根因**：代码按「元素盒 = 槽位」估变换原点，而 **WinUI 的 `Image` 在 `Stretch=Uniform` 下元素盒 = 位图 contain 后的内容盒、且在槽位内居中**（`ActualWidth/Height` 即内容盒，UIA 报的也是它），留白那一轴整段偏 (槽位404−内容盒139.3)/2 = **132.35 DIP**；由内容反解的真实原点 (391.5,286.9) 正好 = 槽位中心 ✓。**该缺陷自 v1.0.5「适配盒=可见区」引入、v1.0.6/v1.1.0 带着发布**（滚轮缩放一直无自动化覆盖，RULE 早已写「放大类交互留实机」，故此前未发现）。⑤**修复**：`GetViewerImageBoxCenter` 改按**适配槽位中心**实算（槽位中心 ≡ 内容盒中心），`ZoomAt` 公式不变（数学本就正确，喂进去的 C 错了）。⑥**验证**：修后偏差 (1.5,1.0)/(−3.5,−3.0)/(3.3,5.6)/(−11,−14.7)，**残余与修前 X 分量逐位相同 = 标记质心测量噪声**；回归 120/120 + fit-verify 4 组 band==box（数字与修前一致 ⇒ 适配未回退）+ page-loop 72/72 `NO-LOAD-FAILURE` + 屏外 soak 全绿；本机安装升到 v1.1.1（备份 `viewer.old-1.1.0`）后**对安装副本复测锚点同样贴合**。⑦**顺带修上游**：修 bug 期间构建撞 `XamlCompiler WMC1007 Cannot resolve metadata for WinUI types` = RULE 早记录的「双 csproj 还原踩踏」（`dotnet restore <sln> --force` 让主工程视角丢 WinAppSDK 引用）→ `build.ps1` 前置还原与冷重建兜底改**串行定向**（tests → Core → 主工程 `RestoreRecursive=false` + 主工程视角校验），实跑通过；WMC1007 判别式写进 RULE（碰到先跑串行还原，别查 XAML 语法）。文档：CHANGELOG v1.1.1、新增 `docs/iterations/图片打标签与瀑布流浏览/bugs/zoom-anchor-off-cursor/{prd,spec}.md`、RULE 新增「禁止把『元素盒=槽位』当默认前提」与「反解不动点法（含埋点开关说明）」。**待用户点头**：v1.1.1 是否打 tag 发布（本地包与安装已就绪）。
