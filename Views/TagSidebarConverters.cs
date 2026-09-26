@@ -5,6 +5,12 @@
 // 不变量：代码侧颜色一律走 IsDarkTheme 明暗双值（Application.Current.Resources 的 ThemeResource
 //         查找不认 RootGrid.RequestedTheme 运行时覆盖，深色模式会取回浅色主题画刷——RULE 主题约束）；
 //         IsDarkTheme 由 MainWindow.ApplyTheme 写入并触发侧栏/筛选条重建使 x:Bind 函数重新求值。
+// 画刷所有权（2026-09-26 tag-op-finalizer-crash 修复）：本文件**不再 new SolidColorBrush**——
+//         全部取色统一经 Views\TagBrushCache（键 = 计算完成的最终 ARGB）复用进程内唯一实例。
+//         此前每次求值都新建：侧栏/筛选条在每个打标操作收尾全量重建（Groups.Clear() + 逐行 Add），
+//         每轮产生数十个 SolidColorBrush（DependencyObject 族）裸交 GC，终结器线程跨线程 Release
+//         是 fastfail 0xc0000409（ucrtbase+0xa527e，终结器栈停在 WinRT.IObjectReference.Finalize）
+//         的候选来源，违反 RULE:26。缓存键取最终颜色 → 主题差异天然分条目，像素取值零漂移。
 // 调用链：各 XAML 的 {x:Bind views:TagSidebarConverters.*} 函数绑定 + WaterfallView.xaml.cs
 //         经 internal 访问 FromHsl + TagSidebarControl.xaml.cs 经 internal 访问拖拽高亮画刷。
 
@@ -37,10 +43,9 @@ public static class TagSidebarConverters
     /// </summary>
     public static bool IsDarkTheme { get; set; } = true;
 
-    private static readonly SolidColorBrush WhiteBrush =
-        new(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
-    private static readonly SolidColorBrush TransparentBrush =
-        new(Windows.UI.Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+    // 两个基础色画刷（经缓存取，仍是进程级单例；透明画刷供视图层清除高亮复用）。
+    private static readonly SolidColorBrush WhiteBrush = TagBrushCache.Get(0xFF, 0xFF, 0xFF, 0xFF);
+    private static readonly SolidColorBrush TransparentBrush = TagBrushCache.Get(0x00, 0x00, 0x00, 0x00);
 
     /// <summary>透明画刷（拖拽高亮层清除等视图层复用）。</summary>
     internal static Brush TransparentBrushValue => TransparentBrush;
@@ -48,22 +53,23 @@ public static class TagSidebarConverters
     /// <summary>
     /// 拖拽打标目标的落下高亮底色（2026-09-19 拖拽打标）：系统强调色淡叠加
     /// （深色 18% / 浅色 14%，明暗双值；强调色本身随系统主题自适应）。
+    /// 每次 DragOver 求值——2026-09-26 起经缓存复用（此前每帧新建画刷，SetDropOverlay 裸丢）。
     /// </summary>
     internal static Brush DropOverlayBackground()
     {
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             (byte)(IsDarkTheme ? 0x2E : 0x24),
             accent.R,
             accent.G,
-            accent.B));
+            accent.B);
     }
 
-    /// <summary>拖拽打标目标的落下高亮描边：系统强调色 70% 不透明。</summary>
+    /// <summary>拖拽打标目标的落下高亮描边：系统强调色 70% 不透明（2026-09-26 起经缓存复用）。</summary>
     internal static Brush DropOverlayBorderBrush()
     {
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(0xB3, accent.R, accent.G, accent.B));
+        return TagBrushCache.Get(0xB3, accent.R, accent.G, accent.B);
     }
 
     /// <summary>互斥/兼容徽章文本（兼容组 = 非互斥组：组内标签可共存叠加）。</summary>
@@ -81,36 +87,36 @@ public static class TagSidebarConverters
     /// </summary>
     public static Brush TagRowBackground(bool isActive)
         => isActive
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+            ? TagBrushCache.Get(
                 IsDarkTheme ? (byte)0x1F : (byte)0x16,
                 IsDarkTheme ? (byte)0xFF : (byte)0x00,
                 IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00))
+                IsDarkTheme ? (byte)0xFF : (byte)0x00)
             : TransparentBrush;
 
     /// <summary>树形竖向连接线颜色（1px 缩进导线，次级描边感：深色 14% 白 / 浅色 10% 黑）。</summary>
     public static Brush TreeLineBrush()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             IsDarkTheme ? (byte)0x24 : (byte)0x1A,
             IsDarkTheme ? (byte)0xFF : (byte)0x00,
             IsDarkTheme ? (byte)0xFF : (byte)0x00,
-            IsDarkTheme ? (byte)0xFF : (byte)0x00));
+            IsDarkTheme ? (byte)0xFF : (byte)0x00);
 
     /// <summary>标签行名字色：激活 = 主题主文字；普通 = 次要灰（明暗双值，单色系树观感）。</summary>
     public static Brush TagRowNameForeground(bool isActive)
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x6C)),
             (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x6B)),
-            (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x69))));
+            (byte)(IsDarkTheme ? (isActive ? 0xF1 : 0xA0) : (isActive ? 0x1B : 0x69)));
 
     /// <summary>树行计数前景（纯数字右对齐）：次要灰（明暗双值）。</summary>
     public static Brush TreeCountForeground()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             (byte)(IsDarkTheme ? 0xA0 : 0x6C),
             (byte)(IsDarkTheme ? 0xA0 : 0x6B),
-            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
+            (byte)(IsDarkTheme ? 0xA0 : 0x69));
 
     /// <summary>互斥组单选圆点描边：激活 = 白；未激活 = 组 hue 45%（沿用胶囊时代样式）。</summary>
     public static Brush RadioDotStroke(int hue, bool isActive)
@@ -123,23 +129,23 @@ public static class TagSidebarConverters
     /// <summary>互斥/兼容小徽章底色：互斥 = 琥珀 16% 透明（demo .group-badge.excl）；兼容 = 中性淡底（明暗双值）。</summary>
     public static Brush ExclusiveBadgeBackground(bool exclusive)
         => exclusive
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(0x29, 0xF0, 0xB4, 0x29))
-            : new SolidColorBrush(Windows.UI.Color.FromArgb(
-                (byte)(IsDarkTheme ? 0x24 : 0x14), 0xFF, 0xFF, 0xFF));
+            ? TagBrushCache.Get(0x29, 0xF0, 0xB4, 0x29)
+            : TagBrushCache.Get(
+                (byte)(IsDarkTheme ? 0x24 : 0x14), 0xFF, 0xFF, 0xFF);
 
     /// <summary>互斥/兼容小徽章字色：互斥 = 琥珀（深色下提亮）；兼容 = 中性次要色。</summary>
     public static Brush ExclusiveBadgeForeground(bool exclusive)
         => exclusive
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(
+            ? TagBrushCache.Get(
                 0xFF,
                 (byte)(IsDarkTheme ? 0xFF : 0xB0),
                 (byte)(IsDarkTheme ? 0xC8 : 0x79),
-                (byte)(IsDarkTheme ? 0x3D : 0x0A)))
-            : new SolidColorBrush(Windows.UI.Color.FromArgb(
+                (byte)(IsDarkTheme ? 0x3D : 0x0A))
+            : TagBrushCache.Get(
                 0xFF,
                 (byte)(IsDarkTheme ? 0xC8 : 0x6C),
                 (byte)(IsDarkTheme ? 0xC8 : 0x6B),
-                (byte)(IsDarkTheme ? 0xC8 : 0x69)));
+                (byte)(IsDarkTheme ? 0xC8 : 0x69));
 
     /// <summary>徽章描边厚度：互斥 = 无边框（琥珀淡底自足）；兼容 = 1px 中性描边（demo .group-badge.multi）。</summary>
     public static Thickness MultiBadgeStroke(bool exclusive)
@@ -175,7 +181,7 @@ public static class TagSidebarConverters
         if (kind == FilterChipKind.Condition)
         {
             var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-            return new SolidColorBrush(accent);
+            return TagBrushCache.Get(accent);
         }
 
         return SecondaryTextBrush();
@@ -189,23 +195,21 @@ public static class TagSidebarConverters
     {
         if (kind == FilterChipKind.Untagged)
         {
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(
+            return TagBrushCache.Get(
                 AlphaBorder,
                 IsDarkTheme ? (byte)0xFF : (byte)0x00,
                 IsDarkTheme ? (byte)0xFF : (byte)0x00,
-                IsDarkTheme ? (byte)0xFF : (byte)0x00));
+                IsDarkTheme ? (byte)0xFF : (byte)0x00);
         }
 
         if (negated)
         {
             var danger = DangerColor();
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                AlphaBorder, danger.R, danger.G, danger.B));
+            return TagBrushCache.Get(AlphaBorder, danger.R, danger.G, danger.B);
         }
 
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
-            AlphaBorder, accent.R, accent.G, accent.B));
+        return TagBrushCache.Get(AlphaBorder, accent.R, accent.G, accent.B);
     }
 
     /// <summary>
@@ -217,15 +221,15 @@ public static class TagSidebarConverters
         if (kind == FilterChipKind.Condition && negated)
         {
             var danger = DangerColor();
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B));
+            return TagBrushCache.Get(
+                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B);
         }
 
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             AlphaFaint,
             IsDarkTheme ? (byte)0xFF : (byte)0x00,
             IsDarkTheme ? (byte)0xFF : (byte)0x00,
-            IsDarkTheme ? (byte)0xFF : (byte)0x00));
+            IsDarkTheme ? (byte)0xFF : (byte)0x00);
     }
 
     /// <summary>否定条件红（demo --danger：深色 #FF7B72 / 浅色 #D64545，双值）。</summary>
@@ -234,7 +238,7 @@ public static class TagSidebarConverters
             ? Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x7B, 0x72)
             : Windows.UI.Color.FromArgb(0xFF, 0xD6, 0x45, 0x45);
 
-    private static Brush DangerBrush() => new SolidColorBrush(DangerColor());
+    private static Brush DangerBrush() => TagBrushCache.Get(DangerColor());
 
     /// <summary>
     /// 错误提示文字色（batch-tag-management Step 3：代码构建的收纳对话框内联错误文本；
@@ -244,18 +248,17 @@ public static class TagSidebarConverters
 
     /// <summary>次要灰文本（且/或/括号段与无标签 chip；对齐 TreeCountForeground 色值）。</summary>
     private static Brush SecondaryTextBrush()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             (byte)(IsDarkTheme ? 0xA0 : 0x6C),
             (byte)(IsDarkTheme ? 0xA0 : 0x6B),
-            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
+            (byte)(IsDarkTheme ? 0xA0 : 0x69));
 
     /// <summary>筛选条底色：强调色 12% 透明叠加（demo #filterBar accent-soft）。</summary>
     public static Brush FilterBarBackground()
     {
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(
-            Windows.UI.Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
+        return TagBrushCache.Get(0x1F, accent.R, accent.G, accent.B);
     }
 
     // ==================== 筛选面板配色（tag-filter-tree Step 5：demo filter.css 面板系列同构，IsDarkTheme 双值） ====================
@@ -265,19 +268,19 @@ public static class TagSidebarConverters
 
     /// <summary>筛选面板底色（demo --panel：面板本体与条件行 / 嵌套偶数层组卡片共用）。</summary>
     public static Brush FilterPanelBackground()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             IsDarkTheme ? (byte)0x2C : (byte)0xFF,
             IsDarkTheme ? (byte)0x2C : (byte)0xFF,
-            IsDarkTheme ? (byte)0x2C : (byte)0xFF));
+            IsDarkTheme ? (byte)0x2C : (byte)0xFF);
 
     /// <summary>面板次级底色（demo --panel-2：表达式预览区底）。</summary>
     public static Brush FilterPanelSubtleBackground()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             IsDarkTheme ? (byte)0x33 : (byte)0xF7,
             IsDarkTheme ? (byte)0x33 : (byte)0xF7,
-            IsDarkTheme ? (byte)0x33 : (byte)0xF5));
+            IsDarkTheme ? (byte)0x33 : (byte)0xF5);
 
     /// <summary>
     /// 面板组卡片底色（demo .f-group-box 嵌套交替）：奇数层（根 / 第 3 层）= bg-2 感、
@@ -286,26 +289,26 @@ public static class TagSidebarConverters
     public static Brush FilterPanelGroupBackground(int depth)
     {
         var odd = depth % 2 == 1;
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             0xFF,
             (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFB : 0xFF)),
             (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFB : 0xFF)),
-            (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFA : 0xFF))));
+            (byte)(IsDarkTheme ? (odd ? 0x27 : 0x2C) : (odd ? 0xFA : 0xFF)));
     }
 
     /// <summary>面板组卡片描边（demo --border）。</summary>
     public static Brush FilterPanelGroupBorderBrush()
-        => new SolidColorBrush(Windows.UI.Color.FromArgb(
+        => TagBrushCache.Get(
             0xFF,
             IsDarkTheme ? (byte)0x3D : (byte)0xE2,
             IsDarkTheme ? (byte)0x3D : (byte)0xE1,
-            IsDarkTheme ? (byte)0x3D : (byte)0xDF));
+            IsDarkTheme ? (byte)0x3D : (byte)0xDF);
 
     /// <summary>组卡片左侧 accent 竖线与标题强调（demo border-left 3px accent）。</summary>
     public static Brush FilterPanelAccentBrush()
     {
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(accent);
+        return TagBrushCache.Get(accent);
     }
 
     /// <summary>面板主文字色（demo --text）。</summary>
@@ -320,8 +323,8 @@ public static class TagSidebarConverters
     public static Brush FilterPanelAccentSoftBackground()
     {
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
-            IsDarkTheme ? (byte)0x26 : (byte)0x1F, accent.R, accent.G, accent.B));
+        return TagBrushCache.Get(
+            IsDarkTheme ? (byte)0x26 : (byte)0x1F, accent.R, accent.G, accent.B);
     }
 
     /// <summary>条件值 chip 底色（demo .val-chip）：普通 = accent 淡底；否定行（NotIn）= 红淡底。</summary>
@@ -330,8 +333,8 @@ public static class TagSidebarConverters
         if (negated)
         {
             var danger = DangerColor();
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B));
+            return TagBrushCache.Get(
+                IsDarkTheme ? (byte)0x1F : (byte)0x1A, danger.R, danger.G, danger.B);
         }
 
         return FilterPanelAccentSoftBackground();
@@ -387,11 +390,11 @@ public static class TagSidebarConverters
         }
 
         var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             (byte)(IsDarkTheme ? 0x2E : 0x24),
             accent.R,
             accent.G,
-            accent.B));
+            accent.B);
     }
 
     /// <summary>
@@ -403,14 +406,14 @@ public static class TagSidebarConverters
         if (isActive)
         {
             var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-            return new SolidColorBrush(accent);
+            return TagBrushCache.Get(accent);
         }
 
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             0xFF,
             (byte)(IsDarkTheme ? 0xA0 : 0x6C),
             (byte)(IsDarkTheme ? 0xA0 : 0x6B),
-            (byte)(IsDarkTheme ? 0xA0 : 0x69)));
+            (byte)(IsDarkTheme ? 0xA0 : 0x69));
     }
 
     /// <summary>bool → 可见。</summary>
@@ -477,6 +480,8 @@ public static class TagSidebarConverters
     /// <summary>
     /// HSL → SolidColorBrush（hue 0-359；sat/light 0-1；alpha 半透明叠加用）。
     /// 供侧栏与瀑布流角标/筛选条共用（WaterfallConverters 经 internal 访问）。
+    /// 2026-09-26 起经 <see cref="TagBrushCache"/> 按最终 ARGB 复用（hue 取值域 = 配置组色相，
+    /// 天然有界）；色值计算逐字未改，缓存只影响实例数不影响像素。
     /// </summary>
     internal static SolidColorBrush FromHsl(int hue, double saturation, double lightness, byte alpha)
     {
@@ -493,10 +498,10 @@ public static class TagSidebarConverters
             _ => (chroma, 0d, x),
         };
         var m = lightness - (chroma / 2);
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(
+        return TagBrushCache.Get(
             alpha,
             (byte)Math.Round((r + m) * 255),
             (byte)Math.Round((g + m) * 255),
-            (byte)Math.Round((b + m) * 255)));
+            (byte)Math.Round((b + m) * 255));
     }
 }

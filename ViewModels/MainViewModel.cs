@@ -424,11 +424,34 @@ public partial class MainViewModel : ObservableObject
                 return; // 等待期间用户已切图：结果丢弃（新图自会按需加载）。
             }
 
-            // 旧源退役（2026-09-24 崩溃根治）：跨过 1.2× 阈值的换源高频路径，禁止旧源落入 GC 终结器。
-            ImageSourceRetirement.Retire(ImageSource);
-            ImageSourceRetirement.Drain();
-            ImageSource = await ImageSourceHelper.FromLoadedImageAsync(full);
-            _currentLoaded = full;
+            // 先造新源、提交后再退役旧源（2026-09-26 D⑤ 顺序统一，对齐 LoadCurrentAsync 口径）：
+            // 此前是「先 Retire(旧) + Drain → 再 await 造新源」——await 抛异常时旧源仍在显示却
+            // 已被排进处置队列，下一次 Drain 会在显示中 Dispose 它（画面黑/异常），且新源异常时
+            // 也可能裸丢。反序后异常路径只退役未提交的新源。
+            var replacedSource = ImageSource;
+            ImageSource? newSource = null;
+            try
+            {
+                newSource = await ImageSourceHelper.FromLoadedImageAsync(full);
+                var committed = newSource;
+                newSource = null; // 已提交
+                ImageSource = committed;
+                _currentLoaded = full;
+
+                // 旧源退役（2026-09-24 崩溃根治）：跨过 1.2× 阈值的换源高频路径，
+                // 禁止旧源落入 GC 终结器跨线程 Release。
+                ImageSourceRetirement.Retire(replacedSource);
+                ImageSourceRetirement.Drain();
+            }
+            finally
+            {
+                if (newSource is not null)
+                {
+                    // 未提交新源退役（D④ 同口径）：await 抛异常/被取消时裸丢过。
+                    ImageSourceRetirement.Retire(newSource);
+                    ImageSourceRetirement.Drain();
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -2238,6 +2261,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// 重建侧栏（读配置组 + 计数快照 + 筛选高亮；ObservableCollection 写操作回投 UI 线程）。
     /// 公开给 TagSidebarViewModel：组头展开/折叠切换（ToggleGroupExpansion）后触发全量重建。
+    /// 收尾带画刷 churn 埋点（见 <see cref="LogSidebarBrushChurn"/>）。
     /// </summary>
     public void RebuildTagSidebar()
     {
@@ -2249,6 +2273,7 @@ public partial class MainViewModel : ObservableObject
 
         void Rebuild()
         {
+            var (brushBefore, callBefore, _) = Views.TagBrushCache.Snapshot();
             var tagHuesChanged = TagSidebar.Rebuild(configGroups, counts, filters);
             RebuildFilterChips();
 
@@ -2263,6 +2288,8 @@ public partial class MainViewModel : ObservableObject
                     viewModel.NotifyBadgeHuesChanged();
                 }
             }
+
+            LogSidebarBrushChurn(brushBefore, callBefore);
         }
 
         if (_dispatcher is not null && !_dispatcher.HasThreadAccess)
@@ -2274,6 +2301,58 @@ public partial class MainViewModel : ObservableObject
             Rebuild();
         }
     }
+
+    /// <summary>
+    /// 侧栏重建画刷 churn 埋点（2026-09-26 tag-op-finalizer-crash 修复第 4 条：给 churn 上永久护栏）：
+    /// 每次重建收尾记一条
+    /// <c>sidebar:rebuild brushNew=N brushSinceLast=M callsSinceLast=C cache=K</c>。
+    /// 口径说明（勿按「本次调用窗口」误读）：
+    ///   - brushNew = 本次 Rebuild 同步窗口内的新建数（TagSidebar.Rebuild + RebuildFilterChips 期间）；
+    ///   - brushSinceLast / callsSinceLast = 自上一次埋点以来的新建数 / 取画刷调用数——**churn 的真正判据**。
+    ///     x:Bind 函数求值发生在重建后的布局趟（ItemsRepeater 实现元素时），不在同步窗口内，故必须
+    ///     跨埋点累计才能覆盖一轮重建的全部求值（实测：一次打标收尾重建的全部求值都落在下一个
+    ///     埋点窗口里）。修复后两者应为 0；冷启动首个埋点因调色板首次成型而 &gt;0 属预期
+    ///     （缓存有界，之后恒 0）。
+    ///   - callsSinceLast 同时是「修复前同样一轮重建会新建多少个画刷」的实测值：每次调用对应修复前
+    ///     的一处 new SolidColorBrush（对照数据，不靠静态估算）。
+    ///   - cache = 缓存条目数（不同最终颜色数，有界）。
+    /// 阈值护栏：brushSinceLast 超 <see cref="SidebarBrushChurnWarnThreshold"/> 时补一条显式告警行——
+    /// 未来若有改动让「每次求值 new 画刷」回潮，startup.log 立刻可见。此处不用 Debug.Assert：
+    /// 断言失败会弹模态对话框，在自动化走查/实机长跑里可能直接挂住进程（RULE:25 防弹精神），
+    /// 落日志才是可观测且不阻塞的护栏。
+    /// </summary>
+    private void LogSidebarBrushChurn(long brushBefore, long callBefore)
+    {
+        var (created, calls, entries) = Views.TagBrushCache.Snapshot();
+        var brushNew = created - brushBefore;
+        var brushCalls = calls - callBefore;
+        var sinceLast = _lastBrushCreateSample < 0 ? 0 : created - _lastBrushCreateSample;
+        var callsSinceLast = _lastBrushCallSample < 0 ? 0 : calls - _lastBrushCallSample;
+        _lastBrushCreateSample = created;
+        _lastBrushCallSample = calls;
+
+        App.WriteDiagnosticLog(
+            $"sidebar:rebuild brushNew={brushNew} brushSinceLast={sinceLast}"
+            + $" callsSinceLast={callsSinceLast} cache={entries}");
+        if (sinceLast > SidebarBrushChurnWarnThreshold)
+        {
+            App.WriteDiagnosticLog(
+                $"[侧栏画刷 churn 告警] brushSinceLast={sinceLast} 超阈值 {SidebarBrushChurnWarnThreshold}"
+                + "——检查是否有取色函数绕过 Views\\TagBrushCache 直接 new SolidColorBrush（RULE:26）。");
+        }
+    }
+
+    /// <summary>埋点基线：上一次 <c>sidebar:rebuild</c> 埋点的累计新建画刷数（-1 = 尚未打过点）。</summary>
+    private static long _lastBrushCreateSample = -1;
+
+    /// <summary>埋点基线：上一次 <c>sidebar:rebuild</c> 埋点的累计取画刷调用数（-1 = 尚未打过点）。</summary>
+    private static long _lastBrushCallSample = -1;
+
+    /// <summary>
+    /// 单次埋点窗口的新建画刷数告警阈值：冷启动首个窗口要成型整个调色板
+    /// （明暗双值 × 有限语义组合，实测 ~30-40 条），阈值取 48 留余量且远低于任何 churn 回潮量级。
+    /// </summary>
+    private const long SidebarBrushChurnWarnThreshold = 48;
 
     /// <summary>主题切换后的视觉刷新入口（公开给 MainWindow）：重建侧栏与筛选条，使 x:Bind 颜色函数按新主题重算。</summary>
     public void RefreshThemeDependentVisuals() => RebuildTagSidebar();
@@ -3415,6 +3494,11 @@ public partial class MainViewModel : ObservableObject
         //（图片消失/空态出现/删除旋转禁用），且随后打标链路的信息刷新会掩盖"加载失败"提示。
         for (var attempt = 0; ; attempt++)
         {
+            // 未提交新源槽位（2026-09-26 tag-op-finalizer-crash 修复 D④）：GIF 分支要等
+            // ImageOpened（可被取消/超时）才提交，期间任何取消/异常都会让 newSource 既未提交
+            // 也未退役——裸交 GC 终结器跨线程 Release（RULE:26）。提交成功即置 null，
+            // 其余路径统一由 finally 退役。
+            ImageSource? pendingSource = null;
             try
             {
                 var loaded = await _imageLoader.LoadAsync(path, _decodeSize, rotationBucket: 0, token);
@@ -3423,28 +3507,31 @@ public partial class MainViewModel : ObservableObject
                 // 同图重载（未预清空）：换源后释放被替换旧源的 GIF 句柄（UriSource 指向文件，
                 // 持有会锁文件阻碍打标改名；异图路径已在加载前 ReleaseCurrentImageSource 清过）。
                 var replacedSource = ImageSource;
-                var newSource = await ImageSourceHelper.FromLoadedImageAsync(loaded);
+                pendingSource = await ImageSourceHelper.FromLoadedImageAsync(loaded);
 
                 // GIF 顺修（2026-09-19）：GIF 源是 BitmapImage+UriSource（异步打开，ImageOpened 前
                 // 无像素）且不入解码缓存——直接换源则打开完成前 Image 空窗（resize 触发的 GIF 重载
                 // 每次都闪）。同图场景等 ImageOpened 再提交（带超时兜底），旧源在等待期保持显示；
                 // 非 GIF（SoftwareBitmap 源在 FromLoadedImageAsync 内已就绪像素）维持直接提交。
                 if (loaded.IsGif
-                    && newSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage gifBitmap)
+                    && pendingSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage gifBitmap)
                 {
                     await WaitForGifSourceOpenedAsync(gifBitmap, token);
                     token.ThrowIfCancellationRequested();
                 }
 
-                ImageSource = newSource;
-                if (!ReferenceEquals(replacedSource, newSource)
+                var committedSource = pendingSource;
+                pendingSource = null; // 已提交：finally 不再退役
+                ImageSource = committedSource;
+                if (!ReferenceEquals(replacedSource, committedSource)
                     && replacedSource is Microsoft.UI.Xaml.Media.Imaging.BitmapImage replacedBitmap)
                 {
                     replacedBitmap.UriSource = null;
                 }
 
                 // 被替换旧源退役（2026-09-24 崩溃根治）：禁止落入 GC 终结器跨线程 Release，
-                // UI 线程延迟 Dispose（保留窗口内合成器安全换帧）。
+                // UI 线程延迟 Dispose（保留窗口内合成器安全换帧）。顺序（2026-09-26 D⑤）：
+                // 先提交新源、后退役旧源——反序时异常会让仍在显示的旧源已被排进处置队列。
                 ImageSourceRetirement.Retire(replacedSource);
                 ImageSourceRetirement.Drain();
 
@@ -3495,6 +3582,16 @@ public partial class MainViewModel : ObservableObject
                 // 状态栏已移除（2026-09-19）：即时错误提示走 InfoBar。
                 ShowInstantTagFeedback(InfoBarSeverity.Error, "加载失败", ex.Message, []);
                 return;
+            }
+            finally
+            {
+                // 未提交新源退役（2026-09-26 D④）：取消/改名重试/异常任一分支进入此处，
+                // pendingSource 非空即表示新源从未提交给 ImageSource——退役而非裸丢（RULE:26）。
+                if (pendingSource is not null)
+                {
+                    ImageSourceRetirement.Retire(pendingSource);
+                    ImageSourceRetirement.Drain();
+                }
             }
         }
     }

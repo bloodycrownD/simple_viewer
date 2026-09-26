@@ -180,6 +180,9 @@ public sealed partial class TagSidebarControl : UserControl
     /// <summary>
     /// 按名检索行视觉树中的 DropOverlay 层并切换落下高亮态：强调色淡底 + 描边
     /// （颜色经 <see cref="TagSidebarConverters"/> 的 IsDarkTheme 明暗双值；清除恢复透明零边框）。
+    /// 画刷所有权（2026-09-26 tag-op-finalizer-crash 修复 B）：三支取值全部经 Views\TagBrushCache
+    /// 复用——DropOverlay 高亮在每次 DragOver 都被重设（淡底/描边 → 透明），此前每帧新建两个
+    /// SolidColorBrush 后裸丢（DependencyObject 族裸交 GC，RULE:26），现已零新建。
     /// </summary>
     private static void SetDropOverlay(FrameworkElement root, bool visible)
     {
