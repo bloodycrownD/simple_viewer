@@ -78,7 +78,7 @@ for ($attempt = 1; $attempt -le 2; $attempt++) {
     Write-Host "[release] 第 $attempt 次尝试失败（退出码 $LASTEXITCODE）" -ForegroundColor Yellow
     if ($attempt -lt 2) {
         # XamlCompiler 冷启动竞态预热：直接执行一次失败遗留的 input.json，下一次发布即可通过
-        # （与 build.ps1 注释头同一现象：疑似 Defender 实时扫描冷启动竞态，MSB3073 退出码 1 无输出）
+        # （与 build.ps1 注释头同一现象：杀软实时扫描冷启动竞态——本机 Defender 已停用、在管的是火绒，MSB3073 退出码 1 无输出）
         $inputJson = Get-ChildItem (Join-Path $root "obj") -Recurse -Filter input.json -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
         # XamlCompiler 位置随 2.x 包拆分而变（1.6 在元包 microsoft.windowsappsdk\tools\net472，

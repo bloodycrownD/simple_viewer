@@ -3,7 +3,7 @@
 #       实测规律（2026-09-16）：
 #         - 默认并行参数失败率最高（5/6）；-m:1 -nr:false 显著降低；
 #         - 失败集中在"删 obj + restore 后的冷构建"；同一 input.json 手动执行 XamlCompiler 成功后，
-#           紧接的 MSBuild 构建即可通过（疑似 Defender 实时扫描冷启动竞态）。
+#           紧接的 MSBuild 构建即可通过（杀软实时扫描冷启动竞态；本机在管的是火绒、Defender 已停用，见 RULE）。
 #       因此重试策略：前置强制还原，失败先原样重试（利用预热后的缓存），冷重建只作最后手段。
 param(
     [string]$Configuration = "Debug",
@@ -69,5 +69,5 @@ if ($LASTEXITCODE -eq 0) {
     exit 0
 }
 
-Write-Host "[build] 仍失败。若错误为 XamlCompiler MSB3073 沉默崩溃：可手动执行一次该 exe（预热）后重跑本脚本；或考虑为 NuGet 包缓存目录添加 Defender 排除项（需用户决策）。参考 spec 环境风险条目。" -ForegroundColor Red
+Write-Host "[build] 仍失败。若错误为 XamlCompiler MSB3073 沉默崩溃：可手动执行一次该 exe（预热）后重跑本脚本；或把 NuGet 包缓存目录加入杀软信任区（本机 Defender 已停用、在管的是火绒，其信任区只能 GUI 添加，见 RULE 构建节）。参考 spec 环境风险条目。" -ForegroundColor Red
 exit 1
