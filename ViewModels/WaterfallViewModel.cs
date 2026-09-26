@@ -96,6 +96,11 @@ public partial class WaterfallViewModel : ObservableObject
     /// 未逐一 Clearing（或 Clearing 晚于集合替换）则 Thumbnail（BitmapImage，DependencyObject 族）
     /// 裸交 GC 终结器，违反 RULE:26。ReleaseVisuals 幂等（无资源时零副作用），逐项调用即可；
     /// 同时自增各 VM 视图代数，作废已入队未执行的缩略图启动回调（修复 C①）。
+    /// 2026-09-26 xaml-finalizer-residuals 修复 P0-5（批量边界）：逐项传 <c>deferDrain: true</c>——
+    /// 原实现每项 ReleaseVisuals 内部各 Drain 一次，一次 N 项重置会在同一同步循环内连续跨过 N 个
+    /// Drain 边界，ImageSourceRetirement 的「每个源至少活过一次 Drain 边界」保留语义对批量路径失效
+    ///（等于同一时刻处置掉几乎全部源）。现改为：逐项还池/退役（不逐个 Drain）→ 集合替换 →
+    /// 整批收尾统一 Drain 一次。
     /// </summary>
     public void ResetFrom(IEnumerable<GalleryItem> items)
     {
@@ -105,11 +110,15 @@ public partial class WaterfallViewModel : ObservableObject
         // 先退役旧集合的视觉资源，再整体替换（顺序不可颠倒：替换后旧 VM 已无引用可遍历）。
         foreach (var old in Items)
         {
-            old.ReleaseVisuals();
+            old.ReleaseVisuals(deferDrain: true);
         }
 
         Items.ResetWith(snapshot.Select(item => new GalleryItemViewModel(item, this, _thumbnailService)));
         _presentedPaths.ResetWith(snapshot.Select(item => item.Path));
+
+        // 批量回收收尾：整批只跨一次 Drain 边界（P0-5；BitmapImage 已走池，此处主要收尾
+        // SoftwareBitmapSource 等退役条目）。集合替换后调用，保证新旧两代源的边界语义一致。
+        ImageSourceRetirement.Drain();
         ItemsChanged?.Invoke();
     }
 

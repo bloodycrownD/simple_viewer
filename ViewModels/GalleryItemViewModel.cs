@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using SimpleViewer.Helpers;
 using SimpleViewer.Models;
 using SimpleViewer.Services;
+using SimpleViewer.Views;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using Windows.Graphics.Imaging;
@@ -244,18 +245,62 @@ public partial class GalleryItemViewModel : ObservableObject
     /// （ThumbnailService 内存/磁盘缓存兜底，快速渐入）。
     /// 2026-09-26 增补：本方法同时自增视图代数作废过期的缩略图启动回调（见 <see cref="BeginLoadThumbnail"/>），
     /// 并使 <see cref="ResetFrom"/> 的整批回收可显式遍历调用（幂等）。
+    /// 2026-09-26 xaml-finalizer-residuals 修复（P0-1/P0-3/P0-5）：
+    ///   · BitmapImage 退役改为 **还池**（<see cref="ThumbnailImagePool"/>）——退役队列的
+    ///     <c>(source as IDisposable)?.Dispose()</c> 对无 IClosable 的 BitmapImage 恒为 no-op，
+    ///     队列只是把「裸交 GC」推迟过保留窗口；池持有实例终身不终结，纹理经 UriSource = null 显式释放。
+    ///     SoftwareBitmapSource 等可 Dispose 源仍走 <see cref="ImageSourceRetirement"/>（有效路径，勿动）。
+    ///   · 「断引用 + 还池/退役」异常全兜底，任一步失败不中断 <see cref="ResetFrom"/> 的整批回收（P0-3）。
+    ///   · <paramref name="deferDrain"/>：批量路径（ResetFrom 逐项）传 true 跳过逐个 Drain，
+    ///     由批处理收尾统一 Drain 一次——逐项 Drain 会让「批量重置」在同一同步循环内
+    ///     连续跨过 N 个 Drain 边界，保留窗口语义（跨一次 Drain 调用边界）对批量路径不再成立（P0-5）。
     /// </summary>
-    public void ReleaseVisuals()
+    /// <param name="deferDrain">
+    /// true = 本次还池/退役后不调用 <see cref="ImageSourceRetirement.Drain"/>（批量回收场景：
+    /// 调用方在整批处理完集合替换后统一 Drain 一次；BitmapImage 已走池，只有 SoftwareBitmapSource
+    /// 等退役条目依赖该收尾）。默认 false 保持单张回收的既有行为。
+    /// </param>
+    public void ReleaseVisuals(bool deferDrain = false)
     {
         // 视图代数自增（2026-09-26 tag-op-finalizer-crash 修复 C①）：作废所有已入队但未执行的
         // BeginLoadThumbnail(generation) 回调（ElementPrepared 的 TryEnqueue 推迟启动）。
         // 幂等：重复调用只是继续自增，不产生副作用。
         _visualGeneration++;
         CancelThumbnailLoad();
-        ImageSourceRetirement.Retire(Thumbnail);
-        ImageSourceRetirement.Drain();
-        Thumbnail = null;
-        _dragVisual = null;
+
+        // 先从界面断开引用（幂等；即便后续释放步骤抛出，也不会把已退役对象留在展示属性上）。
+        var previous = Thumbnail;
+        try
+        {
+            Thumbnail = null;
+            _dragVisual = null;
+        }
+        finally
+        {
+            try
+            {
+                if (previous is BitmapImage bitmap)
+                {
+                    ThumbnailImagePool.Return(bitmap);
+                }
+                else
+                {
+                    ImageSourceRetirement.Retire(previous);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 释放链异常隔离（P0-3）：任何释放失败只落日志，绝不中断 ResetFrom 的整批回收。
+                App.WriteDiagnosticLog($"[卡片视觉资源释放失败] path={Item.Path}", ex);
+            }
+            finally
+            {
+                if (!deferDrain)
+                {
+                    ImageSourceRetirement.Drain();
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -297,6 +342,11 @@ public partial class GalleryItemViewModel : ObservableObject
         // 旧加载的 finally 会误 dispose 掉已被替换的新 cts——取消保证失效，已回收卡片的续体
         // 仍可赋值 Thumbnail，产生绕过退役队列的悬挂 BitmapImage（裸交 GC）。
         var ownCts = _thumbnailCts;
+
+        // 未提交的池实例（2026-09-26 xaml-finalizer-residuals 修复 P0-1/P0-2）：Acquire 之后、提交给
+        // Thumbnail 之前的任何退出路径（取消 / SetSourceAsync 抛异常 / 闸门取消）都经 finally 还池。
+        // 原实现 bitmap 是内层 try 局部变量，外层 catch 不可见——这些窗口的实例无任何处置（裸交 GC）。
+        BitmapImage? pendingBitmap = null;
         try
         {
             var result = await _thumbnailService.GetThumbnailAsync(Item.Path, ThumbnailBucket, cancellationToken);
@@ -318,46 +368,63 @@ public partial class GalleryItemViewModel : ObservableObject
                 // 超时放行：降级为节流路径。
             }
 
-            var gateStart = Environment.TickCount64;
-            await UiApplyGate.WaitAsync(cancellationToken);
             try
             {
-                var applyStart = Environment.TickCount64;
-                // UriSource 优先（2026-09-24 首帧卡死根治）：磁盘缓存 JPEG 交 XAML 图像线程异步解码，
-                // UI 线程零解码成本——SetSourceAsync 流式解码在冷启动大批量首呈现窗口与合成器互等
-                //（实测推迟首应用 400ms 后第一次真实纹理上传仍卡 ≥15s）。缓存文件缺失（写盘失败/
-                // 缓存被清）回退字节流路径。绝对文件路径 UriSource 与单图 GIF 分支同款先例。
-                var bitmap = new BitmapImage();
-                if (!string.IsNullOrEmpty(result.CachePath) && File.Exists(result.CachePath))
+                var gateStart = Environment.TickCount64;
+                await UiApplyGate.WaitAsync(cancellationToken);
+                try
                 {
-                    bitmap.UriSource = new Uri(result.CachePath, UriKind.Absolute);
-                }
-                else
-                {
-                    using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+                    var applyStart = Environment.TickCount64;
+                    // UriSource 优先（2026-09-24 首帧卡死根治）：磁盘缓存 JPEG 交 XAML 图像线程异步解码，
+                    // UI 线程零解码成本——SetSourceAsync 流式解码在冷启动大批量首呈现窗口与合成器互等
+                    //（实测推迟首应用 400ms 后第一次真实纹理上传仍卡 ≥15s）。缓存文件缺失（写盘失败/
+                    // 缓存被清）回退字节流路径。绝对文件路径 UriSource 与单图 GIF 分支同款先例。
+                    // 实例自池取（2026-09-26 xaml-finalizer-residuals P0-1，勿改回 new BitmapImage）：
+                    // BitmapImage 无 IClosable，退役队列对它只是延迟裸交 GC；池持有实例终身不终结。
+                    var bitmap = pendingBitmap = ThumbnailImagePool.Acquire();
+                    if (!string.IsNullOrEmpty(result.CachePath) && File.Exists(result.CachePath))
                     {
-                        await bitmap.SetSourceAsync(stream);
+                        bitmap.UriSource = new Uri(result.CachePath, UriKind.Absolute);
                     }
-                }
+                    else
+                    {
+                        // 池实例复用：先显式清源再走流式解码（防历史 UriSource 残留）。
+                        bitmap.UriSource = null;
+                        using (var stream = new MemoryStream(result.ImageBytes).AsRandomAccessStream())
+                        {
+                            await bitmap.SetSourceAsync(stream);
+                        }
+                    }
 
-                cancellationToken.ThrowIfCancellationRequested();
-                Thumbnail = bitmap;
-                if (Interlocked.Increment(ref _applyMarkCounter) % 25 == 1)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var committed = bitmap;
+                    pendingBitmap = null; // 已提交给 Thumbnail：finally 不再还池（所有权随卡片，回收走 ReleaseVisuals）
+                    Thumbnail = committed;
+                    if (Interlocked.Increment(ref _applyMarkCounter) % 25 == 1)
+                    {
+                        SimpleViewer.Services.DiagnosticTrace.Mark(
+                            $"thumb:apply gate等{applyStart - gateStart}ms 应用{Environment.TickCount64 - applyStart}ms");
+                    }
+
+                    // 应用段最小间隔节流（2026-09-24 冷缓存卡死根治）：冷缓存风暴期 20 张缩略图连续
+                    // SetSourceAsync 与首帧渲染/合成器交互，曾致 UI 无响应 22.6s（消融实验实锤：解码照跑
+                    // 仅跳过应用段即不卡；与 2026-09-17 UiApplyGate 记载的 SetSourceAsync 合成器死锁同族，
+                    // 串行化只治常规场景，连续应用仍打爆合成器）。每张让渡一拍给渲染管线；正常滚动
+                    // 加载的渐入观感无感知差异（缩略图本有渐入过渡）。
+                    await Task.Delay(16);
+                }
+                finally
                 {
-                    SimpleViewer.Services.DiagnosticTrace.Mark(
-                        $"thumb:apply gate等{applyStart - gateStart}ms 应用{Environment.TickCount64 - applyStart}ms");
+                    UiApplyGate.Release();
                 }
-
-                // 应用段最小间隔节流（2026-09-24 冷缓存卡死根治）：冷缓存风暴期 20 张缩略图连续
-                // SetSourceAsync 与首帧渲染/合成器交互，曾致 UI 无响应 22.6s（消融实验实锤：解码照跑
-                // 仅跳过应用段即不卡；与 2026-09-17 UiApplyGate 记载的 SetSourceAsync 合成器死锁同族，
-                // 串行化只治常规场景，连续应用仍打爆合成器）。每张让渡一拍给渲染管线；正常滚动
-                // 加载的渐入观感无感知差异（缩略图本有渐入过渡）。
-                await Task.Delay(16);
             }
             finally
             {
-                UiApplyGate.Release();
+                // 未提交即还池（取消/异常/设置失败；取代原「裸交 GC」的漏网处置，P0-2）。
+                if (pendingBitmap is not null)
+                {
+                    ThumbnailImagePool.Return(pendingBitmap);
+                }
             }
 
             // 拖拽小图不再在此预生成（2026-09-23 冻结修复）：原实现在每张缩略图应用后再跑一次

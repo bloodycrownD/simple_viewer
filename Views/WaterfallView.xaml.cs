@@ -230,6 +230,10 @@ public sealed partial class WaterfallView : UserControl
             if (cardVm.Thumbnail is BitmapImage fallback && fallback.PixelWidth > 0)
             {
                 // 回退：直接用缩略图源（DragUI 渲染位图不缩放，bucket 360+ 显示偏大，但仍优于整卡快照）。
+                // 池排除（2026-09-26 xaml-finalizer-residuals P0-1）：交给 DragUI 的实例不得再回池复用
+                // ——拖拽会话可能仍持有该位图，重置 UriSource/改指新源会破坏跟随视觉；标记为一次性实例，
+                // 卡片回收（ReleaseVisuals）时转退役队列 UI 线程延迟 Dispose（不裸交 GC，RULE:26）。
+                ThumbnailImagePool.ExcludeFromPool(fallback);
                 e.DragUI.SetContentFromBitmapImage(fallback);
             }
         }
