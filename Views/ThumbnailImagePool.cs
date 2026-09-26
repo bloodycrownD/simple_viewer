@@ -11,8 +11,9 @@
 //   ① 仅 UI 线程访问（BitmapImage 线程亲和；Debug 断言兜底、Release 静默——与 ImageSourceRetirement
 //      同约定）。池是进程级静态状态，所有调用点（LoadThumbnailAsync 续体 / ReleaseVisuals /
 //      OnCardDragStarting）本身都在 UI 线程。
-//   ② 硬上限 PoolCapacity：超出不再入池，转 ImageSourceRetirement 退役（UI 线程延迟 Dispose），
-//      绝不裸交 GC（RULE:26）。
+//   ② 硬上限 PoolCapacity：超出不再入池，转 ImageSourceRetirement 退役。**注意语义**：BitmapImage
+//      无 IClosable——退役队列对它调不到 Dispose，只是把 GC 终结时刻推后，故这些分支（池满/清源失败/
+//      已交 DragUI）刻意保持罕见与防御性，不是「已安全释放」。
 //   ③ 还池前必须 UriSource = null（释放已解码纹理；防复用后仍指旧源占用内存）。
 //   ④ 交给 DragUI 的实例（SetContentFromBitmapImage）经 ExcludeFromPool 标记后不得再入池/复用：
 //      拖拽会话可能仍持有该位图，重置 UriSource 会破坏跟随视觉——还池时转退役队列一次性处置。
@@ -95,8 +96,9 @@ internal static class ThumbnailImagePool
 
     /// <summary>
     /// 归还一个不再显示的缩略图实例。语义：
-    ///   · 已排除（交给过 DragUI）→ 不入池，转退役队列（拖拽会话可能仍引用，UI 线程延迟 Dispose 最安全）；
-    ///   · 置空 UriSource 释放解码纹理后入池；池满或置空失败 → 转退役队列（绝不裸交 GC，RULE:26）。
+    ///   · 已排除（交给过 DragUI）→ 不入池，转退役队列（拖拽会话可能仍引用；BitmapImage 无 Dispose 可调，
+    ///     退役=推迟终结，此为每拖拽一次的少量兜底，代价可接受）；
+    ///   · 置空 UriSource 释放解码纹理后入池；池满或置空失败 → 转退役队列（同上，防御路径）。
     /// 幂等约束：同一实例不得重复归还（调用方 ReleaseVisuals 每次只归还从 Thumbnail 摘下的那一个）。
     /// </summary>
     internal static void Return(BitmapImage bitmap)
